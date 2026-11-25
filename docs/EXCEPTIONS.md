@@ -4,8 +4,8 @@ This is an evidence report. It covers what the executable contains, what a
 run reaches, and what a working implementation would need. Nothing in
 `src/` implements guest exception dispatch, and this report adds none.
 
-Tags: [static] read from the bytes of `Movies.exe` (SHA-1
-`(hash removed)`); [run] measured in a run of the host; [ref] read from
+Tags: [static] read from the bytes of `Movies.exe` 1.1
+(Russian CD); [run] measured in a run of the host; [ref] read from
 pcrecomp's source; [hyp.] not verified.
 
 ## How the numbers were obtained

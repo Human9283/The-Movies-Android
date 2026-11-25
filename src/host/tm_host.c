@@ -46,7 +46,7 @@
 #include "tm_imports.h"
 #include "tm_itrace.h"
 
-/* Movies.exe 1.1 (SHA-1 (hash removed)): CRT WinMainCRTStartup at 0x00A31571
+/* Movies.exe 1.1, Russian CD: CRT WinMainCRTStartup at 0x00A31571
  * calls WinMain at 0x00A316F0 (docs/AUDIT.md). */
 #define TM_ENTRY_VA   0x00A31571u
 #define TM_WINMAIN_VA 0x005303C0u

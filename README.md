@@ -41,8 +41,8 @@ of the game.
    the result as an Android app.
 
 The supported game build is the Russian CD edition, version 1.1
-(`Movies.exe`, SHA-1 `(hash removed)`). Other
-builds need their own lift.
+(`Movies.exe`, FileVersion 1.1, 11,477,288 bytes). Other builds need their
+own lift.
 
 ## Status
 
@@ -150,12 +150,25 @@ docs/                   audit, build steps, milestone reports
 - [docs/REPOSITORY-AUDIT.md](docs/REPOSITORY-AUDIT.md): correctness audit of the host, its tests and its limits
 - [docs/EXTERNAL-REFERENCES.md](docs/EXTERNAL-REFERENCES.md): other projects' findings, checked against this executable
 
+## Legal
+
+- This is an unofficial project. It is not affiliated with, endorsed by or
+  connected to Lionhead Studios, Activision, Microsoft or any other rights
+  holder. The Movies is © 2005 Lionhead Studios / Activision; names and
+  trademarks belong to their owners and are used here only to say which
+  game this project works with.
+- The repository contains no part of the game: no executable, no game data
+  or assets, no disc images, no keys, and no code generated from the
+  executable. The tools run on a copy the user owns, on the user's own
+  machine, and what they produce stays there.
+- Documents describe the executable's behaviour as measured (addresses,
+  calls, formats), and quote at most short interface labels.
+
 ## License
 
 This project's code and documentation are released under the
-[MIT License](LICENSE).
-
-The Movies is © 2005 Lionhead Studios / Activision.
+[MIT License](LICENSE). Material derived from other projects is listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ## Credits
 

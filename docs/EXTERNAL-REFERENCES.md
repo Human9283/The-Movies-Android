@@ -48,13 +48,12 @@ only its **findings**, re-verified on our binary, and none of its code.
 Its notes concern `MoviesSE.exe`: by its name, presumably a later edition
 that includes the *Stunts & Effects* expansion (the project does not say
 which release it is). It publishes no file size,
-hash, timestamp or version resource for it. The comparison is therefore
+timestamp or version resource for it. The comparison is therefore
 structural: its published addresses, checked in our binary.
 
 | | Our CD executable | Its executable |
 |---|---|---|
 | file | `Movies.exe`, 11,477,288 bytes | `MoviesSE.exe` (size not published) |
-| SHA-256 | `(hash removed)` | not published |
 | version resource | FileVersion / ProductVersion `1.1`, fixed file version 1.0.0.0, © 2002-2005 | not published |
 | PE | i386, characteristics `0x10F`, GUI subsystem, image base `0x00400000`, entry `0x00A31571`, linker 7.10, checksum 0 | image base `0x00400000` (its Ghidra base) |
 | PE timestamp | `0x00564544` (1970: not a real build time) | not published |

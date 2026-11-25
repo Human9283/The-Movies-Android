@@ -107,7 +107,6 @@ Data language `RU-RU`. No Stunts & Effects expansion.
 | File | `Movies.exe` | `MoviesSE.exe` (with S&E), `Movies.exe` |
 | Version | 1.1 (FileVersion) | 1.2 |
 | Size | 11,477,288 | 3,120,128 (packed) |
-| SHA-1 | `(hash removed)` | `(hash removed)` (SE), `(hash removed)` (base) |
 | Packing | **none**: `.text` entropy 6.50, separate `.rdata`/`.data` | PECompact 2.x + Steam2, one RWX section |
 | Entry point | `0x00A31571`, stock MSVC 7.1 CRT (`push 60h / push scope / call __SEH_prolog`) | `0x00AD2451` after unpacking (SE) |
 | Linker | 7.10 | 7.10 |
