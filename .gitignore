@@ -1,0 +1,36 @@
+# --- Original game files: NEVER committed ---
+# The Movies (c) 2005 Lionhead Studios / Activision. Bring your own copy.
+game/
+gamedata/
+iso/
+*.iso
+*.cab
+*.msi
+*.pak
+*.exe
+*.dll
+*.wmv
+*.ogg
+*.zip
+*.7z
+CD-KEY*
+
+# Derived from the binary: catalog, RTTI map, generated C. Regenerated locally.
+work/
+src/recomp/gen/
+tm_manifest.json
+
+# Build
+build/
+build-*/
+*.o
+*.so
+*.a
+*.apk
+.gradle/
+local.properties
+
+# Python
+__pycache__/
+*.pyc
+.venv/

@@ -1,0 +1,207 @@
+--- a/runtime/win32hle/hle_path.c
++++ b/runtime/win32hle/hle_path.c
+@@ -13,9 +13,10 @@
+  *
+  * Lexical '..' traversal in a mapped-drive path stops at that drive's mapped
+  * root. This is not a symlink sandbox: a filesystem symlink below the root
+- * may still resolve outside it. Drive-relative forms such as C:folder are
+- * currently treated as rooted at the mapped drive, not relative to a
+- * per-drive current directory as on Win32.
++ * may still resolve outside it. A guest path is first made absolute
++ * (hle_guest_full_path): a relative name against the guest's current
++ * directory, C:folder against it when it is on C: (there is one current
++ * directory, not one per drive). (the-movies-android patch.)
+  *
+  * The reverse (a host directory as the guest should see it) is
+  * hle_guest_path, for GetCurrentDirectoryA and GetModuleFileNameA.
+@@ -46,6 +47,151 @@
+     return i == 'z' - 'a' ? "" : NULL;          /* Z: is the host's root */
+ }
+ 
++/* ---- mounts: a guest directory served from its own host directory ----
++ * hle_set_mount("C:\\WINDOWS", "/runtime/windows") makes every guest path at
++ * or under that directory resolve under the host directory instead of under
++ * the drive's root, and a host path under it map back to that guest prefix.
++ * The drive (here the game's C:) keeps the rest of its paths. The longest
++ * matching prefix wins; guest prefixes are matched without case, with \\ and
++ * / alike. (A patch from the-movies-android: patches/pcrecomp.) */
++#define MAX_MOUNTS 8
++static struct { char *guest; size_t glen; char *host; } g_mount[MAX_MOUNTS];
++static unsigned g_mount_gen = 1;                   /* the cwd's guest form is kept per generation */
++
++void hle_set_mount(const char *guest_dir, const char *host_dir) {
++    char g[260];
++    size_t l = 0;
++    for (; guest_dir && guest_dir[l] && l + 1 < sizeof g; l++) g[l] = guest_dir[l] == '/' ? '\\' : guest_dir[l];
++    while (l > 3 && g[l - 1] == '\\') l--;          /* "C:\\" stays a drive root */
++    g[l] = 0;
++    for (int i = 0; i < MAX_MOUNTS; i++)
++        if (g_mount[i].guest && !strcasecmp(g_mount[i].guest, g)) {
++            free(g_mount[i].guest), free(g_mount[i].host);
++            g_mount[i].guest = g_mount[i].host = NULL;
++        }
++    g_mount_gen++;
++    if (!host_dir) return;
++    for (int i = 0; i < MAX_MOUNTS; i++)
++        if (!g_mount[i].guest) {
++            g_mount[i].host = realpath(host_dir, NULL);
++            if (!g_mount[i].host) return;
++            g_mount[i].guest = strdup(g);
++            g_mount[i].glen = l;
++            return;
++        }
++}
++
++/* The mount a guest path is at or under (longest prefix), or -1. */
++static int mount_of_guest(const char *p) {
++    int best = -1;
++    for (int i = 0; i < MAX_MOUNTS; i++) {
++        const char *g = g_mount[i].guest;
++        if (!g) continue;
++        size_t k = 0;
++        for (; k < g_mount[i].glen; k++) {
++            char a = p[k] == '/' ? '\\' : p[k], b = g[k];
++            if (!a || (a | (a >= 'A' && a <= 'Z' ? 0x20 : 0)) != (b | (b >= 'A' && b <= 'Z' ? 0x20 : 0))) break;
++        }
++        if (k == g_mount[i].glen && (!p[k] || p[k] == '\\' || p[k] == '/') &&
++            (best < 0 || g_mount[i].glen > g_mount[best].glen)) best = i;
++    }
++    return best;
++}
++
++/* ---- a guest path made absolute, the Windows way ----
++ * With mounts, a path must be absolute and free of "." and ".." before its
++ * prefix is matched: C:\Data\..\WINDOWS\x is under C:\WINDOWS, and
++ * C:\WINDOWS\..\Movies.exe is not. hle_guest_full_path does what
++ * GetFullPathName does lexically:
++ *   X:\rest   absolute;
++ *   X:rest    relative to the current directory if it is on X:, else to X:\ ;
++ *   \rest     rooted on the current directory's drive;
++ *   rest      relative to the current directory (the guest's view of the
++ *             host's cwd, hle_guest_path);
++ * then "." is dropped, ".." removes the component before it and stops at
++ * the drive's root, separators become one '\', and trailing dots and spaces
++ * of the last component go. A trailing separator is kept. UNC names
++ * (\\server\share) are not handled: 0, and the caller uses the name as it
++ * is. Returns the length, 0 if it does not fit. */
++static pthread_mutex_t g_cwd_lock = PTHREAD_MUTEX_INITIALIZER;
++static char g_cwd_host[1024], g_cwd_guest[1024];
++static unsigned g_cwd_gen;
++static void guest_cwd(char *out, size_t n) {
++    char cwd[1024];
++    if (!getcwd(cwd, sizeof cwd)) snprintf(cwd, sizeof cwd, "/");
++    pthread_mutex_lock(&g_cwd_lock);
++    if (g_cwd_gen != g_mount_gen || strcmp(cwd, g_cwd_host)) {
++        snprintf(g_cwd_host, sizeof g_cwd_host, "%s", cwd);
++        hle_guest_path(cwd, g_cwd_guest, sizeof g_cwd_guest);
++        g_cwd_gen = g_mount_gen;
++    }
++    snprintf(out, n, "%s", g_cwd_guest);
++    pthread_mutex_unlock(&g_cwd_lock);
++}
++static int is_sep(char c) { return c == '\\' || c == '/'; }
++static int is_drive(const char *p) { return ((p[0] | 0x20) >= 'a' && (p[0] | 0x20) <= 'z') && p[1] == ':'; }
++
++int hle_guest_full_path(const char *in, char *out, size_t n) {
++    char cwd[1024], base[1024];
++    const char *rest;
++    if (!in || !n || (is_sep(in[0]) && is_sep(in[1]))) return 0;
++    guest_cwd(cwd, sizeof cwd);
++    if (!is_drive(cwd)) return 0;
++    if (is_drive(in) && is_sep(in[2])) {
++        snprintf(base, sizeof base, "%c:\\", in[0] & ~0x20), rest = in + 3;
++    } else if (is_drive(in)) {
++        if ((in[0] | 0x20) == (cwd[0] | 0x20)) snprintf(base, sizeof base, "%s", cwd);
++        else snprintf(base, sizeof base, "%c:\\", in[0] & ~0x20);
++        rest = in + 2;
++    } else if (is_sep(in[0])) {
++        snprintf(base, sizeof base, "%c:\\", cwd[0] & ~0x20), rest = in + 1;
++    } else {
++        snprintf(base, sizeof base, "%s", cwd), rest = in;
++    }
++    size_t rl = strlen(rest);
++    int trailing = rl && is_sep(rest[rl - 1]);
++    char buf[2048];
++    snprintf(buf, sizeof buf, "%s\\%s", base + 3, rest);
++    /* the components, on a stack of offsets into buf */
++    char *comp[256];
++    int nc = 0, last_from_rest = 0;
++    char *p = buf;
++    size_t base_len = strlen(base + 3);
++    while (*p) {
++        while (is_sep(*p)) *p++ = 0;
++        if (!*p) break;
++        char *e = p;
++        while (*e && !is_sep(*e)) e++;
++        int from_rest = (size_t)(p - buf) > base_len;
++        char end = *e;
++        *e = 0;
++        if (!strcmp(p, ".")) {
++        } else if (!strcmp(p, "..")) {
++            if (nc) nc--;
++        } else if (nc < 256) {
++            comp[nc++] = p, last_from_rest = from_rest;
++        }
++        p = end ? e + 1 : e;
++    }
++    if (nc && last_from_rest && !trailing) {             /* trailing dots and spaces of the last one */
++        char *c = comp[nc - 1];
++        size_t l = strlen(c);
++        while (l && (c[l - 1] == '.' || c[l - 1] == ' ')) c[--l] = 0;
++        if (!l) nc--;
++    }
++    size_t k = (size_t)snprintf(out, n, "%.3s", base);
++    for (int i = 0; i < nc; i++) {
++        int w = snprintf(out + k, n - k, "%s%s", i ? "\\" : "", comp[i]);
++        if (w < 0 || (size_t)w >= n - k) return 0;
++        k += (size_t)w;
++    }
++    if (trailing && nc) {
++        if (k + 2 > n) return 0;
++        out[k++] = '\\', out[k] = 0;
++    }
++    return k + 1 > n ? 0 : (int)k;
++}
++
+ static int at_or_under(const char *path, const char *root) {
+     size_t len = strlen(root);
+     if (strncmp(path, root, len)) return 0;
+@@ -291,9 +437,18 @@
+ static int host_path_plain(const char *guest, char *out, size_t n) {
+     out[0] = 0;
+     if (!guest) return 0;
+-    const char *p = guest;
++    /* absolute and without "." / "..", so that a mount is matched on the
++     * path Windows would open (an empty name stays the cwd) */
++    char full[1024];
++    const char *p = guest[0] && hle_guest_full_path(guest, full, sizeof full) ? full : guest;
+     const char *anchor = NULL;
+-    if (((p[0] | 0x20) >= 'a' && (p[0] | 0x20) <= 'z') && p[1] == ':') {
++    int m = mount_of_guest(p);
++    if (m >= 0) {
++        anchor = g_mount[m].host;
++        snprintf(out, n, "%s", anchor);
++        p += g_mount[m].glen;
++        while (*p == '\\' || *p == '/') p++;
++    } else if (((p[0] | 0x20) >= 'a' && (p[0] | 0x20) <= 'z') && p[1] == ':') {
+         const char *root = drive_root((p[0] | 0x20) - 'a');
+         if (!root) return 0;
+         anchor = *root ? root : "/";
+@@ -340,8 +495,15 @@
+         size_t l = r ? strlen(r) : 0;
+         if (r && !strncmp(h, r, l) && (h[l] == '/' || !h[l]) && l >= best_len) best = i, best_len = l;
+     }
+-    const char *rest = best >= 0 ? h + best_len : h;
+-    snprintf(out, n, "%c:%s", best >= 0 ? 'A' + best : 'Z', *rest ? "" : "\\");
++    int mount = -1;
++    for (int i = 0; i < MAX_MOUNTS; i++) {
++        const char *r = g_mount[i].host;
++        size_t l = r ? strlen(r) : 0;
++        if (r && !strncmp(h, r, l) && (h[l] == '/' || !h[l]) && l >= best_len) mount = i, best_len = l;
++    }
++    const char *rest = mount >= 0 || best >= 0 ? h + best_len : h;
++    if (mount >= 0) snprintf(out, n, "%s", g_mount[mount].guest);
++    else snprintf(out, n, "%c:%s", best >= 0 ? 'A' + best : 'Z', *rest ? "" : "\\");
+     size_t k = strlen(out);
+     for (; *rest && k + 1 < n; rest++) out[k++] = *rest == '/' ? '\\' : *rest;
+     out[k] = 0;

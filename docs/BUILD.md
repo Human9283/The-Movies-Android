@@ -1,0 +1,196 @@
+# Build and run (Linux, 64-bit host)
+
+Tested on Ubuntu 24.04 x86-64 with clang 18, CMake 3.28, Ninja and Python
+3.13. Paths below use `~/tm` as a working directory; any directory works.
+
+## 1. Prerequisites
+
+```bash
+sudo apt install msitools cabextract libsdl2-dev libsdl2-ttf-dev clang cmake ninja-build
+```
+
+```bash
+pip install pefile capstone unicorn pycdlib
+```
+
+```bash
+git clone https://github.com/Human9283/The-Movies-Android ~/tm/the-movies-android
+```
+
+```bash
+git clone https://github.com/sp00nznet/pcrecomp ~/tm/pcrecomp
+```
+
+```bash
+git clone https://github.com/sp00nznet/themovies ~/tm/themovies
+```
+
+Tested revisions: pcrecomp `7c07a0b`, themovies `8e278f6`.
+
+## 2. Install the game data
+
+Put `MOVIES_1.iso`, `MOVIES_2.iso` and `MOVIES_3.iso` in one directory:
+
+```bash
+python3 ~/tm/the-movies-android/tools/tm_install.py --iso ~/iso --out ~/tm/game
+```
+
+Expected: `[done] 705 of 705 files, 2.08 GB, 108 problems` (the 108 are the
+localiser's replaced files, docs/AUDIT.md 2.4).
+
+## 3. Function catalog (M1)
+
+```bash
+mkdir -p ~/tm/work && cd ~/tm/work
+```
+
+```bash
+python3 ~/tm/pcrecomp/tools/pe/pe_analyze.py ~/tm/game/Movies.exe --json pe_analysis.json
+```
+
+```bash
+python3 ~/tm/pcrecomp/tools/cpp/rtti.py ~/tm/game/Movies.exe -o rtti.json --seeds rtti_seeds.json
+```
+
+Expected: `classes : 1,879`, `virtual methods : 7,312`.
+
+Add the CRT's initializer tables (the game's global constructors) to the
+seeds, so none is missed by the catalog:
+
+```bash
+python3 ~/tm/the-movies-android/tools/crt_init_seeds.py ~/tm/game/Movies.exe --merge rtti_seeds.json -o seeds.json
+```
+
+Expected: `table 0x00D9E000-0x00D9EAE8: 698 slots, 697 initializers`,
+`table 0x00D9EAEC-0x00D9EB04: 6 slots, 5 initializers`.
+
+```bash
+python3 ~/tm/pcrecomp/tools/disasm/disasm32.py ~/tm/game/Movies.exe -o functions.json --seed-functions seeds.json
+```
+
+Expected: `Byte coverage: 7,580,053 / 8,851,456 (85.6% of code range)`.
+About 7 minutes.
+
+## 4. Lift to C
+
+The reference lift driver (`themovies/run_lift.py`) reads `rtti_seeds.json`
+from its own `work/` directory, so link it there:
+
+```bash
+ln -sfn ~/tm/work ~/tm/themovies/work
+```
+
+```bash
+cd ~/tm/themovies && PCRECOMP=~/tm/pcrecomp python3 run_lift.py --exe ~/tm/game/Movies.exe --catalog ~/tm/work/functions.json --out ~/tm/work/gen --all
+```
+
+Expected: `lifted 85910   not-lifted stubs 0   errors 0   no terminator 559`,
+10.0M lines in 215 files, about 3 minutes.
+
+```bash
+python3 ~/tm/the-movies-android/tools/lift_health.py ~/tm/work/gen
+```
+
+Expected: `unresolved ITAIL : 7`.
+
+## 5. Build the host
+
+```bash
+cmake -S ~/tm/the-movies-android -B ~/tm/build -G Ninja -DCMAKE_C_COMPILER=clang -DPCRECOMP=$HOME/tm/pcrecomp -DTM_GEN=$HOME/tm/work/gen
+```
+
+```bash
+cmake --build ~/tm/build -j 3
+```
+
+About 22 minutes on 4 cores; the binary is about 690 MB. `-j 3` keeps memory
+use within 16 GB.
+
+Check that the lifted code is linked (85,910 functions):
+
+```bash
+nm ~/tm/build/tm_host | grep -c " T sub_"
+```
+
+## 6. Run
+
+```bash
+cd ~/tm/game && ~/tm/build/tm_host ~/tm/game --stop-at-winmain --watchdog 120 --user ~/tm/user --system ~/tm/system
+```
+
+Run it from the game directory, as a Windows shortcut starts the game: the
+guest's current directory is the host's, and the start-up path (and so the
+function counts below) differs with it (docs/M2.md 2).
+
+| Option | Meaning |
+|---|---|
+| `<game dir>` | the install from step 2; the guest sees it as `C:\` |
+| `--stop-at-winmain` | exit 0 as soon as `WinMain` (`0x005303C0`) is entered |
+| `--watchdog S` | stop after S seconds (exit 4) |
+| `--user DIR` | the guest's `D:\`: My Documents, Application Data, Local Settings\Temp (default `./tm_user`) |
+| `--system DIR` | the guest's `C:\WINDOWS` (with `SYSTEM32`), the runtime system directory (default `./tm_system`); the game, user and system directories may not be inside one another |
+
+Output lines:
+
+| Line | Meaning |
+|---|---|
+| `[bind] STUB name` | an import with no implementation; calling it stops the run |
+| `[poc] WinMain 0x005303C0 entered` | the CRT reached `WinMain`; the line gives time and function counts |
+| `[shell] ...`, `[MessageBoxW] ...` | our shims answering the game |
+| `ICALL: unresolved VA` | an indirect call into code that was not lifted: a defect to fix |
+| `=== abort / SIGSEGV ...` | crash report: function, last import, registers, guest stack, last 32 function entries |
+
+Exit codes: 0 reached `WinMain` (with `--stop-at-winmain`) or the program
+exited normally; 2 a function that was not lifted; 3 a crash or a fatal
+win32hle error; 4 the watchdog.
+
+Expected for `--stop-at-winmain` on the 1.1 CD: `[bind] 60 imports are stubs`,
+`[poc] WinMain 0x005303C0 entered: ... 12978 function entries, 1245 distinct functions`,
+exit 0. Without it the run currently stops at `GetDiskFreeSpaceExW` (docs/M2.md 4).
+
+## 7. Regression test
+
+```bash
+python3 ~/tm/the-movies-android/tests/m2_winmain.py --host ~/tm/build/tm_host --game ~/tm/game --gen ~/tm/work/gen
+```
+
+Expected: `PASS` for both scenarios (`empty_user_dir_with_documents`, the
+main one, and `empty_user_dir_without_documents`, a diagnostic). Each one
+runs from the game directory with a fresh user directory and compares the
+result with its own baseline in `tests/baselines/`, written with
+`--scenario NAME --update`.
+
+Shim tests (no game files needed):
+- `test_disk_free_w`: `GetDiskFreeSpaceExW`;
+- `test_loader`: the DLL loader and `GetTempPathA`;
+- `test_dinput8`: DirectInput 8;
+- `test_sysroot`: the Windows directory;
+- `test_vfs`: the virtual file system and host DLLs;
+- `hle_path_selftest`: win32hle's own path selftest against the patched
+  `hle_path.c`.
+
+The build applies `patches/pcrecomp/*.patch` in order to copies of
+`hle_path.c` and `hle_path_selftest.c` in the build tree (needs `patch`).
+`0001` adds mounts and Windows path normalisation; `0002` changes the one
+selftest expectation that `0001` changes on purpose. Configuring fails if a
+patch does not apply to the pcrecomp revision in use.
+
+```bash
+ctest --test-dir ~/tm/build --output-on-failure
+```
+
+The run past WinMain, to the current execution boundary (docs/IMPORTS.md):
+where and why it stops, the DirectInput calls and their results, the imports
+called, the user directory it creates, and the game directory unchanged.
+
+```bash
+python3 ~/tm/the-movies-android/tests/m3_boundary.py --host ~/tm/build/tm_host --game ~/tm/game
+```
+
+Its baseline is `tests/baselines/m3_boundary.json`. It changes only with
+`--update`, after the new boundary has been reviewed; the commit says why.
+`--trace-out FILE` keeps the run's import trace.
+
+`--imports-json FILE` writes every bound import with its status
+(implemented, diagnostic, win32hle-present, win32hle-verified, unsupported).
+`--import-trace FILE` records the calls the game makes (docs/IMPORTS.md).

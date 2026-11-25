@@ -1,0 +1,17 @@
+--- a/runtime/win32hle/hle_path_selftest.c
++++ b/runtime/win32hle/hle_path_selftest.c
+@@ -86,9 +86,12 @@
+     int got_cwd = getcwd(cwd, sizeof cwd) != NULL;
+     CHECK("save cwd for relative-path case", got_cwd);
+     if (got_cwd && chdir(dir) == 0) {
+-        CHECK("undriven relative parent remains relative to cwd",
++        /* the-movies-android patch 0001: a relative name is made absolute
++         * against the guest's current directory (C:\dir), as Windows does,
++         * so ".." is C:\ and the result is the drive's own path */
++        CHECK("undriven relative parent resolves against the guest cwd",
+               hle_host_path_base("..\\file.txt", mapped, sizeof mapped) &&
+-              !strcmp(mapped, "../file.txt"));
++              !strcmp(mapped, expected));
+         chdir(cwd);
+     }
+ 
