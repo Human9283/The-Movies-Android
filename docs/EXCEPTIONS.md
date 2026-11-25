@@ -83,7 +83,10 @@ helper's error for `d3d9.dll`, which was missing then. That is an SEH
 exception raised because a DLL is absent, not a C++ throw, and on Windows
 it does not happen when the DLL is present. No `_CxxThrowException` was
 entered. With `d3d9.dll` a host DLL, the run now reaches `CreateDevice`
-with no `RaiseException` at all. The decision below stands.
+with no `RaiseException` at all. With a device (`--d3d9 dxvk`), the run
+through the intro and the main menu (about 60 seconds,
+`docs/traces/dxvk_run_imports.json`) calls no `RaiseException` either; the
+game proper has not been measured for it. The decision below stands.
 
 ### 5. What does the lifted code do with the frames? [static, lifted C]
 

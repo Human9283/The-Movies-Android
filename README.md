@@ -140,11 +140,11 @@ docs/                   audit, build steps, milestone reports
   CD edition, blockers, architecture and roadmap
 - [docs/BUILD.md](docs/BUILD.md): reproducible build and run steps
 - [docs/M2.md](docs/M2.md): first-boot results
-- [docs/M3.md](docs/M3.md): plan to the game window and Direct3D 9 device initialisation; M4 criteria
+- [docs/M3.md](docs/M3.md): from WinMain to the Direct3D 9 device, and on to the first frames, the menus and the lot
 - [docs/IMPORTS.md](docs/IMPORTS.md): the imports the game calls, their status and what is verified
 - [docs/DIRECTSHOW-STARTUP.md](docs/DIRECTSHOW-STARTUP.md): the DirectShow start-up probe and what is implemented for it (not playback or export)
 - [docs/D3D9-REQUIREMENTS.md](docs/D3D9-REQUIREMENTS.md): the Direct3D 9 calls the game makes and the device it asks for
-- [docs/DXVK-INTEGRATION.md](docs/DXVK-INTEGRATION.md): DXVK Native (pinned v3.1.1) as the Direct3D 9 backend; the proof of concept and the integration decisions
+- [docs/DXVK-INTEGRATION.md](docs/DXVK-INTEGRATION.md): DXVK Native (pinned v3.1.1) as the Direct3D 9 backend; the proof of concept and the integration decisions, and the backend in the host: its design, what the game does with it, its limits
 - [docs/ANDROID-FEASIBILITY.md](docs/ANDROID-FEASIBILITY.md): what DXVK requires of an Android GPU, the risks, and how a device is measured
 - [docs/EXCEPTIONS.md](docs/EXCEPTIONS.md): C++ EH and SEH in the executable, and what a run reaches (B4)
 - [docs/REPOSITORY-AUDIT.md](docs/REPOSITORY-AUDIT.md): correctness audit of the host, its tests and its limits

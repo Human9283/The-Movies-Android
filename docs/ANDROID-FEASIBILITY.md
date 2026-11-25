@@ -50,6 +50,13 @@ Tags: [src] read from source at a stated revision; [static] read from
 - **Measured [run].** This list was met by Mesa 25.2.8 lavapipe on x86-64,
   where the proof of concept passes (DXVK-INTEGRATION.md 3). That says
   nothing about any phone GPU.
+- **What the game draws with [run].** The intro, the menus and the studio
+  lot use Direct3D 9's fixed-function pipeline only: no shader is created
+  (D3D9-REQUIREMENTS.md 4). DXVK still turns that pipeline into its own
+  Vulkan shaders, and its device requirements above apply all the same:
+  the game asking for less does not lower them. Its textures include
+  `DXT1` and `DXT3`, so `textureCompressionBC` is needed by the game
+  itself, not only by DXVK.
 
 ## 2. Risks, in order
 

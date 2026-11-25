@@ -247,5 +247,7 @@ appears, and the exit path that followed it (with `CreateThread`,
 no longer reached.
 
 After the probe the game goes on to Direct3D 9 (`d3d9.dll`,
-`Direct3DCreate9`). Its boundary is now `CreateDevice`
-(D3D9-REQUIREMENTS.md).
+`Direct3DCreate9`). The headless run stops at `CreateDevice`
+(D3D9-REQUIREMENTS.md); with `--d3d9 dxvk` the game reaches its menus and
+asks DirectShow to play video, which is not implemented (IMPORTS.md, "Past
+`CreateDevice`").

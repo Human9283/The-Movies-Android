@@ -40,6 +40,11 @@ their own trace in step 4 of docs/M3.md.
 
 ## Imports called, up to the current stop
 
+This table is the headless run (no `--d3d9`), which stops at
+`CreateDevice`. What a run with a device adds is listed under "Past
+`CreateDevice`" below and in
+[traces/dxvk_run_imports.json](traces/dxvk_run_imports.json).
+
 Run from the game directory with an empty user directory holding an empty
 `My Documents` (the main M2 scenario), until the run stops at the boundary
 described below (`tests/m3_boundary.py`; the full trace is
@@ -581,8 +586,9 @@ Whether Windows takes the same fault there was never checked.
 `IDirect3D9`. The game asks for the desktop mode and the mode lists of
 its 16-bit and 32-bit formats, then calls `CreateDevice`.
 
-**The run now stops at `CreateDevice`.** The call is recorded with all its
-parameters, then the run stops: no device backend exists. The parameters
+**The headless run stops at `CreateDevice`.** Without `--d3d9 dxvk` there
+is no device backend: the call is recorded with all its parameters, then
+the run stops. With it the game goes on (next section). The parameters
 are a full-screen 1024×768 `X1R5G5B5` back buffer, `D16` depth, a HAL
 device, hardware vertex processing and `D3DCREATE_MULTITHREADED`
 (D3D9-REQUIREMENTS.md). Before `d3d9.dll` existed, the delay-load helper

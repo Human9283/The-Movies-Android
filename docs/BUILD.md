@@ -197,7 +197,7 @@ Exit codes: 0 reached `WinMain` (with `--stop-at-winmain`) or the program
 exited normally; 2 a function that was not lifted; 3 a crash or a fatal
 win32hle error; 4 the watchdog.
 
-Expected for `--stop-at-winmain` on the 1.1 CD: `[bind] 60 imports are stubs`,
+Expected for `--stop-at-winmain` on the 1.1 CD: `[bind] 50 imports are stubs`,
 `[poc] WinMain 0x005303C0 entered: ... 12978 function entries, 1245 distinct functions`,
 exit 0. Without it, and without `--d3d9 dxvk`, the run stops at the game's
 `IDirect3D9::CreateDevice` call (exit 3): its parameters are printed as

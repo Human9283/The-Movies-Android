@@ -297,8 +297,9 @@ backend through guest objects only, 55 checks). The second covers:
 - the stops: an unimplemented method, a `this` that is no device, a method
   after the last `Release`, a second lock.
 
-The unit tests also pass under AddressSanitizer and UndefinedBehaviorSanitizer
-(GCC 13).
+The unit tests present at commit `98dc656` passed under AddressSanitizer and
+UndefinedBehaviorSanitizer (GCC 13); `test_winmm` and patch 0003 came later
+and have not been run under them.
 
 Without `TM_DXVK_PREFIX` nothing DXVK-related is built. The rest of the
 build and its tests do not depend on DXVK.
