@@ -42,6 +42,16 @@ static int exists(const char *dir, const char *rel) {
 }
 
 static char *g_str, *g_fd;
+static uint16_t *g_w, *g_fdw;
+static uint32_t ws(const char *s) {                    /* a UTF-16 copy of an ASCII or Latin-1 string */
+    size_t i = 0;
+    for (; s[i]; i++) g_w[i] = (uint8_t)s[i];
+    g_w[i] = 0;
+    return hle_va(g_w);
+}
+static int wide_is(const uint16_t *w, const char *s) {
+    for (size_t i = 0;; i++) { if (w[i] != (uint8_t)s[i]) return 0; if (!s[i]) return 1; }
+}
 static uint32_t gs(const char *s) { strcpy(g_str, s); return hle_va(g_str); }
 static uint32_t call(const char *name, int n, const uint32_t *args) { return hle_call_guest(hle_resolve(name), n, args); }
 
@@ -145,6 +155,8 @@ int main(void) {
     mach_enter();
     g_str = hle_alloc(1024);
     g_fd = hle_alloc(320);
+    g_w = hle_alloc(2048);
+    g_fdw = hle_alloc(592);
 
     /* root enumeration: the mount is an entry of C:\, no "." / ".." in a root */
     check("C:\\* lists WINDOWS with the game's entries", listed("C:\\*", "Data/ Movies.exe WINDOWS/"));
@@ -282,6 +294,45 @@ int main(void) {
     check("dinput8.dll: listed, loads, DirectInput8Create implemented", file_there("C:\\WINDOWS\\SYSTEM32\\dinput8.dll") && hd &&
           proc(hd, "DirectInput8Create") != 0 && tm_loader_export("dinput8.dll", "DirectInput8Create") == TM_EXPORT_IMPLEMENTED);
     freelib(hd);
+
+    /* ---- the W functions: the ANSI overrides, names converted ---- */
+    uint32_t wf[2] = { ws("C:\\Data\\*.ini"), hle_va(g_fdw) };
+    uint32_t wh = call("tm:FindFirstFileW", 2, wf);
+    check("FindFirstFileW(C:\\Data\\*.ini): a.ini first, as the ANSI listing", wh != 0xFFFFFFFFu && wide_is(g_fdw + 22, "a.ini"));
+    uint32_t wn[2] = { wh, hle_va(g_fdw) };
+    check("  FindNextFileW: B.INI", call("tm:FindNextFileW", 2, wn) == 1 && wide_is(g_fdw + 22, "B.INI"));
+    check("  then ERROR_NO_MORE_FILES", call("tm:FindNextFileW", 2, wn) == 0 && hle_get_last_error() == 18);
+    uint32_t wc[1] = { wh };
+    check("  FindClose on the W handle", call("tm:FindClose", 1, wc) == 1);
+    uint32_t wsys[2] = { ws("c:\\windows\\system32\\WMVCORE.DLL"), hle_va(g_fdw) };
+    wh = call("tm:FindFirstFileW", 2, wsys);
+    check("FindFirstFileW of a host DLL: found, archive, size 0, its listed name",
+          wh != 0xFFFFFFFFu && *(uint32_t *)g_fdw == 0x20 && *(uint32_t *)((char *)g_fdw + 32) == 0 && wide_is(g_fdw + 22, "wmvcore.dll"));
+    if (wh != 0xFFFFFFFFu) { wc[0] = wh; call("tm:FindClose", 1, wc); }
+    uint32_t wm[2] = { ws("C:\\nope\\*"), hle_va(g_fdw) };
+    check("FindFirstFileW, missing directory: ERROR_PATH_NOT_FOUND", call("tm:FindFirstFileW", 2, wm) == 0xFFFFFFFFu && hle_get_last_error() == 3);
+    uint32_t wnull[2] = { 0, hle_va(g_fdw) };
+    check("FindFirstFileW(NULL): ERROR_INVALID_PARAMETER", call("tm:FindFirstFileW", 2, wnull) == 0xFFFFFFFFu && hle_get_last_error() == 87);
+    uint32_t wa[1] = { ws("C:\\WINDOWS") };
+    check("GetFileAttributesW(C:\\WINDOWS): a directory", call("tm:GetFileAttributesW", 1, wa) == 0x10);
+    wa[0] = ws("C:\\WINDOWS\\SYSTEM32\\dinput8.dll");
+    check("GetFileAttributesW of a host DLL: archive", call("tm:GetFileAttributesW", 1, wa) == 0x20);
+    uint32_t wcr[7] = { ws("C:\\WINDOWS\\SYSTEM32\\dinput8.dll"), 0x80000000u, 1, 0, 3, 0x80, 0 };
+    check("CreateFileW of a host DLL: ERROR_ACCESS_DENIED, as CreateFileA", call("tm:CreateFileW", 7, wcr) == 0xFFFFFFFFu && hle_get_last_error() == 5);
+    uint32_t wcd[2] = { ws("D:\\WideDir"), 0 };
+    check("CreateDirectoryW in the user directory: made", call("tm:CreateDirectoryW", 2, wcd) == 1 && exists(U, "WideDir"));
+    uint32_t wnew[7] = { ws("D:\\WideDir\\f.txt"), 0x40000000u, 0, 0, 2, 0x80, 0 };
+    uint32_t fhw = call("tm:CreateFileW", 7, wnew);
+    check("CreateFileW(CREATE_ALWAYS) in it: a handle, the file on the host", fhw != 0xFFFFFFFFu && exists(U, "WideDir/f.txt"));
+    if (fhw != 0xFFFFFFFFu) { uint32_t c[1] = { fhw }; call("CloseHandle", 1, c); }
+    uint32_t wdel[1] = { ws("D:\\WideDir\\f.txt") };
+    check("DeleteFileW: gone", call("tm:DeleteFileW", 1, wdel) == 1 && !exists(U, "WideDir/f.txt"));
+    uint32_t wfp[4] = { ws("data\\a.ini"), 260, hle_va(g_fdw), hle_va(g_fd) };
+    uint32_t wl = call("tm:GetFullPathNameW", 4, wfp);
+    check("GetFullPathNameW(data\\a.ini): C:\\data\\a.ini, its length, the file part in the wide buffer",
+          wl == 13 && wide_is(g_fdw, "C:\\data\\a.ini") && *(uint32_t *)g_fd == hle_va(g_fdw) + 2u * 8);
+    uint32_t wsmall[4] = { ws("data\\a.ini"), 4, hle_va(g_fdw), 0 };
+    check("  a buffer too small: the size needed, with its terminator", call("tm:GetFullPathNameW", 4, wsmall) == 14);
     mach_leave();
 
     check("the game directory is unchanged", !exists(G, "WINDOWS") && !exists(G, "windows") && !exists(G, "TEMP"));

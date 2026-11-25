@@ -16,6 +16,9 @@
  * the host DLL too.
  *
  * Overrides ("tm:<name>"): FindFirstFileA, FindNextFileA, FindClose,
+ * FindFirstFileW, FindNextFileW (the ANSI search, names converted),
+ * GetFullPathNameW, CreateFileW, GetFileAttributesW, DeleteFileW, CreateDirectoryW (the ANSI
+ * overrides, the name converted),
  * GetFileAttributesA, GetFullPathNameA, CreateFileA, DeleteFileA,
  * CreateDirectoryA. Paths are made absolute the
  * Windows way (hle_guest_full_path, patches/pcrecomp/0001) before anything
@@ -502,9 +505,138 @@ static void k_CreateDirectoryA(void) {                   /* (name, sa) */
     delegate("CreateDirectoryA");
 }
 
+/* ---- FindFirstFileW / FindNextFileW: the ANSI search, names converted ----
+ * The search is FindFirstFileA's: the pattern is converted to the guest's
+ * ANSI code page and each found name back, both with the guest's own
+ * WideCharToMultiByte / MultiByteToWideChar (CP_ACP), so the wide and ANSI
+ * views of a name agree. A pattern with a character the ANSI code page
+ * lacks stops the run: the file system here is reached by ANSI names only.
+ * WIN32_FIND_DATAW: the same 44 bytes, then cFileName[260] and
+ * cAlternateFileName[14] in UTF-16: 592 bytes. */
+#define FIND_A_SIZE 320u
+#define FIND_W_SIZE 592u
+static uint32_t guest_call(const char *name, int n, const uint32_t *a) { return hle_call_guest(hle_resolve(name), n, a); }
+static void a_to_w(uint32_t a, uint32_t w) {
+    memcpy(hle_ptr(w), hle_ptr(a), 44);
+    memset((uint8_t *)hle_ptr(w) + 44, 0, FIND_W_SIZE - 44);
+    uint32_t c1[6] = { 0, 0, a + 44, (uint32_t)-1, w + 44, 260 }, c2[6] = { 0, 0, a + 304, (uint32_t)-1, w + 564, 14 };
+    guest_call("MultiByteToWideChar", 6, c1);
+    guest_call("MultiByteToWideChar", 6, c2);
+}
+static void k_FindFirstFileW(void) {                     /* (pattern, &data) */
+    uint32_t pat = A32(0), out = A32(1);
+    if (!pat || !out) { hle_set_last_error(ERROR_INVALID_PARAMETER); RET(INVALID_HANDLE, 2); }
+    uint32_t n = 0;
+    while (n < TM_MAX_PATH && MEM16(pat + 2u * n)) n++;
+    if (n >= TM_MAX_PATH) { hle_set_last_error(ERROR_FILENAME_EXCED_RANGE); RET(INVALID_HANDLE, 2); }
+    uint8_t *m = (uint8_t *)hle_alloc(TM_MAX_PATH + 4 + FIND_A_SIZE);
+    if (!m) { hle_set_last_error(ERROR_NOT_ENOUGH_MEMORY); RET(INVALID_HANDLE, 2); }
+    uint32_t ga = hle_va(m), used = ga + TM_MAX_PATH, data = used + 4;
+    uint32_t c[8] = { 0, 0, pat, (uint32_t)-1, ga, TM_MAX_PATH, 0, used };
+    MEM32(used) = 0;
+    if (!guest_call("WideCharToMultiByte", 8, c) || MEM32(used))
+        hle_fatal("[file] FindFirstFileW: the pattern has a character outside the ANSI code page (not handled)");
+    uint32_t a[2] = { ga, data };
+    uint32_t h = guest_call("tm:FindFirstFileA", 2, a);
+    uint32_t err = hle_get_last_error();
+    if (h != INVALID_HANDLE) a_to_w(data, out);
+    if (hle_filetrace()) fprintf(stderr, "[file] FindFirstFileW \"%s\" -> 0x%08X\n", (char *)m, h);
+    hle_free(m);
+    hle_set_last_error(err);
+    RET(h, 2);
+}
+static void k_FindNextFileW(void) {                      /* (handle, &data) */
+    uint32_t out = A32(1);
+    if (!out) { hle_set_last_error(ERROR_INVALID_PARAMETER); RET(0, 2); }
+    uint8_t *m = (uint8_t *)hle_alloc(FIND_A_SIZE);
+    if (!m) { hle_set_last_error(ERROR_NOT_ENOUGH_MEMORY); RET(0, 2); }
+    uint32_t a[2] = { A32(0), hle_va(m) };
+    uint32_t ok = guest_call("tm:FindNextFileA", 2, a);
+    uint32_t err = hle_get_last_error();
+    if (ok) a_to_w(hle_va(m), out);
+    hle_free(m);
+    hle_set_last_error(err);
+    RET(ok, 2);
+}
+
+/* Single-path W functions: the name converted as FindFirstFileW does, then
+ * the ANSI override with the same other arguments. */
+static void w_via_a(const char *a_name, int nargs) {
+    uint32_t name = A32(0), args[8];
+    for (int i = 0; i < nargs; i++) args[i] = A32(i);
+    uint8_t *m = NULL;
+    if (name) {
+        uint32_t n = 0;
+        while (n < TM_MAX_PATH && MEM16(name + 2u * n)) n++;
+        if (n >= TM_MAX_PATH) {
+            hle_set_last_error(ERROR_FILENAME_EXCED_RANGE);
+            RET(!strcmp(a_name, "tm:CreateFileA") || !strcmp(a_name, "tm:GetFileAttributesA") ? INVALID_HANDLE : 0, nargs);
+        }
+        m = (uint8_t *)hle_alloc(TM_MAX_PATH + 4);
+        if (!m) { hle_set_last_error(ERROR_NOT_ENOUGH_MEMORY); RET(0, nargs); }
+        uint32_t ga = hle_va(m), used = ga + TM_MAX_PATH;
+        uint32_t c[8] = { 0, 0, name, (uint32_t)-1, ga, TM_MAX_PATH, 0, used };
+        MEM32(used) = 0;
+        if (!guest_call("WideCharToMultiByte", 8, c) || MEM32(used))
+            hle_fatal("[file] %.*sW: the name has a character outside the ANSI code page (not handled)",
+                      (int)strlen(a_name + 3) - 1, a_name + 3);
+        args[0] = ga;
+    }
+    uint32_t r = guest_call(a_name, nargs, args);
+    uint32_t err = hle_get_last_error();
+    if (hle_filetrace() && m) fprintf(stderr, "[file] %.*sW \"%s\" -> 0x%08X\n", (int)strlen(a_name + 3) - 1, a_name + 3, (char *)m, r);
+    if (m) hle_free(m);
+    hle_set_last_error(err);
+    RET(r, nargs);
+}
+/* GetFullPathNameW(name, size in WCHARs, buffer, &file part): the ANSI
+ * override's rules, the name converted both ways. One ANSI byte is one
+ * UTF-16 unit in a single-byte code page, so the lengths are the same. */
+static void k_GetFullPathNameW(void) {
+    uint32_t name = A32(0), size = A32(1), buf = A32(2), part = A32(3);
+    if (!name || !MEM16(name)) { hle_set_last_error(ERROR_INVALID_NAME); RET(0, 4); }
+    uint32_t n = 0;
+    while (n < 1024 && MEM16(name + 2u * n)) n++;
+    if (n >= 1024) { hle_set_last_error(ERROR_FILENAME_EXCED_RANGE); RET(0, 4); }
+    uint8_t *m = (uint8_t *)hle_alloc(1024 + 4 + 1024);
+    if (!m) { hle_set_last_error(ERROR_NOT_ENOUGH_MEMORY); RET(0, 4); }
+    uint32_t ga = hle_va(m), used = ga + 1024, gfull = used + 4;
+    uint32_t c[8] = { 0, 0, name, (uint32_t)-1, ga, 1024, 0, used };
+    MEM32(used) = 0;
+    if (!guest_call("WideCharToMultiByte", 8, c) || MEM32(used))
+        hle_fatal("[file] GetFullPathNameW: the name has a character outside the ANSI code page (not handled)");
+    char *full = (char *)hle_ptr(gfull);
+    int len = hle_guest_full_path((char *)m, full, 1024);
+    if (!len) hle_fatal("[file] GetFullPathNameW \"%s\": a UNC name (not handled)", (char *)m);
+    uint32_t r;
+    if (!buf || size < (uint32_t)len + 1) r = (uint32_t)len + 1;
+    else {
+        uint32_t w[6] = { 0, 0, gfull, (uint32_t)-1, buf, size };
+        guest_call("MultiByteToWideChar", 6, w);
+        if (part) {
+            char *bs = strrchr(full, '\\');
+            MEM32(part) = bs && bs[1] ? buf + 2u * (uint32_t)(bs + 1 - full) : 0;
+        }
+        r = (uint32_t)len;
+    }
+    hle_free(m);
+    RET(r, 4);
+}
+static void k_CreateFileW(void) { w_via_a("tm:CreateFileA", 7); }
+static void k_GetFileAttributesW(void) { w_via_a("tm:GetFileAttributesA", 1); }
+static void k_DeleteFileW(void) { w_via_a("tm:DeleteFileA", 1); }
+static void k_CreateDirectoryW(void) { w_via_a("tm:CreateDirectoryA", 2); }
+
 const win32hle_shim tm_vfs_overrides[] = {
     { "tm:FindFirstFileA",     k_FindFirstFileA },
     { "tm:FindNextFileA",      k_FindNextFileA },
+    { "tm:FindFirstFileW",     k_FindFirstFileW },
+    { "tm:FindNextFileW",      k_FindNextFileW },
+    { "tm:CreateFileW",        k_CreateFileW },
+    { "tm:GetFullPathNameW",   k_GetFullPathNameW },
+    { "tm:GetFileAttributesW", k_GetFileAttributesW },
+    { "tm:DeleteFileW",        k_DeleteFileW },
+    { "tm:CreateDirectoryW",   k_CreateDirectoryW },
     { "tm:FindClose",          k_FindClose },
     { "tm:GetFileAttributesA", k_GetFileAttributesA },
     { "tm:GetFullPathNameA",   k_GetFullPathNameA },

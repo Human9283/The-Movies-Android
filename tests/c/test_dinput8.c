@@ -30,6 +30,7 @@ static const guid_t GUID_SysMouse_ = {0x6F1D2B60, 0xD5A0, 0x11CF, {0xBF,0xC7,0x4
 static const guid_t GUID_SysKbd_   = {0x6F1D2B61, 0xD5A0, 0x11CF, {0xBF,0xC7,0x44,0x45,0x53,0x54,0,0}};
 static const guid_t GUID_Joystick_ = {0x6F1D2B70, 0xD5A0, 0x11CF, {0xBF,0xC7,0x44,0x45,0x53,0x54,0,0}};
 
+#define VK_RETURN_ 0x0D
 static uint8_t *g_mem;
 static uint32_t g_at;
 static uint32_t gput(const void *p, uint32_t n) { uint32_t va = hle_va(g_mem + g_at); memcpy(g_mem + g_at, p, n); g_at += (n + 15) & ~15u; return va; }
@@ -42,7 +43,7 @@ static uint32_t com(uint32_t obj, int k, int n, const uint32_t *args) {
     return hle_call_guest(MEM32(MEM32(obj) + 4u * (uint32_t)k), n + 1, a);
 }
 enum { QI = 0, ADDREF = 1, RELEASE = 2, CREATEDEVICE = 3 };
-enum { SETPROPERTY = 6, ACQUIRE = 7, UNACQUIRE = 8, SETDATAFORMAT = 11, SETCOOP = 13 };
+enum { SETPROPERTY = 6, ACQUIRE = 7, UNACQUIRE = 8, GETSTATE = 9, GETDATA = 10, SETDATAFORMAT = 11, SETCOOP = 13 };
 
 int main(void) {
     recomp_host_init();
@@ -163,6 +164,51 @@ int main(void) {
     check("Unacquire", com(kbd, UNACQUIRE, 0, NULL) == 0);
     check("Unacquire again: DI_NOEFFECT", com(kbd, UNACQUIRE, 0, NULL) == 1);
 
+    /* input: win32hle's keyboard state, as SDL feeds it (hle_input_key) */
+    uint32_t st = gzero(256), ev = gzero(20 * 8), io = gzero(4);
+    uint32_t gs[2] = { 256, st };
+    check("GetDeviceState unacquired: DIERR_NOTACQUIRED", com(kbd, GETSTATE, 2, gs) == 0x8007000Cu);
+    uint32_t gd[4] = { 20, ev, io, 0 };
+    MEM32(io) = 8;
+    check("GetDeviceData unacquired: DIERR_NOTACQUIRED", com(kbd, GETDATA, 4, gd) == 0x8007000Cu);
+    hle_input_key(1, 'A', 0x1E);                            /* down before Acquire: the state, not an event */
+    check("Acquire", com(kbd, ACQUIRE, 0, NULL) == 0);
+    gs[0] = 255;
+    check("GetDeviceState with a size other than the format's: DIERR_INVALIDPARAM", com(kbd, GETSTATE, 2, gs) == 0x80070057u);
+    gs[0] = 256;
+    check("GetDeviceState: A (DIK 0x1E) down", com(kbd, GETSTATE, 2, gs) == 0 && MEM8(st + 0x1E) == 0x80 && MEM8(st + 0x1F) == 0);
+    MEM32(io) = 8;
+    check("GetDeviceData: no event for a key already down at Acquire", com(kbd, GETDATA, 4, gd) == 0 && MEM32(io) == 0);
+    hle_input_key(0, 'A', 0x1E);
+    hle_input_key(1, VK_RETURN_, 0x1C);
+    hle_input_key(0, VK_RETURN_, 0x1C);                     /* a press and release between two reads: both kept */
+    MEM32(io) = 8;
+    gd[3] = 1;                                              /* DIGDD_PEEK */
+    check("GetDeviceData PEEK: 3 events, left in the buffer", com(kbd, GETDATA, 4, gd) == 0 && MEM32(io) == 3);
+    gd[3] = 0;
+    MEM32(io) = 2;
+    check("GetDeviceData(2): A up, Return down, in order",
+          com(kbd, GETDATA, 4, gd) == 0 && MEM32(io) == 2 && MEM32(ev) == 0x1E && MEM32(ev + 4) == 0 &&
+          MEM32(ev + 20) == 0x1C && MEM32(ev + 24) == 0x80 && MEM32(ev + 16) == 0 && MEM32(ev + 36) == 0 &&
+          MEM32(ev + 12) < MEM32(ev + 32));
+    MEM32(io) = 8;
+    check("  then Return up, sequence still rising", com(kbd, GETDATA, 4, gd) == 0 && MEM32(io) == 1 && MEM32(ev) == 0x1C &&
+          MEM32(ev + 4) == 0);
+    MEM32(io) = 8;
+    check("  then nothing", com(kbd, GETDATA, 4, gd) == 0 && MEM32(io) == 0);
+    gd[0] = 24;
+    check("GetDeviceData with another record size: DIERR_INVALIDPARAM", com(kbd, GETDATA, 4, gd) == 0x80070057u);
+    gd[0] = 20;
+    for (int i = 0; i < 70; i++) hle_input_key(i & 1 ? 0 : 1, 'B', 0x30);   /* 70 events, 128 allowed */
+    for (int i = 0; i < 70; i++) hle_input_key(i & 1 ? 0 : 1, 'C', 0x2E);   /* 140: past DIPROP_BUFFERSIZE */
+    MEM32(io) = 0xFFFFFFFFu;
+    gd[1] = 0;                                              /* a flush */
+    check("past the buffer size: DI_BUFFEROVERFLOW, 128 kept, flushed", com(kbd, GETDATA, 4, gd) == 1 && MEM32(io) == 128);
+    gd[1] = ev;
+    MEM32(io) = 8;
+    check("  the overflow is cleared by the read", com(kbd, GETDATA, 4, gd) == 0 && MEM32(io) == 0);
+    check("Unacquire", com(kbd, UNACQUIRE, 0, NULL) == 0);
+
     /* device QI and lifetime */
     q[0] = iid_dev; q[1] = out;
     check("device QI IDirectInputDevice8A", com(kbd, QI, 2, q) == 0 && MEM32(out) == kbd);
@@ -177,12 +223,39 @@ int main(void) {
     uint32_t mouse = MEM32(out2);
     a[0] = 0x12345678; a[1] = 0x1 | 0x8;
     check("mouse EXCLUSIVE|BACKGROUND on a bad hwnd: E_HANDLE first", com(mouse, SETCOOP, 2, a) == 0x80070006u);
+    /* c_dfDIMouse: X 0, Y 4, Z 8, buttons 12..15; 16 bytes, 7 objects */
+    uint32_t mobjs = gzero(7 * 16);
+    static const uint32_t mofs[7] = { 0, 4, 8, 12, 13, 14, 15 };
+    for (int k = 0; k < 7; k++) MEM32(mobjs + 16u * (uint32_t)k + 4) = mofs[k];
+    uint32_t mdf_vals[6] = { 24, 16, 2, 16, 7, mobjs };
+    a[0] = gput(mdf_vals, 24);
+    check("mouse SetDataFormat(c_dfDIMouse)", com(mouse, SETDATAFORMAT, 1, a) == 0);
+    a[0] = 0; a[1] = 0x2 | 0x8;
+    check("mouse NONEXCLUSIVE|BACKGROUND", com(mouse, SETCOOP, 2, a) == 0);
+    a[0] = 1; a[1] = pd;
+    check("mouse SetProperty(DIPROP_BUFFERSIZE, 128)", com(mouse, SETPROPERTY, 2, a) == 0);
+    check("mouse Acquire", com(mouse, ACQUIRE, 0, NULL) == 0);
+    hle_input_motion(5, -3);
+    int cx, cy;
+    hle_input_position(&cx, &cy);
+    hle_input_mouse(0x0201, cx, cy);                       /* WM_LBUTTONDOWN where the cursor is */
+    uint32_t ms = gzero(16), mgs[2] = { 16, ms };
+    check("mouse GetDeviceState: the movement since Acquire, left button down",
+          com(mouse, GETSTATE, 2, mgs) == 0 && (int32_t)MEM32(ms) == 5 && (int32_t)MEM32(ms + 4) == -3 && MEM8(ms + 12) == 0x80);
+    check("  read again: no movement", com(mouse, GETSTATE, 2, mgs) == 0 && MEM32(ms) == 0 && MEM32(ms + 4) == 0);
+    MEM32(io) = 8;
+    uint32_t mgd[4] = { 20, ev, io, 0 };
+    check("mouse GetDeviceData: X +5, Y -3, button 0 down",
+          com(mouse, GETDATA, 4, mgd) == 0 && MEM32(io) == 3 && MEM32(ev) == 0 && (int32_t)MEM32(ev + 4) == 5 &&
+          MEM32(ev + 20) == 4 && (int32_t)MEM32(ev + 24) == -3 && MEM32(ev + 40) == 12 && MEM32(ev + 44) == 0x80);
+    hle_input_mouse(0x0202, cx, cy);                       /* WM_LBUTTONUP */
+    check("mouse Unacquire", com(mouse, UNACQUIRE, 0, NULL) == 0);
     check("mouse Release -> 0", com(mouse, RELEASE, 0, NULL) == 0);
     check("DirectInput Release -> 0", com(di, RELEASE, 0, NULL) == 0);
 
     /* an unimplemented method stops the run, naming itself: not called here */
-    check("unimplemented slots are named stubs", hle_name(MEM32(MEM32(kbd) + 4u * 9u)) &&
-          !strcmp(hle_name(MEM32(MEM32(kbd) + 4u * 9u)), "IDirectInputDevice8A::GetDeviceState"));
+    check("unimplemented slots are named stubs", hle_name(MEM32(MEM32(kbd) + 4u * 3u)) &&
+          !strcmp(hle_name(MEM32(MEM32(kbd) + 4u * 3u)), "IDirectInputDevice8A::GetCapabilities"));
 
     mach_leave();
     printf("dinput8: %d checks, %d failed\n", checks, failures);

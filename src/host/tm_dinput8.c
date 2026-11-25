@@ -16,12 +16,14 @@
  *   DirectInput8Create; IDirectInput8A QueryInterface, AddRef, Release,
  *   CreateDevice (system keyboard and mouse only); IDirectInputDevice8A
  *   QueryInterface, AddRef, Release, SetDataFormat, SetCooperativeLevel,
- *   SetProperty (DIPROP_BUFFERSIZE only), Acquire, Unacquire.
+ *   SetProperty (DIPROP_BUFFERSIZE only), Acquire, Unacquire,
+ *   GetDeviceState, GetDeviceData (the standard keyboard and mouse formats).
  * Every other method is a self-naming stub that stops the run when called:
  * it is implemented when the game is seen to call it, not before.
  *
- * No input reaches these devices yet: the host has no keyboard or mouse
- * source. Acquiring a device is real state, not working input.
+ * Input: win32hle's keyboard and mouse state, which the host feeds from SDL
+ * in a windowed run (see "input" below). A headless run has no source, so
+ * its devices report no change.
  *
  * COM: objects live in guest memory; [obj] is the vtable, an array of shim
  * VAs; every method is stdcall with `this` first. Host-side state is kept
@@ -50,6 +52,11 @@
 #define DIERR_ACQUIRED            0x800700AAu
 #define DIERR_OLDDIRECTINPUTVERSION  0x8007047Eu
 #define DIERR_BETADIRECTINPUTVERSION 0x80070481u
+#define DIERR_NOTACQUIRED         0x8007000Cu
+#define DIERR_NOTBUFFERED         0x80040207u
+#define DI_BUFFEROVERFLOW         0x00000001u
+#define DIGDD_PEEK                0x1u
+enum { FMT_KEYBOARD = 1, FMT_MOUSE = 2 };
 
 #define DISCL_EXCLUSIVE    0x1u
 #define DISCL_NONEXCLUSIVE 0x2u
@@ -106,6 +113,13 @@ typedef struct {
     uint32_t parent;             /* the IDirectInput8A that created it (holds a reference) */
     uint32_t coop, hwnd;         /* coop 0: never set (non-exclusive, background) */
     uint32_t data_size, nobjs, buffer_size;
+    /* input, while acquired (GetDeviceState, GetDeviceData) */
+    int      fmt;                /* the data format: FMT_KEYBOARD (c_dfDIKeyboard), FMT_MOUSE (c_dfDIMouse), or 0 */
+    int      last_x, last_y, last_z;                    /* GetDeviceState's: where its last read left the axes */
+    int      buf_x, buf_y, buf_z;                       /* GetDeviceData's: what the events so far describe */
+    uint8_t  buf_buttons[3], buf_keys[256];
+    struct { uint32_t ofs, data, time, seq; } q[256];
+    int      qn, overflow;
 } obj_t;
 #define MAX_OBJS 64
 static obj_t g_obj[MAX_OBJS];
@@ -133,6 +147,8 @@ static const char *dev_name(const obj_t *o) { return o->dev == DEV_KEYBOARD ? "k
 
 /* ---- IDirectInput8A ---- */
 static uint32_t di_release(obj_t *o);
+static void baseline(obj_t *o);
+static void relative_mouse(void);
 
 static void di_QueryInterface(void) {                   /* (this, riid, ppv) */
     obj_t *o = obj_of(A32(0), OBJ_DI);
@@ -241,6 +257,11 @@ static void dev_SetDataFormat(void) {                   /* (this, lpdf) */
         RET(DIERR_INVALIDPARAM, 2);
     }
     o->has_format = 1, o->data_size = data, o->nobjs = n;
+    /* the standard formats: c_dfDIKeyboard (256 bytes, 256 objects, offset = DIK code), c_dfDIMouse
+     * (16 bytes, 7 objects: X 0, Y 4, Z 8, buttons 12..15) */
+    o->fmt = o->dev == DEV_KEYBOARD && data == 256 && n == 256 ? FMT_KEYBOARD
+           : o->dev == DEV_MOUSE && data == 16 && n == 7 && MEM32(rg + 4) == 0 && MEM32(rg + 16 + 4) == 4 &&
+             MEM32(rg + 32 + 4) == 8 ? FMT_MOUSE : 0;
     LOG("IDirectInputDevice8A::SetDataFormat", "(%s, flags 0x%X, data %u bytes, %u objects) -> DI_OK", dev_name(o), flags, data, n);
     RET(DI_OK, 2);
 }
@@ -289,7 +310,7 @@ static void dev_Acquire(void) {
         uint32_t fgw = hle_call_guest(hle_resolve("GetForegroundWindow"), 0, NULL);
         hr = fgw == o->hwnd ? DI_OK : DIERR_OTHERAPPHASPRIO;
     } else hr = DI_OK;
-    if (hr == DI_OK) o->acquired = 1;
+    if (hr == DI_OK) o->acquired = 1, baseline(o), relative_mouse();
     LOG("IDirectInputDevice8A::Acquire", "(%s, coop 0x%X) -> 0x%08X", dev_name(o), o->coop, hr);
     RET(hr, 1);
 }
@@ -298,8 +319,159 @@ static void dev_Unacquire(void) {
     if (!o) RET(DIERR_INVALIDPARAM, 1);
     uint32_t hr = o->acquired ? DI_OK : DI_NOEFFECT;
     o->acquired = 0;
+    relative_mouse();
     LOG("IDirectInputDevice8A::Unacquire", "(%s) -> 0x%08X", dev_name(o), hr);
     RET(hr, 1);
+}
+
+/* ---- input: win32hle's keyboard and mouse state (user32.c), which the host
+ * feeds from SDL; the same state a game's window messages come from ----
+ * The keyboard reports DIK scan codes, the mouse relative axes (the movement,
+ * edges or not: hle_input_raw) and three buttons. Buffered data: each change
+ * is an event, recorded when input arrives (hle_input_hook) and at each read,
+ * so a press and release between two reads are both kept. An exclusive mouse
+ * asks the host for movement alone (hle_input_relative_hook), as Windows
+ * gives it. The virtual key to DIK table is win32hle's (dinput.c, MIT). */
+static uint8_t g_dik[256];
+static void dik_table(void) {
+    if (g_dik[0x1B]) return;
+    static const struct { uint8_t vk, dik; } t[] = {
+        { 0x1B, 0x01 }, { 0x31, 0x02 }, { 0x32, 0x03 }, { 0x33, 0x04 }, { 0x34, 0x05 }, { 0x35, 0x06 }, { 0x36, 0x07 },
+        { 0x37, 0x08 }, { 0x38, 0x09 }, { 0x39, 0x0A }, { 0x30, 0x0B }, { 0xBD, 0x0C }, { 0xBB, 0x0D }, { 0x08, 0x0E },
+        { 0x09, 0x0F }, { 'Q', 0x10 }, { 'W', 0x11 }, { 'E', 0x12 }, { 'R', 0x13 }, { 'T', 0x14 }, { 'Y', 0x15 },
+        { 'U', 0x16 }, { 'I', 0x17 }, { 'O', 0x18 }, { 'P', 0x19 }, { 0xDB, 0x1A }, { 0xDD, 0x1B }, { 0x0D, 0x1C },
+        { 0xA2, 0x1D }, { 'A', 0x1E }, { 'S', 0x1F }, { 'D', 0x20 }, { 'F', 0x21 }, { 'G', 0x22 }, { 'H', 0x23 },
+        { 'J', 0x24 }, { 'K', 0x25 }, { 'L', 0x26 }, { 0xBA, 0x27 }, { 0xDE, 0x28 }, { 0xC0, 0x29 }, { 0xA0, 0x2A },
+        { 0xDC, 0x2B }, { 'Z', 0x2C }, { 'X', 0x2D }, { 'C', 0x2E }, { 'V', 0x2F }, { 'B', 0x30 }, { 'N', 0x31 },
+        { 'M', 0x32 }, { 0xBC, 0x33 }, { 0xBE, 0x34 }, { 0xBF, 0x35 }, { 0xA1, 0x36 }, { 0x6A, 0x37 }, { 0xA4, 0x38 },
+        { 0x20, 0x39 }, { 0x14, 0x3A }, { 0x70, 0x3B }, { 0x71, 0x3C }, { 0x72, 0x3D }, { 0x73, 0x3E }, { 0x74, 0x3F },
+        { 0x75, 0x40 }, { 0x76, 0x41 }, { 0x77, 0x42 }, { 0x78, 0x43 }, { 0x79, 0x44 }, { 0x90, 0x45 }, { 0x91, 0x46 },
+        { 0x67, 0x47 }, { 0x68, 0x48 }, { 0x69, 0x49 }, { 0x6D, 0x4A }, { 0x64, 0x4B }, { 0x65, 0x4C }, { 0x66, 0x4D },
+        { 0x6B, 0x4E }, { 0x61, 0x4F }, { 0x62, 0x50 }, { 0x63, 0x51 }, { 0x60, 0x52 }, { 0x6E, 0x53 }, { 0x7A, 0x57 },
+        { 0x7B, 0x58 }, { 0xA3, 0x9D }, { 0x6F, 0xB5 }, { 0xA5, 0xB8 }, { 0x13, 0xC5 }, { 0x24, 0xC7 }, { 0x26, 0xC8 },
+        { 0x21, 0xC9 }, { 0x25, 0xCB }, { 0x27, 0xCD }, { 0x23, 0xCF }, { 0x28, 0xD0 }, { 0x22, 0xD1 }, { 0x2D, 0xD2 },
+        { 0x2E, 0xD3 }, { 0x5B, 0xDB }, { 0x5C, 0xDC }, { 0x5D, 0xDD },
+    };
+    for (size_t i = 0; i < sizeof t / sizeof *t; i++) g_dik[t[i].vk] = t[i].dik;
+}
+/* the keyboard as DIK bytes (0x80 down); generic Shift, Control, Alt count as the left ones */
+static void keyboard(uint8_t out[256]) {
+    dik_table();
+    memset(out, 0, 256);
+    for (int vk = 1; vk < 256; vk++)
+        if ((hle_input_vk((uint32_t)vk) & 0x80) && g_dik[vk]) out[g_dik[vk]] = 0x80;
+    if (hle_input_vk(0x10) & 0x80 && !out[0x36]) out[0x2A] = 0x80;
+    if (hle_input_vk(0x11) & 0x80 && !out[0x9D]) out[0x1D] = 0x80;
+    if (hle_input_vk(0x12) & 0x80 && !out[0xB8]) out[0x38] = 0x80;
+}
+static void buttons(uint8_t out[3]) {
+    out[0] = hle_input_vk(1) & 0x80, out[1] = hle_input_vk(2) & 0x80, out[2] = hle_input_vk(4) & 0x80;
+}
+static uint32_t g_seq;
+static void push(obj_t *o, uint32_t ofs, uint32_t data) {
+    uint32_t cap = o->buffer_size < 256 ? o->buffer_size : 256;
+    if ((uint32_t)o->qn >= cap) { o->overflow = 1; return; }
+    o->q[o->qn].ofs = ofs, o->q[o->qn].data = data, o->q[o->qn].time = hle_ticks_ms(), o->q[o->qn].seq = ++g_seq;
+    o->qn++;
+}
+static void gather(obj_t *o) {
+    if (o->dev == DEV_MOUSE) {
+        int x, y;
+        uint8_t b[3];
+        hle_input_raw(&x, &y);
+        if (x != o->buf_x) push(o, 0, (uint32_t)(x - o->buf_x));
+        if (y != o->buf_y) push(o, 4, (uint32_t)(y - o->buf_y));
+        o->buf_x = x, o->buf_y = y;
+        int z = hle_input_wheel_total();
+        if (z != o->buf_z) push(o, 8, (uint32_t)(z - o->buf_z)), o->buf_z = z;
+        buttons(b);
+        for (int i = 0; i < 3; i++)
+            if (b[i] != o->buf_buttons[i]) push(o, 12u + (uint32_t)i, b[i]), o->buf_buttons[i] = b[i];
+    } else {
+        uint8_t k[256];
+        keyboard(k);
+        for (int i = 0; i < 256; i++)
+            if (k[i] != o->buf_keys[i]) push(o, (uint32_t)i, k[i]), o->buf_keys[i] = k[i];
+    }
+}
+static void input_arrived(void) {
+    for (int i = 0; i < MAX_OBJS; i++)
+        if (g_obj[i].va && g_obj[i].kind == OBJ_DEV && g_obj[i].acquired) gather(&g_obj[i]);
+}
+/* at Acquire: reads start from the state now */
+static void baseline(obj_t *o) {
+    hle_input_raw(&o->last_x, &o->last_y);
+    o->buf_x = o->last_x, o->buf_y = o->last_y;
+    o->last_z = o->buf_z = hle_input_wheel_total();
+    buttons(o->buf_buttons);
+    keyboard(o->buf_keys);
+    o->qn = 0, o->overflow = 0;
+}
+static void relative_mouse(void) {
+    int on = 0;
+    for (int i = 0; i < MAX_OBJS; i++)
+        if (g_obj[i].va && g_obj[i].kind == OBJ_DEV && g_obj[i].dev == DEV_MOUSE && g_obj[i].acquired &&
+            (g_obj[i].coop & DISCL_EXCLUSIVE)) on = 1;
+    static int was = -1;
+    if (on != was && hle_input_relative_hook) hle_input_relative_hook(on);
+    was = on;
+}
+
+static void dev_GetDeviceState(void) {                  /* (this, cbData, lpvData) */
+    obj_t *o = obj_of(A32(0), OBJ_DEV);
+    uint32_t n = A32(1), p = A32(2), hr;
+    if (!o) RET(DIERR_INVALIDPARAM, 3);
+    if (!o->fmt) hle_fatal("[dinput8] GetDeviceState(%s): the data format is not c_dfDIKeyboard / c_dfDIMouse (not handled)", dev_name(o));
+    if (!p || n != o->data_size) hr = DIERR_INVALIDPARAM;
+    else if (!o->acquired) hr = DIERR_NOTACQUIRED;
+    else {
+        memset(hle_ptr(p), 0, n);
+        if (o->dev == DEV_MOUSE) {                      /* DIMOUSESTATE: lX, lY, lZ, rgbButtons[4] */
+            int x, y, z = hle_input_wheel_total();
+            uint8_t b[3];
+            hle_input_raw(&x, &y);
+            buttons(b);
+            MEM32(p) = (uint32_t)(x - o->last_x), MEM32(p + 4) = (uint32_t)(y - o->last_y), MEM32(p + 8) = (uint32_t)(z - o->last_z);
+            o->last_x = x, o->last_y = y, o->last_z = z;
+            for (uint32_t i = 0; i < 3; i++) MEM8(p + 12 + i) = b[i];
+        } else {
+            uint8_t k[256];
+            keyboard(k);
+            memcpy(hle_ptr(p), k, 256);
+        }
+        hr = DI_OK;
+    }
+    LOG("IDirectInputDevice8A::GetDeviceState", "(%s, %u bytes) -> 0x%08X", dev_name(o), n, hr);
+    RET(hr, 3);
+}
+/* (this, cbObjectData, rgdod, pdwInOut, dwFlags): DIDEVICEOBJECTDATA in
+ * DirectInput 8 is 20 bytes (ofs, data, time stamp, sequence, uAppData). */
+static void dev_GetDeviceData(void) {
+    obj_t *o = obj_of(A32(0), OBJ_DEV);
+    uint32_t sz = A32(1), out = A32(2), io = A32(3), flags = A32(4), hr;
+    if (!o) RET(DIERR_INVALIDPARAM, 5);
+    if (!o->fmt) hle_fatal("[dinput8] GetDeviceData(%s): the data format is not c_dfDIKeyboard / c_dfDIMouse (not handled)", dev_name(o));
+    if (!io || (sz != 20 && sz != 16) || (flags & ~DIGDD_PEEK)) { hr = DIERR_INVALIDPARAM; goto done; }
+    if (!o->buffer_size) { hr = DIERR_NOTBUFFERED; goto done; }
+    if (!o->acquired) { hr = DIERR_NOTACQUIRED; goto done; }
+    gather(o);
+    hr = o->overflow ? DI_BUFFEROVERFLOW : DI_OK;
+    uint32_t want = MEM32(io), n = (uint32_t)o->qn < want ? (uint32_t)o->qn : want;
+    for (uint32_t i = 0; out && i < n; i++) {
+        uint32_t e = out + i * sz;
+        MEM32(e) = o->q[i].ofs, MEM32(e + 4) = o->q[i].data, MEM32(e + 8) = o->q[i].time, MEM32(e + 12) = o->q[i].seq;
+        if (sz == 20) MEM32(e + 16) = 0;                /* uAppData: no action map */
+    }
+    if (!(flags & DIGDD_PEEK)) {
+        memmove(o->q, o->q + n, sizeof o->q[0] * (size_t)(o->qn - (int)n));
+        o->qn -= (int)n, o->overflow = 0;
+    }
+    MEM32(io) = n;
+    if (n) LOG("IDirectInputDevice8A::GetDeviceData", "(%s, %u wanted) -> 0x%08X, %u events", dev_name(o), want, hr, n);
+    RET(hr, 5);
+done:
+    LOG("IDirectInputDevice8A::GetDeviceData", "(%s, size %u, flags 0x%X) -> 0x%08X", dev_name(o), sz, flags, hr);
+    RET(hr, 5);
 }
 
 /* ---- DirectInput8Create ---- */
@@ -352,6 +524,8 @@ static const win32hle_shim g_impl[] = {
     { "IDirectInputDevice8A::Unacquire",             dev_Unacquire },
     { "IDirectInputDevice8A::SetDataFormat",         dev_SetDataFormat },
     { "IDirectInputDevice8A::SetCooperativeLevel",   dev_SetCooperativeLevel },
+    { "IDirectInputDevice8A::GetDeviceState",        dev_GetDeviceState },
+    { "IDirectInputDevice8A::GetDeviceData",         dev_GetDeviceData },
     { 0, 0 }
 };
 
@@ -387,6 +561,7 @@ static const tm_host_dll g_dll = {
 
 void tm_dinput8_init(void) {
     win32hle_register(g_impl);
+    hle_input_hook = input_arrived;
     g_vt_di = make_vtable("IDirectInput8A", di_methods, 11);
     g_vt_dev = make_vtable("IDirectInputDevice8A", dev_methods, 32);
     tm_loader_add(&g_dll);

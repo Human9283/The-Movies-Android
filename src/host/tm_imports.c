@@ -48,6 +48,26 @@ const tm_import_info tm_import_table[] = {
     { "FindNextFileA", TM_IMPLEMENTED,
       "the listing made by FindFirstFileA; ERROR_NO_MORE_FILES (handle stays valid), ERROR_INVALID_HANDLE, "
       "ERROR_INVALID_PARAMETER; tests/c/test_vfs.c, test_vfs_audit.c" },
+    { "CoInitialize", TM_IMPLEMENTED,
+      "CoInitializeEx(NULL, COINIT_APARTMENTTHREADED): per thread, S_OK then S_FALSE; tests/c/test_ole32.c" },
+    { "CoInitializeEx", TM_IMPLEMENTED,
+      "per thread: S_OK, S_FALSE for the same model, RPC_E_CHANGED_MODE for the other, E_INVALIDARG for a "
+      "reserved pointer; tests/c/test_ole32.c" },
+    { "CoUninitialize", TM_IMPLEMENTED, "undoes one counted initialisation of the thread; tests/c/test_ole32.c" },
+    { "FindFirstFileW", TM_IMPLEMENTED,
+      "FindFirstFileA's search: the pattern converted with the guest's WideCharToMultiByte (CP_ACP), the names back "
+      "with MultiByteToWideChar; a pattern outside the ANSI code page stops the run; tests/c/test_vfs.c" },
+    { "FindNextFileW", TM_IMPLEMENTED,
+      "FindNextFileA on the same handle, the name converted to UTF-16; tests/c/test_vfs.c" },
+    { "GetFullPathNameW", TM_IMPLEMENTED,
+      "GetFullPathNameA's rules (Windows path normalisation), the name converted both ways (CP_ACP); the file part "
+      "points into the wide buffer; a UNC name stops the run; tests/c/test_vfs.c" },
+    { "CreateFileW", TM_IMPLEMENTED,
+      "CreateFileA's override with the name converted (CP_ACP, as FindFirstFileW); tests/c/test_vfs.c" },
+    { "GetFileAttributesW", TM_IMPLEMENTED,
+      "GetFileAttributesA's override with the name converted; tests/c/test_vfs.c" },
+    { "DeleteFileW", TM_IMPLEMENTED, "DeleteFileA's override with the name converted; tests/c/test_vfs.c" },
+    { "CreateDirectoryW", TM_IMPLEMENTED, "CreateDirectoryA's override with the name converted; tests/c/test_vfs.c" },
     { "FindClose", TM_IMPLEMENTED,
       "closes a search handle only; any other handle: FALSE, ERROR_INVALID_HANDLE, left open; "
       "tests/c/test_vfs_audit.c" },

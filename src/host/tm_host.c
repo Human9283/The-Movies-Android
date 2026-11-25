@@ -37,6 +37,7 @@
 #include "tm_wmvcore.h"
 #include "tm_dshow.h"
 #include "tm_d3d9.h"
+#include "tm_ole32.h"
 #include "tm_imports.h"
 #include "tm_itrace.h"
 
@@ -232,6 +233,7 @@ static void on_alarm(int sig) {
     fprintf(stderr, "[watchdog] expired after %.0f ms: %u entries, %u distinct, in sub_%08X\n",
             ms_since_start(), g_entries, g_distinct, g_cur_func);
     recomp_dump_trace("watchdog");
+    tm_dinput8_report(stderr), tm_dshow_report(stderr), tm_d3d9_report(stderr);   /* diagnostic, as the crash report */
     itrace_flush();
     _exit(4);
 }
@@ -283,6 +285,7 @@ int main(int argc, char **argv) {
     win32hle_register(tm_kernel32_overrides);
     win32hle_register(tm_sysroot_overrides);
     win32hle_register(tm_vfs_overrides);
+    win32hle_register(tm_ole32_overrides);
     tm_dinput8_init();
     tm_wmvcore_init();
     tm_dshow_init();
