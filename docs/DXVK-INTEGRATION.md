@@ -214,6 +214,19 @@ before (`tests/m3_boundary.py`).
 - **`Present`.** The window override and dirty region must be NULL,
   otherwise the run stops. After presenting, win32hle is told where the
   picture is, so the mouse maps onto it.
+- **Mouse.** The game reads the mouse through DirectInput (non-exclusive:
+  its `SetCooperativeLevel` with a NULL window fails with `E_HANDLE`, as
+  on Windows, and it acquires the device anyway), moves its own cursor by
+  the relative movement times its sensitivity setting (about 1.5 measured),
+  and calls `SetCursorPos(512, 384)` each frame. win32hle counts movement
+  without the `SetCursorPos` jumps, as Windows does. Two win32hle changes
+  were needed in a window without an SDL renderer
+  (`patches/pcrecomp/0003-screen-mouse-in-gl-window.patch`):
+  - the mouse is held in the window there too;
+  - `SetCursorPos` moves the host's pointer by the picture `Present`
+    reported, since a Direct3D game sets no DirectDraw mode. Before, the
+    pointer stayed where it was, and every movement counted from the
+    centre again, so the game's cursor ran to an edge.
 - **Full screen.** A full-screen device sets the guest's display size
   (`hle_set_screen_size`), as a mode change does on Windows.
 - **Not implemented.** Every other method is a diagnostic stop. It prints
@@ -235,6 +248,9 @@ seconds, `docs/traces/dxvk_run_imports.json` for the imports):
   - the animated Lionhead Studios logo, from frame 1;
   - then the main menu: the logo, six items in the Russian edition's text,
     and the cursor, by frame 3000.
+- The menus respond to the mouse: `tools/xvfb_clicks.sh` clicks
+  "Играть", then "Загрузить игру", and the game shows its load screen with
+  its backdrop and an empty list (no saves yet).
 - The menu's backdrop is black. It is a video, and Windows Media playback
   is not implemented (DIRECTSHOW-STARTUP.md).
 - About 60 frames a second through lavapipe.

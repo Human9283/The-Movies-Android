@@ -622,6 +622,15 @@ more imports, and none of them is a stub:
   (`GetSystemInfo`, `GlobalMemoryStatus`, `GetProcessAffinityMask`,
   `SetProcessAffinityMask`, `IsProcessorFeaturePresent`).
 
+Past the main menu ("Посмотреть фильм", the film viewer) the game asks
+`waveInGetDevCapsA(WAVE_MAPPER, ..., 48)` (`sub_009B5B00`, setting up
+recording). win32hle has no wave input device (`waveInGetNumDevs` 0,
+`waveInOpen` `MMSYSERR_BADDEVICEID`); `src/host/tm_winmm.c` answers
+`waveInGetDevCapsA` in the same model: `MMSYSERR_BADDEVICEID` for every
+identifier, the mapper included. [hyp.] Windows XP's answer for the mapper
+with no recording device is not checked; the game treats any non-zero
+result as no recording.
+
 DirectInput 8 now answers `GetDeviceState` and `GetDeviceData` for the
 keyboard and the mouse from win32hle's input state (`src/host/tm_dinput8.c`;
 the key table is win32hle's `dinput.c`, MIT).

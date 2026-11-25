@@ -1,0 +1,43 @@
+--- a/runtime/win32hle/screen.c
++++ b/runtime/win32hle/screen.c
+@@ -773,9 +773,17 @@
+ 
+ /* A rectangle of the renderer's pixels (g_dst) in the window's points, which
+  * mouse calls take: they differ on a HiDPI display. */
++/* the window's size in pixels: the renderer's, or in GL mode the drawable's
++ * (the-movies-android patch: the mouse is held in a GL or Vulkan window too) */
++static void out_size(int *pw, int *ph) {
++    *pw = *ph = 0;
++    if (g_ren) SDL_GetRendererOutputSize(g_ren, pw, ph);
++    else if (hle_screen_gl == 2) SDL_Vulkan_GetDrawableSize(g_win, pw, ph);
++    else if (hle_screen_gl) SDL_GL_GetDrawableSize(g_win, pw, ph);
++}
+ static SDL_Rect to_points(SDL_Rect r) {
+     int pw, ph, ww, wh;
+-    SDL_GetRendererOutputSize(g_ren, &pw, &ph);
++    out_size(&pw, &ph);
+     SDL_GetWindowSize(g_win, &ww, &wh);
+     if (pw <= 0 || ph <= 0) return r;
+     int x0 = (int)(((long long)r.x * ww + pw - 1) / pw), y0 = (int)(((long long)r.y * wh + ph - 1) / ph);
+@@ -813,7 +821,7 @@
+ #if !defined(__EMSCRIPTEN__) && SDL_VERSION_ATLEAST(2, 0, 18)
+     static int held;
+     static SDL_Rect at;
+-    if (!g_win || !g_ren) return;
++    if (!g_win || (!g_ren && !hle_screen_gl)) return;
+     int want = g_confine && !g_released && !g_menu_depth && g_dst.w > 0 && g_dst.h > 0
+                && (SDL_GetWindowFlags(g_win) & SDL_WINDOW_INPUT_FOCUS);
+     SDL_Rect r = want ? to_points(g_dst) : (SDL_Rect){ 0, 0, 0, 0 };
+@@ -941,9 +949,9 @@
+ 
+ /* The guest moved the cursor (SetCursorPos): move the real one with it. */
+ static void warp(int x, int y) {
+-    int w, h, bpp;
+-    hle_dd_mode(&w, &h, &bpp);
+-    if (!g_win || !g_ren || g_rel || g_dst.w <= 0 || w <= 0 || h <= 0) return;   /* relative: there is no pointer to move */
++    int w = g_src_w, h = g_src_h, bpp;                  /* the picture last shown (a Direct3D game has no DirectDraw mode) */
++    if (w <= 0 || h <= 0) hle_dd_mode(&w, &h, &bpp);
++    if (!g_win || (!g_ren && !hle_screen_gl) || g_rel || g_dst.w <= 0 || w <= 0 || h <= 0) return;   /* relative: there is no pointer to move */
+     SDL_Rect p = to_points((SDL_Rect){ g_dst.x + x * g_dst.w / w, g_dst.y + y * g_dst.h / h, 0, 0 });
+     SDL_WarpMouseInWindow(g_win, p.x, p.y);
+ }

@@ -170,6 +170,7 @@ function counts below) differs with it (docs/M2.md 2).
 | `--user DIR` | the guest's `D:\`: My Documents, Application Data, Local Settings\Temp (default `./tm_user`) |
 | `--seen-out FILE` | write every function entry address the run executed (`%08X`, one per line) on exit, on a crash and at `--stop-at-winmain`; input to `tools/eh_scan.py` |
 | `--d3d9 dxvk` | open the game's window and create its Direct3D 9 device on DXVK Native (only in a build with `TM_DXVK_PREFIX`, 5.1); without it the run is headless and stops at `CreateDevice` |
+| `--mouse free` | do not hold the mouse in the window (win32hle holds it while the window has focus). For runs on Xvfb, whose pointer barriers stop win32hle's cursor warps |
 | `--system DIR` | the guest's `C:\WINDOWS` (with `SYSTEM32`), the runtime system directory (default `./tm_system`); the game, user and system directories may not be inside one another |
 
 Output lines:
@@ -181,6 +182,12 @@ Output lines:
 | `[shell] ...`, `[MessageBoxW] ...` | our shims answering the game |
 | `ICALL: unresolved VA` | an indirect call into code that was not lifted: a defect to fix |
 | `=== abort / SIGSEGV ...` | crash report: function, last import, registers, guest stack, last 32 function entries |
+
+Clicking through the menus without a desktop: `tools/xvfb_clicks.sh HOST
+GAME OUT WAIT X,Y[:PAUSE]...` runs the game on its own Xvfb screen and
+clicks the given points of the 1024×768 picture (needs `Xvfb`, `xdotool`
+and ImageMagick's `import`; the script says how it aims).
+`TM_DINPUT_TRACE=1` prints every buffered DirectInput event.
 
 Environment: `TM_D3D9_SHOTS=DIR` (with `--d3d9 dxvk`) writes the back buffer
 as `DIR/frame_NNNNNN.ppm` before `Present` 1, 2, 4, 8... and every 1000th.
@@ -227,6 +234,7 @@ Shim tests (no game files needed):
   error results, and what must stop the run;
 - `test_d3d9`: `d3d9.dll`, `Direct3DCreate9`, the device-free
   `IDirect3D9` methods, and what must stop the run;
+- `test_winmm`: `waveInGetDevCapsA` with no wave input device;
 - `test_ole32`: COM apartments (`CoInitialize`, `CoInitializeEx`,
   `CoUninitialize`) per thread;
 - `test_d3d9_dxvk` (only with `TM_DXVK_PREFIX` and `xvfb-run`): the DXVK

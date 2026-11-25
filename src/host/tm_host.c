@@ -38,6 +38,7 @@
 #include "tm_dshow.h"
 #include "tm_d3d9.h"
 #include "tm_ole32.h"
+#include "tm_winmm.h"
 #include "tm_d3d9_backend.h"
 #ifdef TM_HAVE_DXVK
 #include "tm_d3d9_dxvk.h"
@@ -274,6 +275,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--import-trace") && i + 1 < argc) g_itrace_path = argv[++i];
         else if (!strcmp(argv[i], "--seen-out") && i + 1 < argc) g_seen_path = argv[++i];
         else if (!strcmp(argv[i], "--d3d9") && i + 1 < argc) d3d9_backend = argv[++i];
+        else if (!strcmp(argv[i], "--mouse") && i + 1 < argc && !strcmp(argv[i + 1], "free")) hle_screen_confine(0), i++;
         else if (argv[i][0] != '-' && !game) game = argv[i];
         else { fprintf(stderr, "unknown option %s\n", argv[i]); return 64; }
     }
@@ -309,6 +311,7 @@ int main(int argc, char **argv) {
     win32hle_register(tm_sysroot_overrides);
     win32hle_register(tm_vfs_overrides);
     win32hle_register(tm_ole32_overrides);
+    win32hle_register(tm_winmm_overrides);
     tm_dinput8_init();
     tm_wmvcore_init();
     tm_dshow_init();

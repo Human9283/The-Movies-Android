@@ -53,6 +53,9 @@ const tm_import_info tm_import_table[] = {
     { "CoInitializeEx", TM_IMPLEMENTED,
       "per thread: S_OK, S_FALSE for the same model, RPC_E_CHANGED_MODE for the other, E_INVALIDARG for a "
       "reserved pointer; tests/c/test_ole32.c" },
+    { "waveInGetDevCapsA", TM_IMPLEMENTED,
+      "no wave input device, as win32hle's waveInGetNumDevs (0) and waveInOpen say: MMSYSERR_BADDEVICEID for every "
+      "identifier, WAVE_MAPPER included; MMSYSERR_INVALPARAM for a NULL WAVEINCAPSA; tests/c/test_winmm.c" },
     { "CoUninitialize", TM_IMPLEMENTED, "undoes one counted initialisation of the thread; tests/c/test_ole32.c" },
     { "FindFirstFileW", TM_IMPLEMENTED,
       "FindFirstFileA's search: the pattern converted with the guest's WideCharToMultiByte (CP_ACP), the names back "

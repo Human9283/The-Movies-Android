@@ -46,10 +46,13 @@ list(FILTER HLE_SOURCES EXCLUDE REGEX "_selftest\\.c$")
 #         system directory), and guest paths made absolute the Windows way
 #         before they are matched (docs/IMPORTS.md, "The virtual file system").
 #   0002: win32hle's path selftest, for 0001's relative-name change.
+#   0003: screen.c holds the mouse in a Vulkan or GL window as in an SDL
+#         renderer's, so an exclusive DirectInput mouse gets relative
+#         movement there too (docs/DXVK-INTEGRATION.md 5).
 set(HLE_PATCHED "${CMAKE_BINARY_DIR}/win32hle_patched")
 file(MAKE_DIRECTORY "${HLE_PATCHED}")
 find_program(PATCH_EXE patch REQUIRED)
-foreach(pf hle_path.c hle_path_selftest.c)
+foreach(pf hle_path.c hle_path_selftest.c screen.c)
   configure_file("${PCRECOMP}/runtime/win32hle/${pf}" "${HLE_PATCHED}/${pf}" COPYONLY)
 endforeach()
 file(GLOB TM_HLE_PATCHES "${CMAKE_SOURCE_DIR}/patches/pcrecomp/*.patch")
@@ -61,15 +64,15 @@ foreach(pp ${TM_HLE_PATCHES})
   endif()
 endforeach()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${TM_HLE_PATCHES})
-list(FILTER HLE_SOURCES EXCLUDE REGEX "/hle_path\\.c$")
-list(APPEND HLE_SOURCES "${HLE_PATCHED}/hle_path.c")
+list(FILTER HLE_SOURCES EXCLUDE REGEX "/(hle_path|screen)\\.c$")
+list(APPEND HLE_SOURCES "${HLE_PATCHED}/hle_path.c" "${HLE_PATCHED}/screen.c")
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2 SDL2_ttf)
 find_package(Threads REQUIRED)
 
 add_library(tm_gen OBJECT ${GEN_SOURCES})
-add_executable(tm_host src/host/tm_host.c src/host/tm_shell.c src/host/tm_user32.c src/host/tm_imports.c src/host/tm_itrace.c src/host/tm_kernel32.c src/host/tm_except.c src/host/tm_loader.c src/host/tm_dinput8.c src/host/tm_sysroot.c src/host/tm_vfs.c src/host/tm_wmvcore.c src/host/tm_dshow.c src/host/tm_d3d9.c src/host/tm_ole32.c ${HLE_SOURCES}
+add_executable(tm_host src/host/tm_host.c src/host/tm_shell.c src/host/tm_user32.c src/host/tm_imports.c src/host/tm_itrace.c src/host/tm_kernel32.c src/host/tm_except.c src/host/tm_loader.c src/host/tm_dinput8.c src/host/tm_sysroot.c src/host/tm_vfs.c src/host/tm_wmvcore.c src/host/tm_dshow.c src/host/tm_d3d9.c src/host/tm_ole32.c src/host/tm_winmm.c ${HLE_SOURCES}
                src/host/tm_trace.c $<TARGET_OBJECTS:tm_gen>)
 
 foreach(t tm_gen tm_host)
@@ -114,6 +117,7 @@ tm_c_test(test_loader_audit src/host/tm_loader.c src/host/tm_dinput8.c)
 tm_c_test(test_dshow src/host/tm_dshow.c)
 tm_c_test(test_d3d9 src/host/tm_d3d9.c src/host/tm_loader.c)
 tm_c_test(test_ole32 src/host/tm_ole32.c)
+tm_c_test(test_winmm src/host/tm_winmm.c)
 # win32hle's own path selftest (patched by 0002), run against the patched hle_path.c
 add_executable(hle_path_selftest ${HLE_PATCHED}/hle_path_selftest.c ${HLE_SOURCES})
 target_include_directories(hle_path_selftest PRIVATE ${PCRECOMP}/runtime/recomp32 ${PCRECOMP}/runtime/win32hle)

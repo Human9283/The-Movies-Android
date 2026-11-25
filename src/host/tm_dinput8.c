@@ -369,6 +369,9 @@ static void buttons(uint8_t out[3]) {
 }
 static uint32_t g_seq;
 static void push(obj_t *o, uint32_t ofs, uint32_t data) {
+    static int trace = -1;                              /* TM_DINPUT_TRACE=1: every buffered event, for input debugging */
+    if (trace < 0) trace = getenv("TM_DINPUT_TRACE") != NULL;
+    if (trace) fprintf(stderr, "[dinput8] event %s ofs %u data %d at %u ms\n", dev_name(o), ofs, (int)data, hle_ticks_ms());
     uint32_t cap = o->buffer_size < 256 ? o->buffer_size : 256;
     if ((uint32_t)o->qn >= cap) { o->overflow = 1; return; }
     o->q[o->qn].ofs = ofs, o->q[o->qn].data = data, o->q[o->qn].time = hle_ticks_ms(), o->q[o->qn].seq = ++g_seq;
