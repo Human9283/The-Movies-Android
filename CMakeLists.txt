@@ -69,7 +69,7 @@ pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2 SDL2_ttf)
 find_package(Threads REQUIRED)
 
 add_library(tm_gen OBJECT ${GEN_SOURCES})
-add_executable(tm_host src/host/tm_host.c src/host/tm_shell.c src/host/tm_user32.c src/host/tm_imports.c src/host/tm_itrace.c src/host/tm_kernel32.c src/host/tm_except.c src/host/tm_loader.c src/host/tm_dinput8.c src/host/tm_sysroot.c src/host/tm_vfs.c src/host/tm_wmvcore.c ${HLE_SOURCES}
+add_executable(tm_host src/host/tm_host.c src/host/tm_shell.c src/host/tm_user32.c src/host/tm_imports.c src/host/tm_itrace.c src/host/tm_kernel32.c src/host/tm_except.c src/host/tm_loader.c src/host/tm_dinput8.c src/host/tm_sysroot.c src/host/tm_vfs.c src/host/tm_wmvcore.c src/host/tm_dshow.c ${HLE_SOURCES}
                src/host/tm_trace.c $<TARGET_OBJECTS:tm_gen>)
 
 foreach(t tm_gen tm_host)
@@ -111,6 +111,7 @@ tm_c_test(test_sysroot src/host/tm_sysroot.c src/host/tm_vfs.c src/host/tm_loade
 tm_c_test(test_vfs src/host/tm_vfs.c src/host/tm_sysroot.c src/host/tm_loader.c src/host/tm_wmvcore.c src/host/tm_dinput8.c)
 tm_c_test(test_vfs_audit src/host/tm_vfs.c src/host/tm_sysroot.c src/host/tm_loader.c)
 tm_c_test(test_loader_audit src/host/tm_loader.c src/host/tm_dinput8.c)
+tm_c_test(test_dshow src/host/tm_dshow.c)
 # win32hle's own path selftest (patched by 0002), run against the patched hle_path.c
 add_executable(hle_path_selftest ${HLE_PATCHED}/hle_path_selftest.c ${HLE_SOURCES})
 target_include_directories(hle_path_selftest PRIVATE ${PCRECOMP}/runtime/recomp32 ${PCRECOMP}/runtime/win32hle)

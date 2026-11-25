@@ -85,7 +85,8 @@ trace differ.
 - **No multi-threaded test.** The concurrency claim rests on the machine
   lock and is not exercised by a test.
 - **The exit-path fault** in `sub_00936350` is not explained: whether
-  Windows takes the same fault there.
+  Windows takes the same fault there. Since the DirectShow probe passes,
+  that path is no longer reached on the M3 run.
 - **Wide-character file APIs** (`CreateFileW`, `FindFirstFileW`, ...) are
   stubs and untested. They have not been called so far.
 - **The lifted code itself** is tested only through the M2 and M3 runs.
@@ -126,11 +127,9 @@ mapped from the APK.
 
 ## 9. Open decisions
 
-1. **DirectShow at start-up.** The probe passes only with a real filter
-   graph, capture graph builder and ASF writer filter. Either start-up
-   waits until film export works, or these three objects are implemented
-   for what they claim (graph bookkeeping and a writer filter with no
-   connected pins), and encoding comes later.
+1. **DirectShow at start-up.** *Decided and done*: the three objects are
+   implemented for the probe's contract only, and encoding comes later as
+   a separate capability (DIRECTSHOW-STARTUP.md 9).
 2. **Where to fix win32hle defects** (section 4): in host overrides, as
    for `FindClose`, or as patches to the pcrecomp copy in
    `patches/pcrecomp/`.
@@ -143,7 +142,7 @@ mapped from the APK.
 | # | Milestone | Done when |
 |---|---|---|
 | 1 | COM tracing at the boundary (`--com-trace`, design in DIRECTSHOW-STARTUP.md 7) | every `CoCreateInstance`, `QueryInterface`, `AddRef`/`Release` and method call is recorded on the M3 run |
-| 2 | Decision 1, then the start-up probe's three objects, with tests | `sub_009AD7A0` returns true; M3 baseline updated with the reason |
+| 2 | ✅ Decision 1, then the start-up probe's three objects, with tests | done: `sub_009AD7A0` returns true; `test_dshow` (63 checks); M3 baseline updated, the new boundary is `d3d9.dll` |
 | 3 | Past the Windows Media check to the main window | `CreateWindowEx` of the main window traced; `0x00FA7128` non-zero |
 | 4 | Recording Direct3D 9 layer (M3 3.4) | `Direct3DCreate9` and the caps queries traced |
 | 5 | arm64 Linux build and M2 run (level 2–3) | `tests/m2_winmain.py` passes on arm64 |

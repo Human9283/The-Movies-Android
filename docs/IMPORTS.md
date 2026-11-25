@@ -45,11 +45,11 @@ Run from the game directory with an empty user directory holding an empty
 described below (`tests/m3_boundary.py`; the full trace is
 [traces/m3_boundary_imports.json](traces/m3_boundary_imports.json)).
 
-329 imports bound, 90 called (48 before WinMain).
+329 imports bound, 88 called (48 before WinMain).
 
 | Import | Status | Calls | First called | First caller |
 |---|---|---:|---|---|
-| `ConvertSymbols` | implemented | 46 | before WinMain | `0x004035F0` |
+| `ConvertSymbols` | implemented | 44 | before WinMain | `0x004035F0` |
 | `GetModuleFileNameA` | implemented | 3 | before WinMain | `0x00A45266` |
 | `GetModuleHandleA` | implemented | 6 | before WinMain | `0x00A31571` |
 | `GetProcAddress` | implemented | 7 | before WinMain | `0x00A488E9` |
@@ -60,13 +60,13 @@ described below (`tests/m3_boundary.py`; the full trace is
 | `GetACP` | win32hle-present | 1 | before WinMain | `0x00A427E1` |
 | `GetCommandLineA` | win32hle-present | 1 | before WinMain | `0x00A31571` |
 | `GetCPInfo` | win32hle-present | 2 | before WinMain | `0x00A42641` |
-| `GetCurrentDirectoryA` | win32hle-present | 13 | before WinMain | `0x00A2F6FB` |
+| `GetCurrentDirectoryA` | win32hle-present | 14 | before WinMain | `0x00A2F6FB` |
 | `GetCurrentProcessId` | win32hle-present | 1 | before WinMain | `0x00A455A2` |
-| `GetCurrentThreadId` | win32hle-present | 3 | before WinMain | `0x00A37F62` |
+| `GetCurrentThreadId` | win32hle-present | 2 | before WinMain | `0x00A37F62` |
 | `GetEnvironmentStrings` | win32hle-present | 1 | before WinMain | `0x00A45308` |
 | `GetEnvironmentStringsW` | win32hle-present | 1 | before WinMain | `0x00A45308` |
 | `GetFileType` | win32hle-present | 30 | before WinMain | `0x00A41A46` |
-| `GetLastError` | win32hle-present | 998290 | before WinMain | `0x00A45308` |
+| `GetLastError` | win32hle-present | 1207734 | before WinMain | `0x00A45308` |
 | `GetLocaleInfoA` | win32hle-present | 3 | before WinMain | `0x00A48F49` |
 | `GetStartupInfoA` | win32hle-present | 2 | before WinMain | `0x00A41A46` |
 | `GetStdHandle` | win32hle-present | 3 | before WinMain | `0x00A41A46` |
@@ -75,9 +75,9 @@ described below (`tests/m3_boundary.py`; the full trace is
 | `GetSystemTimeAsFileTime` | win32hle-present | 1 | before WinMain | `0x00A455A2` |
 | `GetTickCount` | win32hle-present | 1 | before WinMain | `0x00A455A2` |
 | `GetVersionExA` | win32hle-present | 2 | before WinMain | `0x00A31571` |
-| `HeapAlloc` | win32hle-present | 269503 | before WinMain | `0x00A3473B` |
+| `HeapAlloc` | win32hle-present | 346839 | before WinMain | `0x00A3473B` |
 | `HeapCreate` | win32hle-present | 1 | before WinMain | `0x00A454CC` |
-| `HeapFree` | win32hle-present | 236158 | before WinMain | `0x00A31A7F` |
+| `HeapFree` | win32hle-present | 265439 | before WinMain | `0x00A31A7F` |
 | `HeapReAlloc` | win32hle-present | 6 | before WinMain | `0x00A34874` |
 | `HeapSize` | win32hle-present | 620 | before WinMain | `0x00A3D335` |
 | `InitializeCriticalSection` | win32hle-present | 46 | before WinMain | `0x00A488D9` |
@@ -87,35 +87,34 @@ described below (`tests/m3_boundary.py`; the full trace is
 | `LeaveCriticalSection` | win32hle-present | 988 | before WinMain | `0x00A35FBC` |
 | `LockResource` | win32hle-present | 1 | before WinMain | `0x00A41A46` |
 | `QueryPerformanceCounter` | win32hle-present | 1 | before WinMain | `0x00A455A2` |
-| `RegCloseKey` | win32hle-present | 15 | before WinMain | `0x009896B0` |
-| `RegCreateKeyExA` | win32hle-present | 15 | before WinMain | `0x009896C0` |
+| `RegCloseKey` | win32hle-present | 17 | before WinMain | `0x009896B0` |
+| `RegCreateKeyExA` | win32hle-present | 17 | before WinMain | `0x009896C0` |
 | `RegQueryValueExA` | win32hle-present | 15 | before WinMain | `0x00989790` |
-| `RegSetValueExA` | win32hle-present | 7 | before WinMain | `0x00989830` |
+| `RegSetValueExA` | win32hle-present | 9 | before WinMain | `0x00989830` |
 | `SetConsoleCtrlHandler` | win32hle-present | 1 | before WinMain | `0x00A34421` |
-| `SetLastError` | win32hle-present | 998250 | before WinMain | `0x00A37D6F` |
+| `SetLastError` | win32hle-present | 1207693 | before WinMain | `0x00A37D6F` |
 | `SetUnhandledExceptionFilter` | win32hle-present | 1 | before WinMain | `0x00A381F6` |
 | `TlsAlloc` | win32hle-present | 1 | before WinMain | `0x00A37D36` |
-| `TlsGetValue` | win32hle-present | 998251 | before WinMain | `0x00A37D6F` |
-| `TlsSetValue` | win32hle-present | 2 | before WinMain | `0x00A37F62` |
-| `MessageBoxW` | diagnostic | 2 | after WinMain | `0x005303C0` |
+| `TlsGetValue` | win32hle-present | 1207693 | before WinMain | `0x00A37D6F` |
+| `TlsSetValue` | win32hle-present | 1 | before WinMain | `0x00A37F62` |
+| `MessageBoxW` | diagnostic | 1 | after WinMain | `0x005303C0` |
+| `RaiseException` | diagnostic | 1 | after WinMain | `0x00BFA1A8` |
 | `CreateDirectoryA` | implemented | 43 | after WinMain | `0x00A2EBD7` |
 | `CreateFileA` | implemented | 28 | after WinMain | `0x00A489E0` |
 | `DeleteFileA` | implemented | 1 | after WinMain | `0x00A329D4` |
 | `FindClose` | implemented | 29 | after WinMain | `0x00A33368` |
-| `FindFirstFileA` | implemented | 178 | after WinMain | `0x00A33368` |
+| `FindFirstFileA` | implemented | 181 | after WinMain | `0x00A33368` |
 | `FindNextFileA` | implemented | 716 | after WinMain | `0x0095AAC0` |
 | `GetDiskFreeSpaceExW` | implemented | 1 | after WinMain | `0x00992DC0` |
 | `GetFullPathNameA` | implemented | 1 | after WinMain | `0x00A480C3` |
 | `GetSystemDirectoryA` | implemented | 1 | after WinMain | `0x0093C640` |
 | `GetTempPathA` | implemented | 1 | after WinMain | `0x00964740` |
-| `LoadLibraryA` | implemented | 2 | after WinMain | `0x00990730` |
+| `LoadLibraryA` | implemented | 3 | after WinMain | `0x00990730` |
 | `SHGetSpecialFolderPathA` | implemented | 1 | after WinMain | `0x009F9D20` |
 | `CloseHandle` | win32hle-present | 20 | after WinMain | `0x00A41F50` |
-| `CoCreateInstance` | win32hle-present | 1 | after WinMain | `0x009AD7A0` |
+| `CoCreateInstance` | win32hle-present | 3 | after WinMain | `0x009AD7A0` |
 | `CoInitialize` | win32hle-present | 2 | after WinMain | `0x009F9950` |
 | `CoUninitialize` | win32hle-present | 1 | after WinMain | `0x009AD7A0` |
-| `CreateEventA` | win32hle-present | 1 | after WinMain | `0x005303C0` |
-| `CreateThread` | win32hle-present | 1 | after WinMain | `0x00A2ECC9` |
 | `CreateWindowExA` | win32hle-present | 1 | after WinMain | `0x005303C0` |
 | `DefWindowProcA` | win32hle-present | 6 | after WinMain | `0x0052FCD0` |
 | `FileTimeToLocalFileTime` | win32hle-present | 27 | after WinMain | `0x00A33368` |
@@ -136,7 +135,6 @@ described below (`tests/m3_boundary.py`; the full trace is
 | `SetFilePointer` | win32hle-present | 69 | after WinMain | `0x00A44974` |
 | `SetRect` | win32hle-present | 1 | after WinMain | `0x005303C0` |
 | `ShowWindow` | win32hle-present | 1 | after WinMain | `0x005303C0` |
-| `WaitForSingleObject` | win32hle-present | 1 | after WinMain | `0x0052FC80` |
 | `WideCharToMultiByte` | win32hle-present | 10 | after WinMain | `0x00A40F71` |
 | `WriteFile` | win32hle-present | 1 | after WinMain | `0x00A446FB` |
 
@@ -561,9 +559,10 @@ needed) and WinMain goes to its exit path.
    - `IFilterGraph::AddFilter(writer, L"ASF Enc/Writer")`;
    - Release of all three, then `CoUninitialize`.
 
-   It returns true only if every call succeeds. The first one fails here:
-   win32hle's `CoCreateInstance` has no `CLSID_FilterGraph`
-   (`REGDB_E_CLASSNOTREG`). So the check fails, correctly.
+   It returns true only if every call succeeds. Before
+   `src/host/tm_dshow.c`, the first one failed (`REGDB_E_CLASSNOTREG`).
+   **It now succeeds**: the three objects exist for this contract only
+   (DIRECTSHOW-STARTUP.md, section 9).
 
 This corrects what this file said before ("start-up needs `wmvcore.dll`
 only to exist"). That was read from the first part alone. Start-up also
@@ -571,15 +570,21 @@ needs the DirectShow filter graph, the capture graph builder, and the
 Windows Media ASF Writer filter to be creatable, and the writer to be
 addable to a graph. Those are the objects of the film-export path.
 
-After the box, as before, the run ends with a SIGSEGV on the game's exit
-path: a read of guest address `0x00000004` in `sub_00936350`, from
-`sub_0092FB20`. Whether Windows takes the same fault there has not been
-checked.
+With both parts passing, the check no longer shows its warning box. The
+exit path that followed the box is no longer reached. That path had a
+SIGSEGV reading guest `0x00000004` in `sub_00936350`, from `sub_0092FB20`.
+Whether Windows takes the same fault there was never checked.
 
-The main window has not been created at this point. One window exists
-(`ShowWindow` on handle `0x00010010`), and the main-window variable at
-`0x00FA7128` is still 0. So DirectInput's `SetCooperativeLevel` still
-fails with `E_HANDLE` for both devices, as it should for a NULL window.
+**Now the run stops at Direct3D 9.** The game delay-loads `d3d9.dll` for
+`Direct3DCreate9`. win32hle has no such DLL (`LoadLibraryA` gives
+`ERROR_MOD_NOT_FOUND`), so the delay-load helper raises `0xC06D007E`
+(decoded by `tm:RaiseException`: `dliFailLoadLib`, IAT slot `0x00ED3748`).
+This is the planned boundary: the recording Direct3D 9 layer is the next
+M3 step.
+
+One window exists (`CreateWindowExA` from `WinMain`, handle `0x00010010`),
+as before. DirectInput's `SetCooperativeLevel` still fails with `E_HANDLE`
+for both devices, because the game passes a NULL window.
 
 `tests/m3_boundary.py` holds this boundary; the run is reproducible.
 
@@ -593,8 +598,8 @@ lifesupport-TheMovies):
 | Task | What | Where | Reached | Status |
 |---|---|---|---|---|
 | A. start-up component check | `wmvcore.dll` and `dinput8.dll` present in the system directory; DLL resolution | `sub_0093C640` part 1 | every start | **done**: visible host DLLs |
-| B. DirectShow | `CLSID_FilterGraph` (`IGraphBuilder`), `CLSID_CaptureGraphBuilder2`, and for the videos (112 `.wmv` files: logos, intro, menu loop, credits, tutorials) `CLSID_WMAsfReader`, the filters it needs and real playback (`sub_0097E190`, from `CMediaSys@MV` and `CMoviePlayerSys@MV`) | start-up probe (`sub_009AD7A0`); videos before and in the menu | every start (the probe) | not implemented; **blocks start-up** |
-| C. Windows Media Format profile manager, with the ASF writer | `CLSID_WMAsfWriter` as an `IBaseFilter` (start-up probe; film export); `WMCreateProfileManager`, `CreateEmptyProfile(WMT_VER_7_0)`, `LoadProfileByData` with the `.prx` XML (`sub_009AFCB0`) and the export graph (`CAviSyst@MV` slot 1) | the probe creates the writer filter; the profile manager only on export | the writer at every start; the rest on export | not implemented; the writer filter **blocks start-up** |
+| B. DirectShow | `CLSID_FilterGraph` (`IGraphBuilder`), `CLSID_CaptureGraphBuilder2`, and for the videos (112 `.wmv` files: logos, intro, menu loop, credits, tutorials) `CLSID_WMAsfReader`, the filters it needs and real playback (`sub_0097E190`, from `CMediaSys@MV` and `CMoviePlayerSys@MV`) | start-up probe (`sub_009AD7A0`); videos before and in the menu | every start (the probe) | the probe's graph and capture builder: **implemented for the probe only** (DIRECTSHOW-STARTUP.md 9). Playback: not implemented |
+| C. Windows Media Format profile manager, with the ASF writer | `CLSID_WMAsfWriter` as an `IBaseFilter` (start-up probe; film export); `WMCreateProfileManager`, `CreateEmptyProfile(WMT_VER_7_0)`, `LoadProfileByData` with the `.prx` XML (`sub_009AFCB0`) and the export graph (`CAviSyst@MV` slot 1) | the probe creates the writer filter; the profile manager only on export | the writer at every start; the rest on export | the writer object for the probe: **implemented, not a working filter** (no pins, never runs). Export: not implemented |
 | D. synchronous reader | `WMCreateSyncReader` and the `IWMSyncReader` methods the audio engine's WMA decoder calls (`sub_00BAAB70`) | when a `.wma` file is opened (the player's own music; the CD's music is `.ogg`) | not at start-up | not implemented; its interfaces and formats are to be traced from the call graph when a test opens a `.wma` file |
 
 No decoder library is used yet. If FFmpeg is used later, its exact
@@ -613,7 +618,7 @@ options change its licence (ffmpeg.org/legal.html).
 
 Its findings are used, its code is not.
 
-### What the DirectShow probe needs
+### What the DirectShow probe needs (now implemented: DIRECTSHOW-STARTUP.md 9)
 
 For the probe to succeed, its six calls need real objects:
 - a filter graph that keeps its filters (`AddFilter` stores the filter and
@@ -623,8 +628,9 @@ For the probe to succeed, its six calls need real objects:
   counts, `JoinFilterGraph`, state, `QueryFilterInfo`).
 
 Encoding through the writer (its pins, `IConfigAsfWriter`, the profile)
-belongs to task C. With only these objects the probe would pass while film
-export does not work yet. Not implemented.
+belongs to task C. With only these objects the probe passes while film
+export does not work yet, and the writer says so: asking it for
+`IConfigAsfWriter` or `IFileSinkFilter`, or running it, stops the run.
 
 ## GetDiskFreeSpaceExW (implemented)
 

@@ -77,6 +77,13 @@ The five functions with a throw call ran, but none of their throws was
 taken. The run stops before the main window, so this says nothing about
 the game after start-up.
 
+Since the DirectShow probe passes (DIRECTSHOW-STARTUP.md 9), the run goes
+further and ends with one `RaiseException`: `0xC06D007E`, the delay-load
+helper's error for `d3d9.dll`, which is missing here. That is an SEH
+exception raised because a DLL is absent, not a C++ throw, and on Windows
+it does not happen when the DLL is present. No `_CxxThrowException` was
+entered. The decision below stands.
+
 ### 5. What does the lifted code do with the frames? [static, lifted C]
 
 It keeps them. The lift turns `fs:[0]` accesses into `MEM32(FS_BASE + 0)`,

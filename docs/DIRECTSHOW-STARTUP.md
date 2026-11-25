@@ -1,10 +1,11 @@
-# DirectShow at start-up: the observed boundary
+# DirectShow at start-up: the probe and its objects
 
-The run currently stops in the game's DirectShow start-up probe. This file
-records what the executable does there, what is known about the rest of
-its DirectShow use, and how calls will be instrumented when the work
-starts. It does not implement DirectShow. Nothing here adds a COM class to
-the host.
+The game's start-up runs a DirectShow probe before the Direct3D device is
+made. This file records what the executable does there, what is known
+about the rest of its DirectShow use, and what is implemented
+(`src/host/tm_dshow.c`, section 9). Only the probe's contract is
+implemented. It is not a DirectShow implementation: nothing plays, nothing
+is written, and the ASF writer is not a working filter.
 
 Tags: [static] read from `Movies.exe` 1.1; [run] measured
 (`tests/m3_boundary.py`, trace `docs/traces/m3_boundary_imports.json`);
@@ -38,7 +39,9 @@ Read from the instructions at `0x009AD7A0`–`0x009AD88C`:
 It returns the byte from step 7, false unless all six calls succeeded. No
 other method is called, and no object outlives the function.
 
-## 3. What the run shows [run]
+## 3. What the run showed before the objects existed [run]
+
+This is the run before `tm_dshow.c`. Section 9 has the run now.
 
 | Import | Calls | Caller | Result |
 |---|---|---|---|
@@ -78,10 +81,9 @@ So the probe needs three objects that can be created and joined, and none
 of them plays anything. The probe never touches the reader, its file
 source, `IMediaControl` or a renderer.
 
-## 5. What passing the probe would take
+## 5. What passing the probe takes
 
-These are the facts that a later implementation must meet. Nothing is built
-now.
+These are the facts the implementation (section 9) meets:
 
 - `CLSID_FilterGraph` creatable for `IID_IGraphBuilder`, with an
   `AddFilter` that keeps a reference to the filter and calls its
@@ -95,12 +97,11 @@ now.
   `QueryFilterInfo` behaving as documented.
 
 An object that only answers `S_OK` would pass the probe and give the game a
-writer that cannot write. The project rules exclude that, and it is why the
-probe stays failing until the writer is real (IMPORTS.md, task C). There is
-also an open decision: whether start-up waits for film export, or whether
-these three objects can be real and complete for what they claim (graph
-bookkeeping, a writer filter with no connected pins) while encoding comes
-later. docs/REPOSITORY-AUDIT.md records it.
+writer that cannot write. That is excluded. The implementation instead
+makes the three objects real for what they claim: graph bookkeeping, and a
+writer filter that can be created, named, joined, queried and destroyed.
+Everything else stops the run, naming itself. Encoding comes later, as a
+separate capability (section 9; IMPORTS.md, task C).
 
 ## 6. Threading
 
@@ -160,3 +161,93 @@ with the same name [doc.]).
 - Wine's `quartz` and `qcap` (LGPL-2.1) for comparison only. No code was
   read into this repository and none may be copied: the repository is
   MIT. See docs/REPOSITORY-AUDIT.md, "References".
+
+## 9. Implemented: start-up probe compatibility
+
+`src/host/tm_dshow.c`; test `tests/c/test_dshow.c` (63 checks).
+
+### Capabilities, kept apart
+
+| Capability | State |
+|---|---|
+| **A. Start-up probe compatibility**: the three objects of section 2 with real COM identity, reference ownership and the graph/filter relation | **implemented** |
+| B. Video playback: `CLSID_WMAsfReader`, file source, `IMediaControl`, the game's renderer filter (`sub_0097E190`) | not implemented. `CLSID_WMAsfReader` is not registered (`REGDB_E_CLASSNOTREG`), and asking the graph for `IMediaControl` stops the run |
+| C. Film export: an ASF writer that writes (pins, `IConfigAsfWriter`, `IFileSinkFilter`, the profile, encoding) | not implemented. The writer has no pins, never leaves `State_Stopped`, and asking for those interfaces stops the run |
+| D. WMA decoding (the synchronous reader) | not implemented (IMPORTS.md, task D) |
+
+The writer object is **not** a complete DirectShow filter. It implements
+the start-up probe's contract, and only that.
+
+### What each object implements
+
+| Object (CLSID) | Interfaces it answers for | Implemented methods | Everything else |
+|---|---|---|---|
+| filter graph (`CLSID_FilterGraph`) | `IUnknown`, `IFilterGraph`, `IGraphBuilder` | `QueryInterface`, `AddRef`, `Release`, `AddFilter` | the other 14 methods are stubs that stop the run, naming themselves. A QI for `IFilterGraph2`, `IMediaControl`, `IMediaEvent(Ex)`, `IMediaPosition`, `IMediaSeeking`, `IBasicAudio`, `IBasicVideo`, `IVideoWindow` or `IMediaFilter` stops the run |
+| capture graph builder (`CLSID_CaptureGraphBuilder2`) | `IUnknown`, `ICaptureGraphBuilder2` | `QueryInterface`, `AddRef`, `Release`, `SetFiltergraph` | 8 stubs |
+| ASF writer (`CLSID_WMAsfWriter`) | `IUnknown`, `IPersist`, `IMediaFilter`, `IBaseFilter` | `QueryInterface`, `AddRef`, `Release`, `GetClassID`, `GetState` (always `State_Stopped`), `JoinFilterGraph`, `QueryFilterInfo` | `Stop`, `Pause`, `Run`, `SetSyncSource`, `GetSyncSource`, `EnumPins`, `FindPin`, `QueryVendorInfo` are stubs. A QI for `IConfigAsfWriter(2)`, `IFileSinkFilter(2)`, `IMediaSeeking` or `IAMFilterMiscFlags` stops the run |
+
+Any other interface gets `E_NOINTERFACE` with `*ppv` set to NULL. The
+interface lists of what stops the run were checked against the GUIDs
+linked into `Movies.exe`: all of them are there.
+
+### Ownership
+
+- `CoCreateInstance` gives the caller the only reference. Aggregation
+  gives `CLASS_E_NOAGGREGATION`. An interface the class lacks gives
+  `E_NOINTERFACE`, and no object is kept.
+- `AddFilter(f, name)` calls `f->AddRef`, then
+  `f->JoinFilterGraph(graph, name)`. The name it passes is a copy the
+  graph keeps in guest memory. If the join fails, the reference is given
+  back and its `HRESULT` returned. The filter does not reference the
+  graph.
+- The graph's last `Release` calls, for each filter, last added first,
+  `JoinFilterGraph(NULL, NULL)` and then `Release`. Then the graph is
+  freed.
+- `SetFiltergraph(g)` keeps a reference to `g`, and the builder's last
+  `Release` gives it back. A second call gives `E_UNEXPECTED`, and NULL
+  gives `E_POINTER`.
+- `QueryFilterInfo` copies the name and returns `pGraph` with a reference
+  for the caller, or NULL outside a graph.
+- Filters are called through their own vtables, so a filter may be the
+  game's own code.
+- A method called on a destroyed object stops the run.
+
+AddFilter cases that stop the run, because Windows answers them in ways
+not implemented here: a NULL name (Windows generates one), a name already
+in the graph (Windows renames it and returns `VFW_S_DUPLICATE_NAME`), a
+name of 128 characters or more, and a filter already in the graph.
+
+### Guest memory
+
+Every object is 16 bytes from `hle_alloc` with its vtable at `[0]`. Each
+vtable is an array of shim VAs, also from `hle_alloc`, and is made at the
+first `CoCreateInstance`. The guest heap before the probe is therefore laid
+out as before. DirectInput's object addresses in the M3 baseline did not
+move.
+
+### The run now [run]
+
+```
+[dshow] CoCreateInstance(FilterGraph, {56A868A9-...}) -> S_OK, object 0x11251550
+[dshow] CoCreateInstance(CaptureGraphBuilder2, {93E5A4E0-...}) -> S_OK, object 0x11251570
+[dshow] CaptureGraphBuilder2 0x11251570: SetFiltergraph(0x11251550) -> S_OK
+[dshow] CoCreateInstance(WMAsfWriter, {56A86895-...}) -> S_OK, object 0x11251590
+[dshow] FilterGraph 0x11251550: AddFilter(0x11251590, "ASF Enc/Writer") -> S_OK, 1 filter
+[dshow] CaptureGraphBuilder2 0x11251570 destroyed
+[dshow] WMAsfWriter 0x11251590 destroyed
+[dshow] FilterGraph 0x11251550 destroyed
+```
+
+The probe returns true. The release order is the one read from the
+instructions (writer, builder, graph): the writer survives its own
+`Release` because the graph still holds it, and goes with the graph. No
+object is alive afterwards. The Windows Media warning box no longer
+appears, and the exit path that followed it (with `CreateThread`,
+`CreateEventA`, `WaitForSingleObject` and the fault in `sub_00936350`) is
+no longer reached.
+
+The run now stops at `LoadLibraryA("d3d9.dll")`, through the delay-load
+helper (`RaiseException(0xC06D007E)`, `Direct3DCreate9`). Direct3D 9 is the
+next M3 step (M3.md 3.4). That stop is the new M3 boundary
+(`tests/m3_boundary.py`, whose `BOUNDARY_DLLS` names `d3d9.dll` as a
+planned boundary rather than a defect).

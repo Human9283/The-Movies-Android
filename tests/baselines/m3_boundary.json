@@ -8,10 +8,8 @@
   "[loader] LoadLibraryA(\"DINPUT8.dll\") -> host DLL dinput8.dll 0x7D000000, refs 1",
   "[file] FindFirstFileA \"C:\\WINDOWS\\SYSTEM32\\wmvcore.dll\": found",
   "[file] FindFirstFileA \"C:\\WINDOWS\\SYSTEM32\\dinput8.dll\": found",
-  "[ole32] CoCreateInstance({E436EBB3-524F-11CE-9F53-0020AF0BA770}): no such class on this host",
-  "[MessageBoxW] type 0x30",
-  "=== SIGSEGV after N ms ===",
-  "  in lifted sub_00936350, last import HeapFree",
+  "[module] LoadLibraryA(\"d3d9.dll\"): not found",
+  "[except] RaiseException(0xC06D007E, flags 0x0, 1 argument) from guest 0x00BFA1A8",
   "[loader] host DLL dinput8.dll: loaded 1 time(s), refs at exit 1",
   "[loader] GetProcAddress(dinput8.dll, \"DirectInput8Create\") x1: implemented"
  ],
@@ -28,6 +26,19 @@
   "[dinput8] thread T IDirectInputDevice8A::SetProperty(mouse, DIPROP_BUFFERSIZE, size 20, header 16, obj 0, how 0, 128) -> 0x00000000",
   "[dinput8] thread T IDirectInputDevice8A::Acquire(mouse, coop 0x0) -> 0x00000000"
  ],
+ "dshow": [
+  "[dshow] CoCreateInstance(FilterGraph, {56A868A9-0AD4-11CE-B03A-0020AF0BA770}) -> S_OK, object 0x11251550",
+  "[dshow] CoCreateInstance(CaptureGraphBuilder2, {93E5A4E0-2D50-11D2-ABFA-00A0C9C6E38D}) -> S_OK, object 0x11251570",
+  "[dshow] CaptureGraphBuilder2 0x11251570: SetFiltergraph(0x11251550) -> S_OK",
+  "[dshow] CoCreateInstance(WMAsfWriter, {56A86895-0AD4-11CE-B03A-0020AF0BA770}) -> S_OK, object 0x11251590",
+  "[dshow] FilterGraph 0x11251550: AddFilter(0x11251590, \"ASF Enc/Writer\") -> S_OK, 1 filter",
+  "[dshow] CaptureGraphBuilder2 0x11251570 destroyed",
+  "[dshow] WMAsfWriter 0x11251590 destroyed",
+  "[dshow] FilterGraph 0x11251550 destroyed",
+  "[dshow] FilterGraph: 1 created, 1 destroyed",
+  "[dshow] CaptureGraphBuilder2: 1 created, 1 destroyed",
+  "[dshow] WMAsfWriter: 1 created, 1 destroyed"
+ ],
  "host_dlls": [
   "[loader] LoadLibraryA(\"DINPUT8.dll\") -> host DLL dinput8.dll 0x7D000000, refs 1"
  ],
@@ -38,10 +49,8 @@
   "CoUninitialize",
   "ConvertSymbols",
   "CreateDirectoryA",
-  "CreateEventA",
   "CreateFileA",
   "CreateMutexA",
-  "CreateThread",
   "CreateWindowExA",
   "DefWindowProcA",
   "DeleteFileA",
@@ -99,6 +108,7 @@
   "LockResource",
   "MessageBoxW",
   "QueryPerformanceCounter",
+  "RaiseException",
   "ReadFile",
   "RegCloseKey",
   "RegCreateKeyExA",
@@ -119,7 +129,6 @@
   "TlsAlloc",
   "TlsGetValue",
   "TlsSetValue",
-  "WaitForSingleObject",
   "WideCharToMultiByte",
   "WriteFile"
  ],
