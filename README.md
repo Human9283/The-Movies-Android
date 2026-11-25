@@ -46,6 +46,14 @@ builds need their own lift.
 
 ## Status
 
+```
+Progress  ███████░░░░░░░░░░░░░  3 of 8 milestones (37%)
+```
+
+The bar counts finished milestones, M0 to M7 ([docs/AUDIT.md](docs/AUDIT.md) 6),
+equally. They are not equal in work: Direct3D 9 (M4) and video, audio and
+input (M5) are the largest. M3 is in progress and is not counted.
+
 | Milestone | State |
 |---|---|
 | M0: install game data from the discs on Linux | done: 705/705 files |
