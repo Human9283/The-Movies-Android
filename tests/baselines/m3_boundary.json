@@ -1,17 +1,20 @@
 {
  "exit": 3,
  "marks": [
-  "[poc] WinMain 0x005303C0 entered: 12978 function entries, 1245 distinct functions",
-  "[MessageBoxW] type 0x0",
   "[kernel32] GetTempPathA(260) -> 23",
   "[module] LoadLibraryA(\"imagehlp.dll\"): not found",
   "[loader] LoadLibraryA(\"DINPUT8.dll\") -> host DLL dinput8.dll 0x7D000000, refs 1",
   "[file] FindFirstFileA \"C:\\WINDOWS\\SYSTEM32\\wmvcore.dll\": found",
   "[file] FindFirstFileA \"C:\\WINDOWS\\SYSTEM32\\dinput8.dll\": found",
-  "[module] LoadLibraryA(\"d3d9.dll\"): not found",
-  "[except] RaiseException(0xC06D007E, flags 0x0, 1 argument) from guest 0x00BFA1A8",
+  "[loader] LoadLibraryA(\"d3d9.dll\") -> host DLL d3d9.dll 0x7D020000, refs 1",
+  "[d3d9] IDirect3D9::CreateDevice(adapter 0, type 1 (HAL), focus 0x00010010, flags 0x00000044, pp 0x00FA7B38, out 0x00FA7CBC)",
+  "[win32hle] FATAL: [d3d9] IDirect3D9::CreateDevice: no Direct3D 9 device backend exists yet (docs/D3D9-REQUIREMENTS.md)",
+  "=== abort (win32hle fatal) after N ms ===",
+  "  in lifted sub_0093D780, last import IDirect3D9::CreateDevice",
   "[loader] host DLL dinput8.dll: loaded 1 time(s), refs at exit 1",
-  "[loader] GetProcAddress(dinput8.dll, \"DirectInput8Create\") x1: implemented"
+  "[loader] host DLL d3d9.dll: loaded 1 time(s), refs at exit 1",
+  "[loader] GetProcAddress(dinput8.dll, \"DirectInput8Create\") x1: implemented",
+  "[loader] GetProcAddress(d3d9.dll, \"Direct3DCreate9\") x1: implemented"
  ],
  "dinput8": [
   "[dinput8] thread T DirectInput8Create(hinst 0x00400000, 0x800, BF798030-483A-4DA2-AA99-5D64ED369700) -> DI_OK, object 0x10C01D90",
@@ -39,8 +42,33 @@
   "[dshow] CaptureGraphBuilder2: 1 created, 1 destroyed",
   "[dshow] WMAsfWriter: 1 created, 1 destroyed"
  ],
+ "d3d9": [
+  "[d3d9] Direct3DCreate9(32) -> IDirect3D9 0x11251550",
+  "[d3d9] IDirect3D9::GetAdapterDisplayMode(0) -> S_OK, 640x480, refresh 0, D3DFMT_X8R8G8B8",
+  "[d3d9] IDirect3D9::GetAdapterModeCount(0, format 25) -> 0",
+  "[d3d9] IDirect3D9::GetAdapterModeCount(0, format 24) -> 23",
+  "[d3d9] IDirect3D9::GetAdapterModeCount(0, format 21) -> 0",
+  "[d3d9] IDirect3D9::GetAdapterModeCount(0, format 22) -> 23",
+  "[d3d9] IDirect3D9::CreateDevice(adapter 0, type 1 (HAL), focus 0x00010010, flags 0x00000044, pp 0x00FA7B38, out 0x00FA7CBC)",
+  "[d3d9]   BackBufferWidth            0x00000400 (1024)",
+  "[d3d9]   BackBufferHeight           0x00000300 (768)",
+  "[d3d9]   BackBufferFormat           0x00000018 (24) D3DFMT_X1R5G5B5",
+  "[d3d9]   BackBufferCount            0x00000001 (1)",
+  "[d3d9]   MultiSampleType            0x00000000 (0)",
+  "[d3d9]   MultiSampleQuality         0x00000000 (0)",
+  "[d3d9]   SwapEffect                 0x00000001 (1)",
+  "[d3d9]   hDeviceWindow              0x00000000 (0)",
+  "[d3d9]   Windowed                   0x00000000 (0)",
+  "[d3d9]   EnableAutoDepthStencil     0x00000001 (1)",
+  "[d3d9]   AutoDepthStencilFormat     0x00000050 (80) D3DFMT_D16",
+  "[d3d9]   Flags                      0x00000000 (0)",
+  "[d3d9]   FullScreen_RefreshRateInHz 0x00000000 (0)",
+  "[d3d9]   PresentationInterval       0x00000000 (0)",
+  "[d3d9] IDirect3D9: 1 created, 0 destroyed"
+ ],
  "host_dlls": [
-  "[loader] LoadLibraryA(\"DINPUT8.dll\") -> host DLL dinput8.dll 0x7D000000, refs 1"
+  "[loader] LoadLibraryA(\"DINPUT8.dll\") -> host DLL dinput8.dll 0x7D000000, refs 1",
+  "[loader] LoadLibraryA(\"d3d9.dll\") -> host DLL d3d9.dll 0x7D020000, refs 1"
  ],
  "imports_called": [
   "CloseHandle",
@@ -108,7 +136,6 @@
   "LockResource",
   "MessageBoxW",
   "QueryPerformanceCounter",
-  "RaiseException",
   "ReadFile",
   "RegCloseKey",
   "RegCreateKeyExA",

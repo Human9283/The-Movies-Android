@@ -79,10 +79,11 @@ the game after start-up.
 
 Since the DirectShow probe passes (DIRECTSHOW-STARTUP.md 9), the run goes
 further and ends with one `RaiseException`: `0xC06D007E`, the delay-load
-helper's error for `d3d9.dll`, which is missing here. That is an SEH
+helper's error for `d3d9.dll`, which was missing then. That is an SEH
 exception raised because a DLL is absent, not a C++ throw, and on Windows
 it does not happen when the DLL is present. No `_CxxThrowException` was
-entered. The decision below stands.
+entered. With `d3d9.dll` a host DLL, the run now reaches `CreateDevice`
+with no `RaiseException` at all. The decision below stands.
 
 ### 5. What does the lifted code do with the frames? [static, lifted C]
 

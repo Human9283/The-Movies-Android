@@ -36,6 +36,7 @@
 #include "tm_vfs.h"
 #include "tm_wmvcore.h"
 #include "tm_dshow.h"
+#include "tm_d3d9.h"
 #include "tm_imports.h"
 #include "tm_itrace.h"
 
@@ -145,7 +146,7 @@ static void seen_flush(void) {
     fclose(f);
 }
 static void itrace_flush(void) { if (g_itrace_path) tm_itrace_write(g_itrace_path, status_name_int); seen_flush(); }
-static void on_hle_exit(int code) { (void)code; tm_dinput8_report(stderr); tm_dshow_report(stderr); tm_loader_report(stderr); itrace_flush(); }
+static void on_hle_exit(int code) { (void)code; tm_dinput8_report(stderr); tm_dshow_report(stderr); tm_d3d9_report(stderr); tm_loader_report(stderr); itrace_flush(); }
 
 static void write_imports_json(const char *path) {
     FILE *f = fopen(path, "w");
@@ -198,6 +199,9 @@ static void crash_report(const char *why, uintptr_t fault) {
         fprintf(stderr, "\n");
     }
     recomp_dump_trace(why);
+    tm_dinput8_report(stderr);                          /* the same reports as a normal exit */
+    tm_dshow_report(stderr);
+    tm_d3d9_report(stderr);
     tm_loader_report(stderr);
     itrace_flush();
     fflush(stderr);
@@ -282,6 +286,7 @@ int main(int argc, char **argv) {
     tm_dinput8_init();
     tm_wmvcore_init();
     tm_dshow_init();
+    tm_d3d9_init();
     hle_on_exit = on_hle_exit;                          /* ExitProcess, fatal stops: keep the trace */
     tm_shell_init(user);
     if (!tm_sysroot_init(game, system_dir, user)) return 1;

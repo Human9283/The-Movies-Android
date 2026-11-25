@@ -17,6 +17,8 @@ Compared with tests/baselines/m3_boundary.json:
     ICALL/ITAIL;
   * the DirectInput calls, each with its result, in order;
   * the DirectShow objects (`[dshow]`: creation, the graph, destruction);
+  * the Direct3D 9 calls (`[d3d9]`: the object, the queries, CreateDevice's
+    parameters);
   * the host-DLL loads (`[loader] LoadLibraryA ... host DLL`);
   * every import called, by name (a new one or a missing one fails);
   * the game directory unchanged (file list, sizes, modification times);
@@ -41,8 +43,9 @@ from m2_winmain import listing, snapshot  # noqa: E402
 
 BASELINE = os.path.join(HERE, 'baselines', 'm3_boundary.json')
 # DLLs whose delay-load failure is the boundary, not a defect: not
-# implemented yet, by plan. d3d9.dll: Direct3D 9 is M3 step 4 (docs/M3.md).
-BOUNDARY_DLLS = {'d3d9.dll'}
+# implemented yet, by plan. None now: d3d9.dll was one until tm_d3d9.c, and
+# its delay-load failing again would be a regression.
+BOUNDARY_DLLS = set()
 DELAY_DLL = re.compile(r'^\[except\]   dll "([^"]+)"')
 BAD = [('delay-load failure', re.compile(r'\[except\] delay-load failure')),
        ('function not lifted', re.compile(r'\[not-lifted\]')),
@@ -51,7 +54,7 @@ BAD = [('delay-load failure', re.compile(r'\[except\] delay-load failure')),
 # Lines that mark where the run is: kept in order, and the last ones compared.
 MARK = re.compile(r'^(\[poc\] WinMain|\[MessageBoxW\] type|\[loader\]|\[module\] LoadLibraryA|'
                   r'\[file\] FindFirstFileA "C:\\WINDOWS|\[kernel32\] GetTempPathA|=== |  in lifted |'
-                  r'\[win32hle\] FATAL|\[except\] RaiseException|\[watchdog\]|\[ole32\] CoCreateInstance)')
+                  r'\[win32hle\] FATAL|\[d3d9\] IDirect3D9::CreateDevice\(|\[except\] RaiseException|\[watchdog\]|\[ole32\] CoCreateInstance)')
 
 
 def normalise(line):
@@ -103,6 +106,7 @@ def run(a):
         m['boundary_dlls'] = failed
     m['dinput8'] = [normalise(l) for l in lines if l.startswith('[dinput8] thread')]
     m['dshow'] = [normalise(l) for l in lines if l.startswith('[dshow] ')]
+    m['d3d9'] = [normalise(l) for l in lines if l.startswith('[d3d9] ')]
     m['host_dlls'] = [l for l in lines if l.startswith('[loader] LoadLibraryA')]
     m['marks'] = [normalise(l) for l in lines if MARK.match(l)][-14:]
     m['imports_called'] = sorted(i['name'] for i in m.get('trace', {}).get('imports', []))
@@ -117,7 +121,7 @@ def compare(m, base):
         return fails + ['no baseline (create one with --update after reviewing the run)']
     if m['exit'] != base['exit']:
         fails.append('exit code %s, baseline %s' % (m['exit'], base['exit']))
-    for k in ('marks', 'dinput8', 'dshow', 'host_dlls'):
+    for k in ('marks', 'dinput8', 'dshow', 'd3d9', 'host_dlls'):
         if k in base and m[k] != base[k]:
             fails.append('%s differ:\n    got      %s\n    baseline %s' % (k, '\n             '.join(m[k]),
                                                                      '\n             '.join(base[k])))
@@ -145,7 +149,7 @@ def main(argv=None):
         if m['errors'] or m['bad'] or not m['marks']:
             print('  refusing --update: %s' % (m['errors'] + m['bad'] or ['no boundary markers']))
             return 1
-        keep = {k: m[k] for k in ('exit', 'marks', 'dinput8', 'dshow', 'host_dlls', 'imports_called', 'user_after')}
+        keep = {k: m[k] for k in ('exit', 'marks', 'dinput8', 'dshow', 'd3d9', 'host_dlls', 'imports_called', 'user_after')}
         json.dump(keep, open(BASELINE, 'w'), indent=1, ensure_ascii=False)
         print('  baseline written: %s' % os.path.relpath(BASELINE, REPO))
         return 0

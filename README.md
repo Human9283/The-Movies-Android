@@ -10,8 +10,9 @@ of the game.
 
 > **Status: early bring-up.** The game does not run yet. On 64-bit Linux
 > the recompiled start-up code reaches `WinMain` and runs the game's own
-> start-up, past its DirectShow start-up probe, as far as loading Direct3D 9,
-> which does not exist yet; see [Status](#status).
+> start-up, past its DirectShow start-up probe, as far as its own Direct3D 9
+> `CreateDevice` call. That call is recorded, but no device exists yet; see
+> [Status](#status).
 
 ## Contents
 
@@ -58,7 +59,7 @@ input (M5) are the largest. M3 is in progress and is not counted.
 | M0: install game data from the discs on Linux | done: 705/705 files |
 | M1: function catalog and lift of `Movies.exe` 1.1 | done: 85,910 functions, 0 lift errors, 7 unresolvable ITAIL labels |
 | M2: lifted start-up code reaches `WinMain` | done on Linux x86-64; arm64 and Android not yet run |
-| M3: run to the game's own Direct3D 9 device initialisation (no rendering) | in progress, stopped at loading `d3d9.dll`; the DirectShow start-up probe passes: [docs/M3.md](docs/M3.md), [docs/DIRECTSHOW-STARTUP.md](docs/DIRECTSHOW-STARTUP.md) |
+| M3: run to the game's own Direct3D 9 device initialisation (no rendering) | in progress, stopped at the game's `CreateDevice` (recorded, no device yet): [docs/M3.md](docs/M3.md), [docs/D3D9-REQUIREMENTS.md](docs/D3D9-REQUIREMENTS.md) |
 | M4: the first genuine frame from the game's rendering code | planned |
 | Later: video, audio, input, Android packaging | planned |
 
@@ -133,6 +134,7 @@ docs/                   audit, build steps, milestone reports
 - [docs/M3.md](docs/M3.md): plan to the game window and Direct3D 9 device initialisation; M4 criteria
 - [docs/IMPORTS.md](docs/IMPORTS.md): the imports the game calls, their status and what is verified
 - [docs/DIRECTSHOW-STARTUP.md](docs/DIRECTSHOW-STARTUP.md): the DirectShow start-up probe and what is implemented for it (not playback or export)
+- [docs/D3D9-REQUIREMENTS.md](docs/D3D9-REQUIREMENTS.md): the Direct3D 9 calls the game makes and the device it asks for
 - [docs/EXCEPTIONS.md](docs/EXCEPTIONS.md): C++ EH and SEH in the executable, and what a run reaches (B4)
 - [docs/REPOSITORY-AUDIT.md](docs/REPOSITORY-AUDIT.md): correctness audit of the host, its tests and its limits
 - [docs/EXTERNAL-REFERENCES.md](docs/EXTERNAL-REFERENCES.md): other projects' findings, checked against this executable

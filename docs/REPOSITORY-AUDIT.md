@@ -144,7 +144,7 @@ mapped from the APK.
 | 1 | COM tracing at the boundary (`--com-trace`, design in DIRECTSHOW-STARTUP.md 7) | every `CoCreateInstance`, `QueryInterface`, `AddRef`/`Release` and method call is recorded on the M3 run |
 | 2 | ✅ Decision 1, then the start-up probe's three objects, with tests | done: `sub_009AD7A0` returns true; `test_dshow` (63 checks); M3 baseline updated, the new boundary is `d3d9.dll` |
 | 3 | Past the Windows Media check to the main window | `CreateWindowEx` of the main window traced; `0x00FA7128` non-zero |
-| 4 | Recording Direct3D 9 layer (M3 3.4) | `Direct3DCreate9` and the caps queries traced |
+| 4 | Recording Direct3D 9 layer (M3 3.4) | started: `Direct3DCreate9`, the device-free queries and the `CreateDevice` parameters traced (D3D9-REQUIREMENTS.md); the device itself needs a backend |
 | 5 | arm64 Linux build and M2 run (level 2–3) | `tests/m2_winmain.py` passes on arm64 |
 | 6 | EH-enabled re-lift and dispatcher | a guest test that throws and catches passes; M2 and M3 unchanged |
 

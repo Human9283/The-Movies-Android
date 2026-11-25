@@ -246,8 +246,6 @@ appears, and the exit path that followed it (with `CreateThread`,
 `CreateEventA`, `WaitForSingleObject` and the fault in `sub_00936350`) is
 no longer reached.
 
-The run now stops at `LoadLibraryA("d3d9.dll")`, through the delay-load
-helper (`RaiseException(0xC06D007E)`, `Direct3DCreate9`). Direct3D 9 is the
-next M3 step (M3.md 3.4). That stop is the new M3 boundary
-(`tests/m3_boundary.py`, whose `BOUNDARY_DLLS` names `d3d9.dll` as a
-planned boundary rather than a defect).
+After the probe the game goes on to Direct3D 9 (`d3d9.dll`,
+`Direct3DCreate9`). Its boundary is now `CreateDevice`
+(D3D9-REQUIREMENTS.md).

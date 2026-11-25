@@ -147,9 +147,9 @@ win32hle error; 4 the watchdog.
 
 Expected for `--stop-at-winmain` on the 1.1 CD: `[bind] 60 imports are stubs`,
 `[poc] WinMain 0x005303C0 entered: ... 12978 function entries, 1245 distinct functions`,
-exit 0. Without it the run currently stops loading `d3d9.dll` (a
-delay-load failure, exit 3), after the DirectShow start-up probe passes
-(docs/IMPORTS.md, "The current boundary"; docs/DIRECTSHOW-STARTUP.md 9).
+exit 0. Without it the run currently stops at the game's
+`IDirect3D9::CreateDevice` call (exit 3): its parameters are printed as
+`[d3d9]` lines, and no device exists yet (docs/D3D9-REQUIREMENTS.md).
 
 ## 7. Regression test
 
@@ -179,6 +179,8 @@ Shim tests (no game files needed):
 - `test_dshow`: the DirectShow start-up probe's objects: the probe's
   sequence, COM identity, reference ownership, the graph/filter relation,
   error results, and what must stop the run;
+- `test_d3d9`: `d3d9.dll`, `Direct3DCreate9`, the device-free
+  `IDirect3D9` methods, and what must stop the run;
 - `hle_path_selftest`: win32hle's own path selftest against the patched
   `hle_path.c`.
 

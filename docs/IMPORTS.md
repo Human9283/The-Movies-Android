@@ -45,14 +45,14 @@ Run from the game directory with an empty user directory holding an empty
 described below (`tests/m3_boundary.py`; the full trace is
 [traces/m3_boundary_imports.json](traces/m3_boundary_imports.json)).
 
-329 imports bound, 88 called (48 before WinMain).
+329 imports bound, 87 called (48 before WinMain).
 
 | Import | Status | Calls | First called | First caller |
 |---|---|---:|---|---|
 | `ConvertSymbols` | implemented | 44 | before WinMain | `0x004035F0` |
 | `GetModuleFileNameA` | implemented | 3 | before WinMain | `0x00A45266` |
 | `GetModuleHandleA` | implemented | 6 | before WinMain | `0x00A31571` |
-| `GetProcAddress` | implemented | 7 | before WinMain | `0x00A488E9` |
+| `GetProcAddress` | implemented | 8 | before WinMain | `0x00A488E9` |
 | `SHGetFolderPathW` | implemented | 8 | before WinMain | `0x00950190` |
 | `CreateMutexA` | win32hle-present | 3 | before WinMain | `0x00A034B0` |
 | `EnterCriticalSection` | win32hle-present | 988 | before WinMain | `0x00A36089` |
@@ -66,7 +66,7 @@ described below (`tests/m3_boundary.py`; the full trace is
 | `GetEnvironmentStrings` | win32hle-present | 1 | before WinMain | `0x00A45308` |
 | `GetEnvironmentStringsW` | win32hle-present | 1 | before WinMain | `0x00A45308` |
 | `GetFileType` | win32hle-present | 30 | before WinMain | `0x00A41A46` |
-| `GetLastError` | win32hle-present | 1207734 | before WinMain | `0x00A45308` |
+| `GetLastError` | win32hle-present | 1207733 | before WinMain | `0x00A45308` |
 | `GetLocaleInfoA` | win32hle-present | 3 | before WinMain | `0x00A48F49` |
 | `GetStartupInfoA` | win32hle-present | 2 | before WinMain | `0x00A41A46` |
 | `GetStdHandle` | win32hle-present | 3 | before WinMain | `0x00A41A46` |
@@ -75,9 +75,9 @@ described below (`tests/m3_boundary.py`; the full trace is
 | `GetSystemTimeAsFileTime` | win32hle-present | 1 | before WinMain | `0x00A455A2` |
 | `GetTickCount` | win32hle-present | 1 | before WinMain | `0x00A455A2` |
 | `GetVersionExA` | win32hle-present | 2 | before WinMain | `0x00A31571` |
-| `HeapAlloc` | win32hle-present | 346839 | before WinMain | `0x00A3473B` |
+| `HeapAlloc` | win32hle-present | 346895 | before WinMain | `0x00A3473B` |
 | `HeapCreate` | win32hle-present | 1 | before WinMain | `0x00A454CC` |
-| `HeapFree` | win32hle-present | 265439 | before WinMain | `0x00A31A7F` |
+| `HeapFree` | win32hle-present | 265481 | before WinMain | `0x00A31A7F` |
 | `HeapReAlloc` | win32hle-present | 6 | before WinMain | `0x00A34874` |
 | `HeapSize` | win32hle-present | 620 | before WinMain | `0x00A3D335` |
 | `InitializeCriticalSection` | win32hle-present | 46 | before WinMain | `0x00A488D9` |
@@ -98,7 +98,6 @@ described below (`tests/m3_boundary.py`; the full trace is
 | `TlsGetValue` | win32hle-present | 1207693 | before WinMain | `0x00A37D6F` |
 | `TlsSetValue` | win32hle-present | 1 | before WinMain | `0x00A37F62` |
 | `MessageBoxW` | diagnostic | 1 | after WinMain | `0x005303C0` |
-| `RaiseException` | diagnostic | 1 | after WinMain | `0x00BFA1A8` |
 | `CreateDirectoryA` | implemented | 43 | after WinMain | `0x00A2EBD7` |
 | `CreateFileA` | implemented | 28 | after WinMain | `0x00A489E0` |
 | `DeleteFileA` | implemented | 1 | after WinMain | `0x00A329D4` |
@@ -124,7 +123,7 @@ described below (`tests/m3_boundary.py`; the full trace is
 | `GetTempFileNameA` | win32hle-present | 1 | after WinMain | `0x00964740` |
 | `GetTimeZoneInformation` | win32hle-present | 1 | after WinMain | `0x00A40F71` |
 | `GetVersion` | win32hle-present | 1 | after WinMain | `0x00556820` |
-| `InterlockedExchange` | win32hle-present | 1 | after WinMain | `0x00BFA1A8` |
+| `InterlockedExchange` | win32hle-present | 2 | after WinMain | `0x00BFA1A8` |
 | `LoadCursorA` | win32hle-present | 1 | after WinMain | `0x005303C0` |
 | `LoadIconA` | win32hle-present | 1 | after WinMain | `0x005303C0` |
 | `ReadFile` | win32hle-present | 29 | after WinMain | `0x00A44B74` |
@@ -327,6 +326,7 @@ implemented.
 | Host DLL | Visible | Loadable | Exports |
 |---|---|---|---|
 | `dinput8.dll` | yes | yes | `DirectInput8Create`: implemented (below) |
+| `d3d9.dll` | yes | yes | `Direct3DCreate9`: implemented, with the `IDirect3D9` methods that need no device; `CreateDevice` is recorded and stops the run (D3D9-REQUIREMENTS.md). `Direct3DCreate9Ex`: not implemented, not imported by the game |
 | `wmvcore.dll` | yes | yes | `WMCreateProfileManager`, `WMCreateSyncReader`: **not implemented**. `GetProcAddress` fails with `ERROR_PROC_NOT_FOUND`; through the game's delay-load helper that is `0xC06D007F` (`dliFailGetProc`), decoded and reported by `tm_except.c` |
 
 `wmvcore.dll` is there for the game's start-up check, which looks for the
@@ -575,16 +575,24 @@ exit path that followed the box is no longer reached. That path had a
 SIGSEGV reading guest `0x00000004` in `sub_00936350`, from `sub_0092FB20`.
 Whether Windows takes the same fault there was never checked.
 
-**Now the run stops at Direct3D 9.** The game delay-loads `d3d9.dll` for
-`Direct3DCreate9`. win32hle has no such DLL (`LoadLibraryA` gives
-`ERROR_MOD_NOT_FOUND`), so the delay-load helper raises `0xC06D007E`
-(decoded by `tm:RaiseException`: `dliFailLoadLib`, IAT slot `0x00ED3748`).
-This is the planned boundary: the recording Direct3D 9 layer is the next
-M3 step.
+**Then Direct3D 9.** The game delay-loads `d3d9.dll` for
+`Direct3DCreate9`. It is a host DLL now (`src/host/tm_d3d9.c`), visible in
+`C:\WINDOWS\SYSTEM32` and loadable. `Direct3DCreate9(32)` gives an
+`IDirect3D9`. The game asks for the desktop mode and the mode lists of
+its 16-bit and 32-bit formats, then calls `CreateDevice`.
 
-One window exists (`CreateWindowExA` from `WinMain`, handle `0x00010010`),
-as before. DirectInput's `SetCooperativeLevel` still fails with `E_HANDLE`
-for both devices, because the game passes a NULL window.
+**The run now stops at `CreateDevice`.** The call is recorded with all its
+parameters, then the run stops: no device backend exists. The parameters
+are a full-screen 1024×768 `X1R5G5B5` back buffer, `D16` depth, a HAL
+device, hardware vertex processing and `D3DCREATE_MULTITHREADED`
+(D3D9-REQUIREMENTS.md). Before `d3d9.dll` existed, the delay-load helper
+raised `0xC06D007E` here instead.
+
+The focus window passed to `CreateDevice` is `0x00010010`, the window
+`WinMain` created, and `sub_0093D780` stores it at `0x00FA7128` (the
+main-window variable). DirectInput runs earlier, when that variable is
+still 0, so its `SetCooperativeLevel` fails with `E_HANDLE` for both
+devices, as it should for a NULL window.
 
 `tests/m3_boundary.py` holds this boundary; the run is reproducible.
 
