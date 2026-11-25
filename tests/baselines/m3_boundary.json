@@ -8,7 +8,7 @@
   "[file] FindFirstFileA \"C:\\WINDOWS\\SYSTEM32\\dinput8.dll\": found",
   "[loader] LoadLibraryA(\"d3d9.dll\") -> host DLL d3d9.dll 0x7D020000, refs 1",
   "[d3d9] IDirect3D9::CreateDevice(adapter 0, type 1 (HAL), focus 0x00010010, flags 0x00000044, pp 0x00FA7B38, out 0x00FA7CBC)",
-  "[win32hle] FATAL: [d3d9] IDirect3D9::CreateDevice: no Direct3D 9 device backend exists yet (docs/D3D9-REQUIREMENTS.md)",
+  "[win32hle] FATAL: [d3d9] IDirect3D9::CreateDevice: no Direct3D 9 device backend in this run (docs/DXVK-INTEGRATION.md)",
   "=== abort (win32hle fatal) after N ms ===",
   "  in lifted sub_0093D780, last import IDirect3D9::CreateDevice",
   "[loader] host DLL dinput8.dll: loaded 1 time(s), refs at exit 1",

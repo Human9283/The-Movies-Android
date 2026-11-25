@@ -38,6 +38,10 @@
 #include "tm_dshow.h"
 #include "tm_d3d9.h"
 #include "tm_ole32.h"
+#include "tm_d3d9_backend.h"
+#ifdef TM_HAVE_DXVK
+#include "tm_d3d9_dxvk.h"
+#endif
 #include "tm_imports.h"
 #include "tm_itrace.h"
 
@@ -238,9 +242,27 @@ static void on_alarm(int sig) {
     _exit(4);
 }
 
+/* --d3d9 dxvk: Direct3D 9 devices on DXVK Native, shown in a win32hle window
+ * made for Vulkan (docs/DXVK-INTEGRATION.md). Without it the run is
+ * headless and the game's CreateDevice stops it. */
+static int open_d3d9_backend(const char *name) {
+    if (strcmp(name, "dxvk")) { fprintf(stderr, "[host] --d3d9 %s: the only backend is dxvk\n", name); return 0; }
+#ifdef TM_HAVE_DXVK
+    hle_screen_gl = 2;
+    if (hle_screen_open("The Movies", 0, 0) != 0) { fprintf(stderr, "[host] --d3d9 dxvk: no window\n"); return 0; }
+    tm_d3d9_set_backend(tm_d3d9_dxvk_backend());
+    fprintf(stderr, "[host] Direct3D 9 devices: DXVK Native\n");
+    return 1;
+#else
+    fprintf(stderr, "[host] --d3d9 dxvk: built without DXVK (configure with -DTM_DXVK_PREFIX)\n");
+    return 0;
+#endif
+}
+
 int main(int argc, char **argv) {
     const char *game = NULL, *user = "tm_user", *system_dir = "tm_system", *imports_json = NULL;
     int watchdog = 0;
+    const char *d3d9_backend = NULL;
     for (int i = 1; i < argc; i++) {
         int n = recomp_trace_arg(argc, argv, i);
         if (n) { i += n - 1; continue; }
@@ -251,11 +273,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--imports-json") && i + 1 < argc) imports_json = argv[++i];
         else if (!strcmp(argv[i], "--import-trace") && i + 1 < argc) g_itrace_path = argv[++i];
         else if (!strcmp(argv[i], "--seen-out") && i + 1 < argc) g_seen_path = argv[++i];
+        else if (!strcmp(argv[i], "--d3d9") && i + 1 < argc) d3d9_backend = argv[++i];
         else if (argv[i][0] != '-' && !game) game = argv[i];
         else { fprintf(stderr, "unknown option %s\n", argv[i]); return 64; }
     }
     if (!game) {
-        fprintf(stderr, "usage: %s <game dir> [--stop-at-winmain] [--watchdog S] [--user DIR] [--system DIR] [--imports-json FILE] [--import-trace FILE] [--seen-out FILE]\n", argv[0]);
+        fprintf(stderr, "usage: %s <game dir> [--stop-at-winmain] [--watchdog S] [--user DIR] [--system DIR] [--imports-json FILE] [--import-trace FILE] [--seen-out FILE] [--d3d9 dxvk]\n", argv[0]);
         recomp_trace_help();
         return 64;
     }
@@ -290,6 +313,7 @@ int main(int argc, char **argv) {
     tm_wmvcore_init();
     tm_dshow_init();
     tm_d3d9_init();
+    if (d3d9_backend && !open_d3d9_backend(d3d9_backend)) return 1;
     hle_on_exit = on_hle_exit;                          /* ExitProcess, fatal stops: keep the trace */
     tm_shell_init(user);
     if (!tm_sysroot_init(game, system_dir, user)) return 1;

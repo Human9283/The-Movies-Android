@@ -24,9 +24,11 @@
  *     and the mode's Format says which the display uses. Any other format,
  *     the alpha ones and A2R10G10B10 included, has no display modes here
  *     (count 0, D3DERR_NOTAVAILABLE).
- *   CreateDevice: diagnostic only. It records the call (adapter, device
- *     type, focus window, behaviour flags and every D3DPRESENT_PARAMETERS
- *     field) and then stops the run: there is no device to create.
+ *   CreateDevice: records the call (adapter, device type, focus window,
+ *     behaviour flags and every D3DPRESENT_PARAMETERS field), then hands it
+ *     to the device backend (tm_d3d9_backend.h: DXVK Native,
+ *     tm_d3d9_dxvk.cpp). With no backend in the run (headless, or built
+ *     without DXVK) it stops the run: there is no device to create.
  * Every other method is a self-naming stub that stops the run: adapter
  * identification, mode lists, format and device checks, caps and
  * CreateDevice all describe a device, and there is none yet. They are
@@ -43,6 +45,7 @@
 #include "win32hle.h"
 #include "tm_loader.h"
 #include "tm_d3d9.h"
+#include "tm_d3d9_backend.h"
 
 #define S_OK                 0x00000000u
 #define E_NOINTERFACE        0x80004002u
@@ -63,10 +66,19 @@ static const uint8_t IID_IDirect3D9_[16] = { 0xCA,0xCB,0xBD,0x81, 0xD4,0x64, 0x6
 static struct { uint32_t va; int refs; } g_obj[MAX_OBJS];
 static uint32_t g_vt;
 static int g_created, g_destroyed;
+static const tm_d3d9_backend *g_backend;              /* the device backend, or none */
+
+void tm_d3d9_set_backend(const tm_d3d9_backend *b) { g_backend = b; }
 
 static int obj_index(uint32_t va) {
     for (int i = 0; i < MAX_OBJS; i++) if (va && g_obj[i].va == va) return i;
     return -1;
+}
+int tm_d3d9_is_d3d(uint32_t va) { return obj_index(va) >= 0; }
+uint32_t tm_d3d9_addref(uint32_t va) {
+    int i = obj_index(va);
+    if (i < 0) hle_fatal("[d3d9] AddRef of 0x%08X: not a live IDirect3D9", va);
+    return (uint32_t)++g_obj[i].refs;
 }
 static int self(const char *method) {
     int i = obj_index(A32(0));
@@ -103,6 +115,7 @@ static void d3d_Release(void) {
     int n = --g_obj[i].refs;
     if (!n) {
         fprintf(stderr, "[d3d9] IDirect3D9 0x%08X destroyed\n", g_obj[i].va);
+        if (g_backend) g_backend->d3d_destroyed(g_obj[i].va);
         hle_free(hle_ptr(g_obj[i].va));
         g_obj[i].va = 0;
         g_destroyed++;
@@ -181,7 +194,15 @@ static void d3d_CreateDevice(void) {   /* (this, adapter, type, focus, flags, D3
                     k == 2 || k == 10 ? " D3DFMT_" : "", k == 2 || k == 10 ? fmt_name(v) : "");
         }
     }
-    hle_fatal("[d3d9] IDirect3D9::CreateDevice: no Direct3D 9 device backend exists yet (docs/D3D9-REQUIREMENTS.md)");
+    if (!g_backend)
+        hle_fatal("[d3d9] IDirect3D9::CreateDevice: no Direct3D 9 device backend in this run (docs/DXVK-INTEGRATION.md)");
+    if (!out) RET(D3DERR_INVALIDCALL, 7);
+    MEM32(out) = 0;
+    if (!pp || adapter != 0) {
+        fprintf(stderr, "[d3d9] IDirect3D9::CreateDevice -> D3DERR_INVALIDCALL (%s)\n", pp ? "adapter" : "no parameters");
+        RET(D3DERR_INVALIDCALL, 7);
+    }
+    RET(g_backend->create_device(A32(0), adapter, type, focus, flags, pp, out), 7);
 }
 
 static const char *const d3d_methods[] = {
@@ -260,4 +281,5 @@ int tm_d3d9_live(void) {
 
 void tm_d3d9_report(FILE *f) {
     if (g_created) fprintf(f, "[d3d9] IDirect3D9: %d created, %d destroyed\n", g_created, g_destroyed);
+    if (g_backend && g_backend->report) g_backend->report(f);
 }

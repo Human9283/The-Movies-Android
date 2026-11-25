@@ -124,9 +124,12 @@ add_test(NAME hle_path_selftest COMMAND hle_path_selftest)
 
 # ---- DXVK Native (docs/DXVK-INTEGRATION.md) ----------------------------------
 # TM_DXVK_PREFIX: an install of DXVK Native's d3d9 (meson install, SDL2 WSI).
-# With it, dxvk_present is built: a real D3D9 device on Vulkan, cleared,
-# presented and read back. Its test needs an X display or xvfb-run, and a
-# Vulkan driver (Mesa's lavapipe will do: VK_ICD_FILENAMES).
+# With it:
+# - dxvk_present is built: a real D3D9 device on Vulkan, cleared, presented
+#   and read back. Its test needs xvfb-run and a Vulkan 1.3 driver (Mesa's
+#   lavapipe will do);
+# - tm_host gets the DXVK device backend (src/host/tm_d3d9_dxvk.cpp), used
+#   with --d3d9 dxvk.
 set(TM_DXVK_PREFIX "" CACHE PATH "DXVK Native install prefix (include/dxvk, lib*/libdxvk_d3d9.so)")
 if(TM_DXVK_PREFIX)
   enable_language(CXX)
@@ -138,10 +141,26 @@ if(TM_DXVK_PREFIX)
   target_link_libraries(dxvk_present PRIVATE ${DXVK_D3D9} PkgConfig::SDL2)
   get_filename_component(DXVK_LIBDIR "${DXVK_D3D9}" DIRECTORY)
   set_target_properties(dxvk_present PROPERTIES BUILD_RPATH "${DXVK_LIBDIR}")
+  target_sources(tm_host PRIVATE src/host/tm_d3d9_dxvk.cpp)
+  set_source_files_properties(src/host/tm_d3d9_dxvk.cpp PROPERTIES
+    INCLUDE_DIRECTORIES "${TM_DXVK_PREFIX}/include/dxvk" COMPILE_OPTIONS "-std=c++17")
+  target_compile_definitions(tm_host PRIVATE TM_HAVE_DXVK=1)
+  target_link_libraries(tm_host PRIVATE ${DXVK_D3D9})
+  set_target_properties(tm_host PROPERTIES BUILD_RPATH "${DXVK_LIBDIR}")
   find_program(XVFB_RUN xvfb-run)
   if(XVFB_RUN)
     # the game's own request: 1024x768 X1R5G5B5 full screen
     add_test(NAME dxvk_present COMMAND ${XVFB_RUN} -a -s "-screen 0 1024x768x24" $<TARGET_FILE:dxvk_present> 1024 768 24 0)
     set_tests_properties(dxvk_present PROPERTIES ENVIRONMENT "DXVK_WSI_DRIVER=SDL2;DXVK_LOG_LEVEL=warn" TIMEOUT 120)
+    # the backend, through guest objects: tests/c/test_d3d9_dxvk.c
+    add_executable(test_d3d9_dxvk tests/c/test_d3d9_dxvk.c src/host/tm_d3d9.c src/host/tm_loader.c src/host/tm_d3d9_dxvk.cpp
+                   ${HLE_SOURCES})
+    target_include_directories(test_d3d9_dxvk PRIVATE ${CMAKE_SOURCE_DIR}/src/host ${PCRECOMP}/runtime/recomp32 ${PCRECOMP}/runtime/win32hle)
+    target_compile_definitions(test_d3d9_dxvk PRIVATE _GNU_SOURCE RECOMP_RETADDR=0u)
+    target_compile_options(test_d3d9_dxvk PRIVATE -Wall -Wno-unused-function -fno-strict-aliasing)
+    target_link_libraries(test_d3d9_dxvk PRIVATE ${DXVK_D3D9} PkgConfig::SDL2 Threads::Threads m)
+    set_target_properties(test_d3d9_dxvk PROPERTIES BUILD_RPATH "${DXVK_LIBDIR}")
+    add_test(NAME test_d3d9_dxvk COMMAND ${XVFB_RUN} -a -s "-screen 0 1024x768x24" $<TARGET_FILE:test_d3d9_dxvk>)
+    set_tests_properties(test_d3d9_dxvk PROPERTIES ENVIRONMENT "DXVK_LOG_LEVEL=warn;SDL_AUDIODRIVER=dummy" TIMEOUT 120)
   endif()
 endif()
