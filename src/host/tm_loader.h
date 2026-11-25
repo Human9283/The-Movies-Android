@@ -1,6 +1,7 @@
 #ifndef TM_LOADER_H
 #define TM_LOADER_H
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include "win32hle.h"
 
@@ -40,6 +41,12 @@ extern const win32hle_shim tm_loader_overrides[];
  * name is already registered. */
 int  tm_loader_add(const tm_host_dll *dll);
 void tm_loader_set_app_dir(const char *guest_exe_path);
+/* Reserve the host DLL and win32hle system-module handle ranges in guest
+ * memory (inaccessible). tm_loader_add does it on the first call; a host
+ * calls it at start-up, before any guest allocation. */
+void tm_loader_reserve(void);
+/* Whether h is a module in win32hle's table (not a host DLL; NULL is 0). */
+int  tm_loader_win32hle_module(uint32_t h);
 
 /* The registered host DLLs, for the file system's virtual entries. */
 int                tm_loader_count(void);

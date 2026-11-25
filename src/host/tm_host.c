@@ -268,6 +268,7 @@ int main(int argc, char **argv) {
 
     /* host.c's boot, with our resolver (recomp_host_boot_permissive takes none) */
     recomp_host_init();
+    tm_loader_reserve();                                /* module handle ranges, before guest allocations */
     win32hle_register(tm_helper_dll);
     win32hle_register(tm_shell_shims);
     win32hle_register(tm_user32_shims);

@@ -55,9 +55,9 @@ trace differ.
   in an empty slot, fail the same way. Reference counts never go below
   zero, and a reload after unload gives the same handle. Ordinal and NULL
   names give `ERROR_PROC_NOT_FOUND`. Export addresses are shim VAs. [meas.]
-- **Guest pointers.** `hle_va` stops the run on a host pointer. The
-  DirectInput 8 object and its vtable are guest memory, and all 11 vtable
-  slots are dispatchable shims. [meas.]
+- **Guest pointers.** The DirectInput 8 object and its vtable are guest
+  memory, and all 11 vtable slots are dispatchable shims. [meas.] What
+  `hle_va` does and does not check is in section 13.
 - **Concurrency.** Every shim, and so every file-system and loader call,
   runs under win32hle's machine lock. Mounts and host DLLs are registered
   at start-up, before guest code runs, and are read-only after that. There
@@ -70,9 +70,6 @@ trace differ.
 
 | Risk | Where | Effect | Reached by the game? |
 |---|---|---|---|
-| `FreeLibrary` returns TRUE for any handle that is not a host DLL | win32hle | a stale or wrong handle is not reported | no case seen |
-| `GetProcAddress` with an invalid module gives 127, not 126 | win32hle (non-host modules) | wrong error code | no case seen |
-| win32hle's system-module range at `0x7E000000 + 0x10000 * k` is not reserved | win32hle | a guest allocation could in principle land on a module handle, the same defect as #8 | [hyp.] low: allocations grow from `0x10000000` |
 | `CloseHandle` accepts a search handle | win32hle | Windows refuses it | no |
 | a trailing `\` after a file name | `hle_path.c` | not checked against Windows | no |
 | no 8.3 names (`cAlternateFileName` empty) | `tm_vfs.c` | a game that relies on short names would fail | no |
@@ -152,7 +149,7 @@ mapped from the APK.
 | 5 | arm64 Linux build and M2 run (level 2–3) | `tests/m2_winmain.py` passes on arm64 |
 | 6 | EH-enabled re-lift and dispatcher | a guest test that throws and catches passes; M2 and M3 unchanged |
 
-## 11. Test commands and results (after this audit)
+## 11. Test commands and results
 
 ```bash
 ctest --test-dir ~/tm/build --output-on-failure
@@ -168,7 +165,7 @@ python3 tests/m3_boundary.py --host ~/tm/build/tm_host --game ~/tm/game
 
 | Test | Result [meas.] |
 |---|---|
-| ctest | 8/8 pass: `test_disk_free_w` 54, `test_loader` 32, `test_dinput8` 48, `test_sysroot` 30, `test_vfs` 74, `test_vfs_audit` 134, `test_loader_audit` 36 checks, `hle_path_selftest` |
+| ctest | 8/8 pass: `test_disk_free_w` 54, `test_loader` 32, `test_dinput8` 48, `test_sysroot` 30, `test_vfs` 74, `test_vfs_audit` 135, `test_loader_audit` 64 checks, `hle_path_selftest` (after the closure pass, section 13) |
 | m2_winmain, both scenarios | PASS, unchanged: 12,978 entries, 1,245 distinct functions |
 | m3_boundary | PASS, unchanged |
 | baselines (`tests/baselines/`) | not modified |
@@ -185,3 +182,83 @@ Used for behaviour only. No code from any of them is in this repository.
 | pcrecomp (`tools/lift/eh32.py`, `runtime/native32/eh32.c`, `seh32.c`, win32hle) | MIT | the EH design; win32hle is the runtime this host builds on |
 | sp00nznet/themovies | MIT | the reference recompilation (docs/EXTERNAL-REFERENCES.md) |
 | DXVK, Box64, Unicorn | zlib, MIT, GPL-2.0 | not used in this audit; DXVK remains an option for the D3D9 backend (AUDIT.md 5.3) |
+
+## 13. Closure pass
+
+### Public branch
+
+After `44d069a` was pushed, `git rev-parse HEAD`, `origin/main` and
+`git ls-remote origin refs/heads/main` all gave `7de81a6`, a child of
+`44d069a`. The raw `main` files of `README.md`,
+`docs/DIRECTSHOW-STARTUP.md` and `docs/REPOSITORY-AUDIT.md` were
+byte-identical to that commit, under both the old and the new repository
+name. The local clone had no fetch refspec for `origin`, so `origin/main`
+did not exist locally. That has been set, and `origin` now points to the
+repository's new name. No history was changed.
+
+### Loader defects
+
+| # | Defect | Fix | Test |
+|---|---|---|---|
+| 13 | win32hle's `FreeLibrary` returned TRUE for any value: NULL, a heap address, an offset inside a module range | `tm:FreeLibrary` asks win32hle whether the value names a module and otherwise fails with `ERROR_MOD_NOT_FOUND`. A real module still gives TRUE and stays loaded | `test_loader_audit` |
+| 14 | win32hle's `GetProcAddress` gave `ERROR_PROC_NOT_FOUND` for a value that is no module | `ERROR_MOD_NOT_FOUND`. `GetProcAddress(NULL, ...)` is still the main image | `test_loader_audit` |
+| 15 | win32hle's system-module handles (`0x7E000000 + 0x10000 * k`, 24 names) lay inside the guest allocator's "anywhere" range | `0x7E000000`–`0x7EFFFFFF` is reserved and inaccessible at start-up (`tm_loader_reserve`), with the host DLL range | `test_loader_audit`: neither range can be reserved, reads fault, 64 MB of allocations stay out, kernel32's handle and exports still work |
+
+How the check works: win32hle's `GetModuleFileNameA` looks a handle up
+first and sets `ERROR_MOD_NOT_FOUND` only when no module has it. Called
+with no buffer, it allocates nothing and writes nothing. A first version
+used a scratch buffer, and that moved every later guest allocation by
+`0x50000`: the scratch arena was created earlier than before. The M3
+boundary test caught it, because it compares object addresses. The
+version committed allocates nothing, and the test passes unchanged.
+
+**Stale handles.** Host DLL handles go stale at their last `FreeLibrary`,
+fail with `ERROR_MOD_NOT_FOUND` from then on, and come back with the same
+value on reload (covered before and again now). win32hle never unloads its
+modules, so they have no stale state. This differs from Windows for a
+mapped DLL file, which Windows would unmap at a count of 0. Neither the
+game nor the install has such a DLL in use.
+
+**Was the range collision real?** No collision has happened. The
+allocator is first fit from `0x10000000`. In the M3 boundary run all guest
+mappings end below `0x11680000`, about 40 MB of the 1.75 GB below
+`0x7E000000` (measured with `strace -e mmap` against the 4 GB block's
+base). A collision needs that range filled, or an explicit-address
+`VirtualAlloc` there. The game does use system handles: `GetModuleHandleA`
+returns kernel32's `0x7E000000`, and `GetProcAddress` is called on it seven
+times. So the overlap concerns live values, and a reservation is the
+cheap, exact fix. A collision would make a handle value also a valid
+pointer, and win32hle's resource lookup, which reads a PE header at the
+handle, would then read heap data instead of faulting.
+
+### The guest-pointer boundary
+
+What `hle_va(p)` (based mode) checks: that `p - g_mem_base` fits in 32
+bits. A host pointer outside the 4 GB block stops the run
+(`hle_va_bad`). It does **not** check that the VA is reserved, committed
+or part of a live block. `hle_ptr(va)` checks nothing: any guest-supplied
+VA becomes a host address inside the block, and an unmapped one faults
+(SIGSEGV, as an access violation would, but with no SEH). `MEM32` and
+friends are the same as `hle_ptr`.
+
+| Kind | Values | Status |
+|---|---|---|
+| **guest-visible pointers, verified** | DirectInput 8 objects and vtables (`hle_alloc`, `hle_va` once at creation; test_dinput8, test_loader_audit); the loader's path buffer (`hle_alloc`); `GetFullPathNameA`'s file part (a pointer into the guest's own buffer); win32hle's `RETP` returns (`HeapAlloc`, `LocalAlloc`, `GlobalAlloc`, `GetEnvironmentStrings`, ...: `hle_va` on each return); `GetCommandLineA` (`hle_guest_strdup`) | each is guest memory by construction, or checked by `hle_va` at the point it is made |
+| **host-only pointers** | the search state (`tfind`, its entries: `malloc`), kept in the handle table under a `TM_H_FIND` handle; the `--seen-out` bitmap; every `static` table in `src/host` | never handed to the guest: the guest sees a handle or nothing |
+| **opaque handles, not pointers** | handle-table values `0x100 + 4 * slot` (searches, files, events); host DLL modules `0x7D000000 + 0x10000 * i` and system modules `0x7E000000 + 0x10000 * k` (reserved, inaccessible); shim VAs `0x7F000000`–`0x7FFFFFFF` (never mapped, dispatched as imports); windows `0x0001xxxx`; cursors and icons `0x1C00000x`; GDI stock objects | values only. Module handles are in reserved, inaccessible memory |
+| **returned unchanged, not verified** | `TlsGetValue` (the value the guest stored), `LockResource` (its argument back), `LocalLock` and `GlobalLock` (their argument) | guest values passed through: no host pointer can arise, and no validity check is made |
+| **unverified** | the out-parameters every shim writes with `MEM32` at a guest-supplied VA; the remaining win32hle shims that build a guest pointer without `RETP` or `hle_va` (123 `hle_ptr` uses in win32hle, 27 files with `hle_va`, not reviewed one by one) | outside this pass. A wrong VA faults; it cannot leak a host pointer, because those paths do not take host addresses |
+
+No shim in `src/host` returns a host pointer to the guest. The ones that
+return addresses take them from `hle_alloc` or from guest memory and
+convert them with `hle_va`.
+
+### Exceptions
+
+No new execution evidence. The closure-pass runs took no throw and made no
+`RaiseException` call, so docs/EXCEPTIONS.md and its decision stand.
+
+### Results
+
+ctest 8/8, both M2 scenarios and the M3 boundary pass, with the baselines
+unchanged.

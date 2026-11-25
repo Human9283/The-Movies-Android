@@ -261,7 +261,8 @@ the order of Windows 10/11 with `LOAD_LIBRARY_SEARCH_*` flags.
 | a name with a path | that path only | resolved as given | the same, after making it absolute the Windows way (`..`, `/`, relative names); a path to a host DLL's directory names the host DLL |
 | `.dll` added when no extension; a trailing `.` = none | yes | `.dll` added | both |
 | file names | case-insensitive | yes (hle_path) | yes |
-| reference counts | `LoadLibrary` +1, `FreeLibrary` -1, unloaded at 0 | never below 1, `FreeLibrary` always TRUE | host DLLs: as Windows; a stale handle fails with `ERROR_MOD_NOT_FOUND` |
+| reference counts | `LoadLibrary` +1, `FreeLibrary` -1, unloaded at 0 | never below 1, `FreeLibrary` always TRUE, for any value | host DLLs: as Windows; a stale handle fails with `ERROR_MOD_NOT_FOUND`. win32hle's modules (its system DLLs, mapped DLL files, the main image): never unloaded, so their handles never go stale; `FreeLibrary` gives TRUE for them and leaves them loaded |
+| `FreeLibrary` / `GetProcAddress` of a value that is no module (NULL for `FreeLibrary`, a heap address, an offset inside a module's range) | FALSE / NULL, `ERROR_MOD_NOT_FOUND` | TRUE / NULL with `ERROR_PROC_NOT_FOUND` | as Windows, for host DLL and win32hle handles alike. `GetProcAddress(NULL, ...)` is the main image, as on Windows |
 | `DllMain` attach / detach | at the first load / the last `FreeLibrary`; a FALSE attach fails the load with `ERROR_DLL_INIT_FAILED` | DLL files mapped, code never run | host DLLs: `on_load` / `on_unload`, the same rules (dinput8 and wmvcore have none) |
 | a file that is not a loadable image | `ERROR_BAD_EXE_FORMAT` | | a host DLL entry with `loadable = 0` |
 | `GetModuleHandleA` | loaded modules only, no reference | any system DLL, loaded or not | host DLLs: only while loaded |
@@ -282,13 +283,23 @@ Outside the current scope, with the reason:
 - win32hle's own system DLLs (`kernel32.dll`, `user32.dll`, ...) keep its
   rules: `GetModuleHandleA` answers for them even when the game never
   loaded them, and they are **not listed** in `C:\WINDOWS\SYSTEM32` (only
-  host DLLs are). Nothing in the trace looks for them as files.
+  host DLLs are). Nothing in the trace looks for them as files. Their
+  handles are pseudo-modules at `0x7E000000 + 0x10000 * k` with no image.
+  The range `0x7E000000`–`0x7EFFFFFF` is reserved in guest memory and
+  inaccessible (`tm_loader_reserve`, at start-up), as the host DLL range is:
+  no guest allocation can share an address with a module handle. Reading
+  one as memory faults. That includes win32hle's resource functions
+  (`FindResourceA` and friends), which read a PE header at the module's
+  handle. The game passes such a handle only to `GetProcAddress` (seven
+  calls on kernel32's, in the boundary run).
 
 A DLL file found on disk is mapped by win32hle, but its exports are not
 answered (`GetProcAddress` gives NULL, `ERROR_PROC_NOT_FOUND`). So a real DLL
 placed in the game directory would fail at `dliFailGetProc`, visibly.
 
-Tests: `tests/c/test_loader.c` (search order, `.dll` and trailing-dot
+Tests: `tests/c/test_loader_audit.c` (the reserved ranges, stale,
+malformed and foreign handles for both kinds of module, the main image,
+`GetProcAddress(NULL, ...)`), `tests/c/test_loader.c` (search order, `.dll` and trailing-dot
 names, case, an application-dir copy taking precedence, reference counts,
 unloading, stale handles, exports by name and ordinal,
 `GetModuleFileNameA` truncation, a missing DLL) and `tests/c/test_vfs.c`
@@ -345,8 +356,10 @@ left unsupported (the load fails with 126) and not replaced by dbghelp.
 Implementing it means real stack walking over lifted code, where the guest
 stack has no native frames to walk, and nothing on the start-up path needs
 it. Noted for crash diagnostics later. (The failure path calls
-`FreeLibrary(NULL)` instead of the module, a bug in the game; it is
-harmless.)
+`FreeLibrary(NULL)` instead of the module, a bug in the game. It is
+harmless: `FreeLibrary(NULL)` now fails with `ERROR_MOD_NOT_FOUND`, as on
+Windows, and the game ignores the result. No `FreeLibrary` call appears in
+the boundary run's trace.)
 
 ### DirectInput 8
 
@@ -513,14 +526,15 @@ Tests:
   host DLL entries refused for open, delete and replace, mount overlap,
   and the four DLL questions for a test DLL and for `wmvcore.dll` and
   `dinput8.dll`.
-- `tests/c/test_vfs_audit.c` (134 checks): mount and host DLL capacity,
+- `tests/c/test_vfs_audit.c` (135 checks): mount and host DLL capacity,
   a full virtual listing, allocation failures at each stage, handle-table
   exhaustion, the search handle's lifecycle, `GetFileAttributesA` errors,
   the wildcard rules, and mount boundaries (a sibling `WINDOWS_OLD`,
   repeated and mixed separators, `.` and `..`, relative, `C:name`, `\name`).
-- `tests/c/test_loader_audit.c` (36 checks): the reserved handle range,
-  stale and malformed handles, reference counts, `GetProcAddress` by
-  ordinal and with NULL, and COM objects and vtables in guest memory.
+- `tests/c/test_loader_audit.c` (64 checks): both reserved handle ranges,
+  stale and malformed handles, foreign values given to `FreeLibrary` and
+  `GetProcAddress`, reference counts, `GetProcAddress` by ordinal and with
+  NULL, and COM objects and vtables in guest memory.
 - `tests/c/test_sysroot.c`: separation and the directory functions.
 - `hle_path_selftest`: win32hle's own path test against the patched file.
   One of its checks expected a relative `..\file.txt` to stay relative to

@@ -126,6 +126,7 @@ int main(void) {
         else check("host DLL beyond capacity: refused", !ok);
         added += ok;
     }
+    check("exactly TM_LOADER_MAX_DLLS registered", added == TM_LOADER_MAX_DLLS && tm_loader_count() == TM_LOADER_MAX_DLLS);
     check("a host DLL registered twice: refused", !tm_loader_add(&g_dlls[0]));
     /* C:\V holds 7 mounts and 16 host DLLs: 23 virtual entries, more than the
      * 16 an earlier version kept (it dropped the rest without a word) */

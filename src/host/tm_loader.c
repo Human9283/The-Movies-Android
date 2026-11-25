@@ -18,6 +18,12 @@
  *     faults at once, naming the address.
  *   - everything else goes to win32hle: its own system DLLs (kernel32,
  *     user32, ...) and DLL files, which it maps without running their code.
+ *     Its system DLLs are pseudo-modules at 0x7E000000 + 0x10000 * k. That
+ *     range, to the shim range at 0x7F000000, is reserved here as well and
+ *     made inaccessible. win32hle never unloads a module (its FreeLibrary
+ *     keeps the count at 1 or more), so its handles never go stale. Its
+ *     FreeLibrary and GetProcAddress do not check the handle: a handle that
+ *     names no module is refused here first (ERROR_MOD_NOT_FOUND).
  *
  * The search for a name without a path is that of LoadLibraryA on Windows
  * XP SP2 and later with SafeDllSearchMode on (its default), no
@@ -55,6 +61,8 @@
 #define ERROR_INSUFFICIENT_BUFFER 122u
 #define HOST_DLL_BASE  0x7D000000u
 #define HOST_DLL_STEP  0x00010000u
+#define SYS_MOD_BASE   0x7E000000u          /* win32hle module.c: system pseudo-modules */
+#define SYS_MOD_END    0x7F000000u          /* the shim range starts here */
 #define TM_MAX_HOST_DLLS TM_LOADER_MAX_DLLS
 #define TM_MAX_ASKED 32
 
@@ -67,20 +75,24 @@ static char g_app_dir[600];                 /* guest, no trailing backslash */
 static struct { int dll; char name[64]; tm_export_state st; int n; } g_asked[TM_MAX_ASKED];
 static int g_nasked;
 
-/* Keep [HOST_DLL_BASE, +16 * HOST_DLL_STEP) out of the guest allocator (it
- * lies inside its "anywhere" range) and inaccessible. */
-static void reserve_handles(void) {
+/* Keep a range of module handles out of the guest allocator (both lie
+ * inside its "anywhere" range, which is first fit from 0x10000000) and
+ * inaccessible, so a handle is never also a guest address. */
+static void reserve_range(const char *what, uint32_t va, uint32_t size) {
+    uint32_t lo = hle_vm_reserve(va, size);
+    if (lo != va) hle_fatal("%s: guest range 0x%08X..0x%08X already in use", what, va, va + size);
+    if (mprotect(hle_ptr(lo), size, PROT_NONE)) hle_fatal("%s: cannot protect 0x%08X", what, lo);
+}
+void tm_loader_reserve(void) {
     static int done;
     if (done) return;
     done = 1;
-    uint32_t size = HOST_DLL_STEP * TM_MAX_HOST_DLLS;
-    uint32_t lo = hle_vm_reserve(HOST_DLL_BASE, size);
-    if (lo != HOST_DLL_BASE) hle_fatal("host DLL handles: guest range 0x%08X..0x%08X already in use", HOST_DLL_BASE, HOST_DLL_BASE + size);
-    if (mprotect(hle_ptr(lo), size, PROT_NONE)) hle_fatal("host DLL handles: cannot protect 0x%08X", lo);
+    reserve_range("host DLL handles", HOST_DLL_BASE, HOST_DLL_STEP * TM_MAX_HOST_DLLS);
+    reserve_range("system module handles", SYS_MOD_BASE, SYS_MOD_END - SYS_MOD_BASE);
 }
 
 int tm_loader_add(const tm_host_dll *dll) {
-    reserve_handles();
+    tm_loader_reserve();
     for (int i = 0; i < g_ndll; i++)
         if (!strcmp(g_dll[i]->name, dll->name)) {
             fprintf(stderr, "[loader] host DLL %s registered twice\n", dll->name);
@@ -216,6 +228,23 @@ static void delegate(const char *name) {
     f();
 }
 
+/* Whether win32hle has a module with this handle. Its GetModuleFileNameA
+ * looks the handle up first and sets ERROR_MOD_NOT_FOUND only when it
+ * names no module; with no buffer it then returns 0 without touching the
+ * error. Called that way it allocates nothing in guest memory (a scratch
+ * buffer would move every later guest allocation). The last error is left
+ * as it was. */
+int tm_loader_win32hle_module(uint32_t h) {
+    if (!h) return 0;
+    uint32_t err = hle_get_last_error();
+    hle_set_last_error(0);
+    uint32_t args[3] = { h, 0, 0 };
+    hle_call_guest(hle_resolve("GetModuleFileNameA"), 3, args);
+    int known = hle_get_last_error() != ERROR_MOD_NOT_FOUND;
+    hle_set_last_error(err);
+    return known;
+}
+
 static void k_LoadLibraryA(void) {                      /* (name) */
     const char *name = ASTR(0);
     char g[1024];
@@ -286,6 +315,11 @@ static void k_GetProcAddress(void) {                    /* (module, name or ordi
         hle_set_last_error(ERROR_PROC_NOT_FOUND);
         RET(0, 2);
     }
+    if (h && !tm_loader_win32hle_module(h)) {          /* NULL: the main image, win32hle's rule */
+        fprintf(stderr, "[loader] GetProcAddress(0x%08X): not a module handle\n", h);
+        hle_set_last_error(ERROR_MOD_NOT_FOUND);
+        RET(0, 2);
+    }
     delegate("GetProcAddress");
 }
 
@@ -298,6 +332,11 @@ static void k_FreeLibrary(void) {                       /* (module) */
         if (!g_refs[i] && g_dll[i]->on_unload) g_dll[i]->on_unload();
         fprintf(stderr, "[loader] FreeLibrary(%s) -> refs %d%s\n", g_dll[i]->name, g_refs[i], g_refs[i] ? "" : ", unloaded");
         RET(1, 1);
+    }
+    if (!tm_loader_win32hle_module(h)) {               /* NULL included: no module is unloaded by it */
+        fprintf(stderr, "[loader] FreeLibrary(0x%08X): not a module handle\n", h);
+        hle_set_last_error(ERROR_MOD_NOT_FOUND);
+        RET(0, 1);
     }
     delegate("FreeLibrary");
 }

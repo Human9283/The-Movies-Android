@@ -62,6 +62,8 @@ static int dies_of(void (*f)(void)) {
     return WIFSIGNALED(st) ? WTERMSIG(st) : 0;
 }
 static void read_handle_range(void) { volatile uint32_t v = MEM32(0x7D000000u); (void)v; }
+static void read_system_range(void) { volatile uint32_t v = MEM32(0x7E000000u); (void)v; }
+static void read_system_range_end(void) { volatile uint32_t v = MEM32(0x7EFFFFFCu); (void)v; }
 static void read_unreserved(void) { volatile uint32_t v = MEM32(0x6F000000u); (void)v; }
 static void host_pointer_to_guest(void) { int local = 0; volatile uint32_t v = hle_va(&local); (void)v; }
 
@@ -79,6 +81,18 @@ int main(void) {
     check("the handle range cannot be reserved by anything else", hle_vm_reserve(0x7D000000u, 0x10000u) == 0);
     check("  nor its last block", hle_vm_reserve(0x7D0F0000u, 0x10000u) == 0);
     check("the block after it can", hle_vm_reserve(0x7D100000u, 0x10000u) == 0x7D100000u);
+    check("the system-module range cannot be reserved", hle_vm_reserve(0x7E000000u, 0x10000u) == 0);
+    check("  nor its last block", hle_vm_reserve(0x7EFF0000u, 0x10000u) == 0);
+    check("  nor a block across its start", hle_vm_reserve(0x7DFF0000u, 0x20000u) == 0);
+    tm_loader_reserve();                         /* a second call changes nothing */
+    check("reading a system-module handle as memory faults (SIGSEGV)", dies_of(read_system_range) == SIGSEGV);
+    check("  and at the end of the range", dies_of(read_system_range_end) == SIGSEGV);
+    int below = 1;
+    for (int k = 0; k < 64; k++) {                /* ordinary allocations never land in either range */
+        uint32_t a = hle_vm_reserve(0, 0x100000u);
+        below &= a && (a + 0x100000u <= 0x7D000000u || (a >= 0x7D100000u && a + 0x100000u <= 0x7E000000u));
+    }
+    check("64 MB of anywhere allocations stay out of both handle ranges", below);
     check("reading a handle as memory faults (SIGSEGV)", dies_of(read_handle_range) == SIGSEGV);
     check("so does a VA nobody reserved", dies_of(read_unreserved) == SIGSEGV);
     check("a host pointer handed to the guest stops the run (SIGABRT)", dies_of(host_pointer_to_guest) == SIGABRT);
@@ -136,6 +150,41 @@ int main(void) {
     check("an export address is a shim VA: not guest memory, dispatched as an import",
           fa >= 0x7F000000u && fa < 0x80000000u && recomp_lookup_import(fa) != NULL);
     freelib(h1);
+
+    /* ---- win32hle's modules: system pseudo-modules, the main image, bad handles ---- */
+    hle_module_add("C:\\GAME\\T.EXE", 0x00400000u, 0, 0, 1);
+    uint32_t k32 = handle("kernel32.dll");
+    check("GetModuleHandleA(kernel32): a system pseudo-module in its range", k32 >= 0x7E000000u && k32 < 0x7F000000u);
+    check("LoadLibraryA(kernel32): the same handle", load("KERNEL32") == k32);
+    hle_set_last_error(1234);
+    uint32_t gtc = procn(k32, "GetTickCount");
+    check("GetProcAddress(kernel32, GetTickCount): an export, last error untouched", gtc && hle_get_last_error() == 1234);
+    hle_set_last_error(0);
+    check("GetProcAddress(kernel32, a name it lacks): ERROR_PROC_NOT_FOUND", procn(k32, "NoSuchExport") == 0 && err() == 127);
+    check("FreeLibrary(kernel32): TRUE", freelib(k32) == 1);
+    check("  still loaded afterwards (win32hle never unloads)", handle("kernel32.dll") == k32 && procn(k32, "GetTickCount") == gtc);
+    check("FreeLibrary(the main image): TRUE", freelib(0x00400000u) == 1);
+    hle_set_last_error(0);
+    check("GetProcAddress(NULL, a name): the main image, ERROR_PROC_NOT_FOUND", procn(0, "Nothing") == 0 && err() == 127);
+    static const uint32_t bad[] = { 0x12345678u, 0x7E000004u, 0x7EF00000u, 0x00400004u, 0xFFFFFFFFu };
+    for (unsigned k = 0; k < sizeof bad / sizeof bad[0]; k++) {
+        char l[96];
+        hle_set_last_error(0);
+        snprintf(l, sizeof l, "GetProcAddress(0x%08X): NULL, ERROR_MOD_NOT_FOUND", bad[k]);
+        check(l, procn(bad[k], "GetTickCount") == 0 && err() == 126);
+        hle_set_last_error(0);
+        snprintf(l, sizeof l, "FreeLibrary(0x%08X): FALSE, ERROR_MOD_NOT_FOUND", bad[k]);
+        check(l, freelib(bad[k]) == 0 && err() == 126);
+    }
+    hle_set_last_error(0);
+    check("FreeLibrary(NULL): FALSE, ERROR_MOD_NOT_FOUND", freelib(0) == 0 && err() == 126);
+    check("tm_loader_win32hle_module: kernel32 yes, NULL and a host DLL handle no",
+          tm_loader_win32hle_module(k32) && !tm_loader_win32hle_module(0) && !tm_loader_win32hle_module(0x7D000000u));
+    uint32_t ha2 = load("a.dll");
+    check("host DLLs unchanged: A loads, its export runs, it unloads",
+          ha2 == ha && hle_call_guest(procn(ha2, "F"), 0, NULL) == 0xAAAAu && freelib(ha2) == 1 && tm_loader_refs("a.dll") == 0);
+    hle_set_last_error(0);
+    check("  and its stale handle still fails with ERROR_MOD_NOT_FOUND", freelib(ha2) == 0 && err() == 126 && procn(ha2, "F") == 0);
 
     /* ---- COM objects from a host DLL are guest memory ---- */
     uint32_t hd = load("dinput8.dll");

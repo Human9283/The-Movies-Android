@@ -172,7 +172,8 @@ Shim tests (no game files needed):
 - `test_vfs_audit`: file-system edge cases: capacity, allocation and
   handle-table failures, search lifecycle, `GetFileAttributesA` errors,
   wildcard rules, mount boundaries;
-- `test_loader_audit`: loader edge cases: the reserved handle range, stale
+- `test_loader_audit`: loader edge cases: the reserved handle ranges (host
+  DLLs and win32hle's system modules), handles that name no module, stale
   and malformed handles, reference counts, `GetProcAddress` by ordinal, COM
   objects in guest memory;
 - `hle_path_selftest`: win32hle's own path selftest against the patched
