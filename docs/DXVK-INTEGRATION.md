@@ -250,7 +250,10 @@ seconds, `docs/traces/dxvk_run_imports.json` for the imports):
     and the cursor, by frame 3000.
 - The menus respond to the mouse: `tools/xvfb_clicks.sh` clicks
   "Играть", then "Загрузить игру", and the game shows its load screen with
-  its backdrop and an empty list (no saves yet).
+  its backdrop and an empty list (no saves yet). "Играть", "Новая игра"
+  loads the game proper: the studio lot in 3D, with the tutorial's first
+  message, and the run goes on (3 minutes measured, no stop). "Посмотреть
+  фильм" opens the film viewer with the sample film in its list.
 - The menu's backdrop is black. It is a video, and Windows Media playback
   is not implemented (DIRECTSHOW-STARTUP.md).
 - About 60 frames a second through lavapipe.

@@ -61,7 +61,7 @@ input (M5) are the largest. M4 is done on Linux, not yet on Android, and is not 
 | M2: lifted start-up code reaches `WinMain` | done on Linux x86-64; arm64 and Android not yet run |
 | M3: run to the game's own Direct3D 9 device initialisation | done on Linux x86-64: the game's `CreateDevice` succeeds on DXVK Native, and its resources and rendering calls are traced ([docs/M3.md](docs/M3.md), [docs/D3D9-REQUIREMENTS.md](docs/D3D9-REQUIREMENTS.md), [docs/DXVK-INTEGRATION.md](docs/DXVK-INTEGRATION.md)) |
 | M4: the first genuine frame from the game's rendering code | on Linux (software Vulkan): the intro logo and the main menu, drawn by the game's own code. Not yet on Android |
-| Later: video, audio, input, Android packaging | planned |
+| Later: video, audio, input, Android packaging | started on Linux: the menus answer the mouse, and a new game reaches the studio lot in 3D; no video, sound not checked |
 
 Measured results and open problems: [docs/M2.md](docs/M2.md),
 [docs/AUDIT.md](docs/AUDIT.md) and

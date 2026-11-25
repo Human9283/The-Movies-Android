@@ -118,8 +118,17 @@ Counts are calls of the guest methods.
   `DrawIndexedPrimitive` (285,089). Also 7,746 `DrawIndexedPrimitiveUP`,
   114,450 `SetRenderState`, 107,728 `SetTextureStageState`, 2,582
   `SetScissorRect`, 190 `SetLight`/`LightEnable`, 375 `SetTransform`.
-- **Not reached yet:** a lost device and `Reset`; the game proper (the lot,
-  the studio); the video path, which the menu's backdrop needs.
+- **The game proper** (a new game, the studio lot, measured over 3
+  minutes): the same methods and still no shader; `SetVertexShader` and
+  `SetPixelShader` only with NULL. It enumerates texture formats with
+  `CheckDeviceFormat` (usage 0, `D3DRTYPE_TEXTURE`) over and over, about
+  23,600 calls: DXVK on lavapipe answers `D3DERR_NOTAVAILABLE` for
+  `R8G8B8` (20), `R3G3B2` (27), `A8R3G3B2` (29), `A8P8` (40), `P8` (41),
+  `A4L4` (52) and format 117, and `D3D_OK` for the others it asks
+  (21–26, 28, 30–36, 50, 51, 60–64, 67, 81, 110, the DXT FOURCCs and three
+  other FOURCCs). What it does with the answers is not traced.
+- **Not reached yet:** a lost device and `Reset`; the video path, which the
+  menu's backdrop needs; a full year on the lot.
 
 ## 5. What tm_d3d9.c answers, and why
 
