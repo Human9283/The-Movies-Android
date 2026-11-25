@@ -317,8 +317,8 @@ Each milestone is checked on its own, with a measurable criterion.
 | **M0** ✅ | Install from the ISOs without Windows (`tools/tm_install.py`) | 705/705 files, 0 missing, 0 CAB CRC errors, sha256 manifest; MSI logic unit tests pass |
 | **M1** ✅ | Catalog and lift of CD `Movies.exe` | 0 lift errors; ≤ 20 unresolvable ITAILs (7); coverage recorded (85.6%) |
 | **M2** (x86-64 ✅, docs/M2.md) | win32hle host in based mode: CD CRT on **Linux x86-64**, then **arm64**, then as a console binary on an Android device via `adb shell` | on each: the CRT runs without faults into `WinMain`, shown by the dispatch trace; functions and imports used, and time to `WinMain`, recorded |
-| **M3** (docs/M3.md) | On to the game's own `CreateDevice`, through a recording D3D9 layer | `CreateDevice` succeeds; resources and the rendering calls the game reaches are traced; a CreateDevice test and trace; `docs/D3D9-REQUIREMENTS.md`; B4 measured |
-| **M4** | The rendering path through the chosen option, no video | the first frame from the game's own rendering code captured on Linux, kept with its D3D9 trace; then on Android |
+| **M3** (x86-64 ✅, docs/M3.md) | On to the game's own `CreateDevice`, through a recording D3D9 layer | `CreateDevice` succeeds; resources and the rendering calls the game reaches are traced; a CreateDevice test and trace; `docs/D3D9-REQUIREMENTS.md`; B4 measured |
+| **M4** (Linux ✅: intro and menu frames, DXVK-INTEGRATION.md 5) | The rendering path through the chosen option, no video | the first frame from the game's own rendering code captured on Linux, kept with its D3D9 trace; then on Android |
 | **M5** | DirectShow/WMV, OpenAL, DInput8 | intro with video and sound; main menu with its backdrop; a tap registers |
 | **M6** | The game: a new studio, a year on the lot, save and load | the reference script (Game → Quick Start → studio) passes by touch; a save survives a restart |
 | **M7** | APK: data import, fullscreen, Activity lifecycle | install the APK and the data, run without a PC, offline |
@@ -333,5 +333,6 @@ Each milestone is checked on its own, with a measurable criterion.
 2. Which audio path does the game choose when both `dsound.dll` and
    `OpenAL32.dll` exist?
 3. Which ACM formats are needed (are the `.lug` banks ADPCM)?
-4. Which shader versions and D3D9 caps does the game require?
+4. Which shader versions and D3D9 caps does the game require? The intro and
+   the menu use no shaders (D3D9-REQUIREMENTS.md 4); the game proper is open.
 5. Is lifted code with software x87 fast enough on ARM64 (B9)?

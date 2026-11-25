@@ -47,20 +47,20 @@ builds need their own lift.
 ## Status
 
 ```
-Progress  ███████░░░░░░░░░░░░░  3 of 8 milestones (37%)
+Progress  ██████████░░░░░░░░░░  4 of 8 milestones (50%)
 ```
 
 The bar counts finished milestones, M0 to M7 ([docs/AUDIT.md](docs/AUDIT.md) 6),
 equally. They are not equal in work: Direct3D 9 (M4) and video, audio and
-input (M5) are the largest. M3 is in progress and is not counted.
+input (M5) are the largest. M4 is done on Linux, not yet on Android, and is not counted.
 
 | Milestone | State |
 |---|---|
 | M0: install game data from the discs on Linux | done: 705/705 files |
 | M1: function catalog and lift of `Movies.exe` 1.1 | done: 85,910 functions, 0 lift errors, 7 unresolvable ITAIL labels |
 | M2: lifted start-up code reaches `WinMain` | done on Linux x86-64; arm64 and Android not yet run |
-| M3: run to the game's own Direct3D 9 device initialisation (no rendering) | in progress, stopped at the game's `CreateDevice` (recorded, no device yet): [docs/M3.md](docs/M3.md), [docs/D3D9-REQUIREMENTS.md](docs/D3D9-REQUIREMENTS.md). Backend chosen: DXVK Native; its proof of concept creates and presents the game's device request on software Vulkan ([docs/DXVK-INTEGRATION.md](docs/DXVK-INTEGRATION.md)) |
-| M4: the first genuine frame from the game's rendering code | planned |
+| M3: run to the game's own Direct3D 9 device initialisation | done on Linux x86-64: the game's `CreateDevice` succeeds on DXVK Native, and its resources and rendering calls are traced ([docs/M3.md](docs/M3.md), [docs/D3D9-REQUIREMENTS.md](docs/D3D9-REQUIREMENTS.md), [docs/DXVK-INTEGRATION.md](docs/DXVK-INTEGRATION.md)) |
+| M4: the first genuine frame from the game's rendering code | on Linux (software Vulkan): the intro logo and the main menu, drawn by the game's own code. Not yet on Android |
 | Later: video, audio, input, Android packaging | planned |
 
 Measured results and open problems: [docs/M2.md](docs/M2.md),
@@ -91,6 +91,13 @@ lift the executable and build the host. Run it with:
 
 ```bash
 build/tm_host ~/tm/game --stop-at-winmain --watchdog 120
+```
+
+With DXVK Native built ([docs/BUILD.md](docs/BUILD.md) 5.1), the game opens
+its window and renders through Vulkan:
+
+```bash
+cd ~/tm/game && ~/tm/build/tm_host . --d3d9 dxvk
 ```
 
 Run the tests:

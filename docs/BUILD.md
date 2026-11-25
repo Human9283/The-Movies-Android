@@ -169,6 +169,7 @@ function counts below) differs with it (docs/M2.md 2).
 | `--watchdog S` | stop after S seconds (exit 4) |
 | `--user DIR` | the guest's `D:\`: My Documents, Application Data, Local Settings\Temp (default `./tm_user`) |
 | `--seen-out FILE` | write every function entry address the run executed (`%08X`, one per line) on exit, on a crash and at `--stop-at-winmain`; input to `tools/eh_scan.py` |
+| `--d3d9 dxvk` | open the game's window and create its Direct3D 9 device on DXVK Native (only in a build with `TM_DXVK_PREFIX`, 5.1); without it the run is headless and stops at `CreateDevice` |
 | `--system DIR` | the guest's `C:\WINDOWS` (with `SYSTEM32`), the runtime system directory (default `./tm_system`); the game, user and system directories may not be inside one another |
 
 Output lines:
@@ -181,15 +182,20 @@ Output lines:
 | `ICALL: unresolved VA` | an indirect call into code that was not lifted: a defect to fix |
 | `=== abort / SIGSEGV ...` | crash report: function, last import, registers, guest stack, last 32 function entries |
 
+Environment: `TM_D3D9_SHOTS=DIR` (with `--d3d9 dxvk`) writes the back buffer
+as `DIR/frame_NNNNNN.ppm` before `Present` 1, 2, 4, 8... and every 1000th.
+The frames contain the game's art: keep them out of the repository.
+
 Exit codes: 0 reached `WinMain` (with `--stop-at-winmain`) or the program
 exited normally; 2 a function that was not lifted; 3 a crash or a fatal
 win32hle error; 4 the watchdog.
 
 Expected for `--stop-at-winmain` on the 1.1 CD: `[bind] 60 imports are stubs`,
 `[poc] WinMain 0x005303C0 entered: ... 12978 function entries, 1245 distinct functions`,
-exit 0. Without it the run currently stops at the game's
+exit 0. Without it, and without `--d3d9 dxvk`, the run stops at the game's
 `IDirect3D9::CreateDevice` call (exit 3): its parameters are printed as
-`[d3d9]` lines, and no device exists yet (docs/D3D9-REQUIREMENTS.md).
+`[d3d9]` lines (docs/D3D9-REQUIREMENTS.md). With `--d3d9 dxvk` the game
+runs its intro and main menu until it exits or the watchdog stops it.
 
 ## 7. Regression test
 
@@ -206,9 +212,9 @@ result with its own baseline in `tests/baselines/`, written with
 Shim tests (no game files needed):
 - `test_disk_free_w`: `GetDiskFreeSpaceExW`;
 - `test_loader`: the DLL loader and `GetTempPathA`;
-- `test_dinput8`: DirectInput 8;
+- `test_dinput8`: DirectInput 8, with keyboard and mouse state and buffered data;
 - `test_sysroot`: the Windows directory;
-- `test_vfs`: the virtual file system and host DLLs;
+- `test_vfs`: the virtual file system and host DLLs, with the wide-character file functions;
 - `test_vfs_audit`: file-system edge cases: capacity, allocation and
   handle-table failures, search lifecycle, `GetFileAttributesA` errors,
   wildcard rules, mount boundaries;
@@ -221,6 +227,11 @@ Shim tests (no game files needed):
   error results, and what must stop the run;
 - `test_d3d9`: `d3d9.dll`, `Direct3DCreate9`, the device-free
   `IDirect3D9` methods, and what must stop the run;
+- `test_ole32`: COM apartments (`CoInitialize`, `CoInitializeEx`,
+  `CoUninitialize`) per thread;
+- `test_d3d9_dxvk` (only with `TM_DXVK_PREFIX` and `xvfb-run`): the DXVK
+  backend through guest objects: `CreateDevice`, COM identity, locks, a
+  cleared frame read back, and the stops (DXVK-INTEGRATION.md 6);
 - `dxvk_present` (only with `TM_DXVK_PREFIX` and `xvfb-run`): a real
   DXVK device with the game's device request, cleared, presented and read
   back (DXVK-INTEGRATION.md 3);

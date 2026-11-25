@@ -98,6 +98,8 @@ described below (`tests/m3_boundary.py`; the full trace is
 | `TlsGetValue` | win32hle-present | 1207693 | before WinMain | `0x00A37D6F` |
 | `TlsSetValue` | win32hle-present | 1 | before WinMain | `0x00A37F62` |
 | `MessageBoxW` | diagnostic | 1 | after WinMain | `0x005303C0` |
+| `CoInitialize` | implemented | 2 | after WinMain | `0x009F9950` |
+| `CoUninitialize` | implemented | 1 | after WinMain | `0x009AD7A0` |
 | `CreateDirectoryA` | implemented | 43 | after WinMain | `0x00A2EBD7` |
 | `CreateFileA` | implemented | 28 | after WinMain | `0x00A489E0` |
 | `DeleteFileA` | implemented | 1 | after WinMain | `0x00A329D4` |
@@ -112,8 +114,6 @@ described below (`tests/m3_boundary.py`; the full trace is
 | `SHGetSpecialFolderPathA` | implemented | 1 | after WinMain | `0x009F9D20` |
 | `CloseHandle` | win32hle-present | 20 | after WinMain | `0x00A41F50` |
 | `CoCreateInstance` | win32hle-present | 3 | after WinMain | `0x009AD7A0` |
-| `CoInitialize` | win32hle-present | 2 | after WinMain | `0x009F9950` |
-| `CoUninitialize` | win32hle-present | 1 | after WinMain | `0x009AD7A0` |
 | `CreateWindowExA` | win32hle-present | 1 | after WinMain | `0x005303C0` |
 | `DefWindowProcA` | win32hle-present | 6 | after WinMain | `0x0052FCD0` |
 | `FileTimeToLocalFileTime` | win32hle-present | 27 | after WinMain | `0x00A33368` |
@@ -595,6 +595,51 @@ still 0, so its `SetCooperativeLevel` fails with `E_HANDLE` for both
 devices, as it should for a NULL window.
 
 `tests/m3_boundary.py` holds this boundary; the run is reproducible.
+
+### Past `CreateDevice`: the run with `--d3d9 dxvk`
+
+With a device (DXVK-INTEGRATION.md 5) the game goes on into its intro and
+main menu. `docs/traces/dxvk_run_imports.json` is the import trace of one
+such run (about 60 seconds, Xvfb). Against the boundary trace it calls 34
+more imports, and none of them is a stub:
+- **implemented here for this run:**
+  - `CoInitializeEx` (`src/host/tm_ole32.c`). `CoInitialize`,
+    `CoInitializeEx` and `CoUninitialize` now keep a per-thread apartment
+    count, so a second `CoInitialize` returns `S_FALSE` and the other
+    apartment model returns `RPC_E_CHANGED_MODE`. The boundary trace changed
+    for this: its second `CoInitialize` returns `S_FALSE`, as on Windows.
+  - `FindFirstFileW`, `FindNextFileW`, `CreateFileW` and `GetFullPathNameW`
+    (`src/host/tm_vfs.c`); `GetFileAttributesW`, `DeleteFileW` and
+    `CreateDirectoryW` with them. They convert names through the ANSI code
+    page (1252 in win32hle) onto the `A` functions. A name with a character
+    outside it stops the run, rather than reach a different file.
+- **win32hle's:** the message loop (`PeekMessageA`, `TranslateMessage`,
+  `DispatchMessageA`), the cursor (`GetCursorPos`, `SetCursorPos`,
+  `ScreenToClient`, `GetAsyncKeyState`), threads, events and waits
+  (`CreateThread`, `CreateEventA`, `SetEvent`, `WaitForSingleObject`,
+  `WaitForMultipleObjects`, `Sleep`), the timers (`timeGetTime`,
+  `QueryPerformanceFrequency`), and system queries
+  (`GetSystemInfo`, `GlobalMemoryStatus`, `GetProcessAffinityMask`,
+  `SetProcessAffinityMask`, `IsProcessorFeaturePresent`).
+
+DirectInput 8 now answers `GetDeviceState` and `GetDeviceData` for the
+keyboard and the mouse from win32hle's input state (`src/host/tm_dinput8.c`;
+the key table is win32hle's `dinput.c`, MIT).
+
+What the run shows about the parts not implemented:
+- **Video.** The intro and the menu ask DirectShow to play their videos:
+  `IFilterGraph::AddFilter` with the game's own "The Movies Texture Renderer
+  Filter" succeeds, a `QueryInterface` of the graph for
+  `{56A868A2-0AD4-11CE-B03A-0020AF0BA770}` (`IMediaEventSink` in the SDK's `uuids.h`; not checked against a header in this tree) returns
+  `E_NOINTERFACE`, and `CoCreateInstance` of
+  `{187463A0-5BB7-11D3-ACBE-0080C75E246E}` (the WM ASF Reader) finds no
+  class. The game goes on without the video: the menu backdrop is black.
+  This is M5 (DIRECTSHOW-STARTUP.md).
+- **Sound.** The game opens DirectSound (win32hle's `dsound`). The
+  container has no audio device, so nothing is heard; nothing was measured.
+- **`GetProcAddress`.** `d3d9.dll!DebugSetMute` is asked for about 80 times
+  a second and gets NULL. Some `imm32` and `kernel32` names are asked for and
+  not found; the game continues.
 
 ## Windows Media and DirectShow
 

@@ -31,7 +31,7 @@ built from its own checkout and linked as a shared library. A package that
 ships `libdxvk_d3d9.so` carries DXVK's LICENSE with it.
 
 The version is pinned. A newer DXVK is taken only as a deliberate step,
-with the tests of section 5 rerun.
+with the tests of section 6 rerun.
 
 ## 2. What DXVK Native is [src, doc.]
 
@@ -129,12 +129,13 @@ The run took 2.1 s. The same program passes with windowed `X8R8G8B8`.
    (`D3DPRESENT_PARAMETERS.hDeviceWindow`, `D3DLOCKED_RECT.pBits`), and are
    rewritten field by field. Pointer-free structures (`D3DDISPLAYMODE`,
    `D3DSURFACE_DESC`, `D3DCAPS9`) have the same layout on both sides, and
-   are still copied field by field.
+   DXVK reads and writes them in guest memory; each size is checked at
+   compile time against the 32-bit layout (section 5).
 3. **Locked memory.** `Lock` returns a pointer the guest can read, so it
-   cannot be DXVK's host pointer. The planned scheme is a guest-memory
-   shadow of the locked range: filled from DXVK's mapping unless the lock
-   is `DISCARD` or write-only, and written back on `Unlock` unless it is
-   `READONLY`.
+   cannot be DXVK's host pointer. The guest gets a shadow in guest memory,
+   written back on `Unlock` unless the lock is `READONLY`. For textures and
+   surfaces it is filled from DXVK unless the lock is `DISCARD`; for buffers
+   it persists, since the guest is their only writer (section 5).
 4. **Window.** The guest `HWND` (`0x00010010`) is win32hle's window. The
    host `HWND` DXVK gets is the `SDL_Window*` win32hle created for it,
    which must be created with Vulkan support (win32hle's screen in Vulkan
@@ -156,15 +157,129 @@ The run took 2.1 s. The same program passes with windowed `X8R8G8B8`.
    code.
 8. **Method status.** Each guest method is one of: implemented and tested;
    implemented with stated limitations; a diagnostic stop that logs its
-   arguments and caller; unsupported. [IMPORTS.md](IMPORTS.md) and
-   [D3D9-REQUIREMENTS.md](D3D9-REQUIREMENTS.md) carry the status.
+   arguments and caller; unsupported. [D3D9-REQUIREMENTS.md](D3D9-REQUIREMENTS.md)
+   6 carries the status.
 
-## 5. Building and testing
+## 5. The backend in the host: `--d3d9 dxvk` [run]
+
+`tm_host ... --d3d9 dxvk` opens win32hle's window in Vulkan mode and sets
+`src/host/tm_d3d9_dxvk.cpp` as the device backend of `tm_d3d9.c`. Without
+the option the run is headless, and the game's `CreateDevice` stops it as
+before (`tests/m3_boundary.py`).
+
+**How a guest call reaches DXVK.**
+- `tm_d3d9.c` owns the guest `IDirect3D9`. Its `CreateDevice` hands the
+  call to the backend. The backend creates one DXVK `IDirect3D9` per guest
+  `IDirect3D9`, on first use, and forwards the queries that describe the
+  backend: `CheckDeviceFormat`, `CheckDeviceType`, `CheckDepthStencilMatch`,
+  `CheckDeviceMultiSampleType`, `GetDeviceCaps` and
+  `GetAdapterIdentifier`. Mode enumeration stays as decision 5 in section 4 says.
+- **Objects.** Every DXVK object the guest holds has one guest object: 16
+  bytes of guest memory, its first dword a vtable of shim VAs. The vtables
+  come from `src/host/tm_d3d9_ifaces.h`, which lists all 14 interfaces in
+  vtable order with their argument counts.
+  - Two tables map guest address to DXVK object and back, so the same DXVK
+    object reaches the guest as the same address.
+  - Reference counts are DXVK's.
+  - A texture's levels count their references on the texture, as on
+    Windows. Their guest objects are freed with the texture.
+- **Forwarding.** Most methods go through one template, `Fwd<&I::Method>`,
+  which converts each argument by its host type:
+  - integers, enums and `BOOL` pass as the dword; `float` passes as its
+    bits;
+  - a pointer to a pointer-free structure passes as the guest address,
+    which the host reads and writes in place;
+  - an interface pointer passes as the live guest object's DXVK object;
+  - an interface out-pointer is filled with the guest object;
+  - a shared-resource `HANDLE *` must be NULL.
+
+  Each structure's size is checked at compile time against its 32-bit
+  layout (`D3DCAPS9` 304 bytes, `D3DLIGHT9` 104, `D3DVOLUME_DESC` 28,
+  `D3DINDEXBUFFER_DESC` 20...). The argument count is checked against the
+  vtable table. A type with no conversion does not compile.
+- **Locks.** `D3DLOCKED_RECT` and `Lock`'s `void **` carry pointers, so
+  these methods are written by hand:
+  - **Vertex and index buffers** get a persistent shadow in guest memory.
+    The guest is the only writer of a buffer, so the shadow always holds
+    what DXVK holds. `Lock` returns the shadow. `Unlock` copies the locked
+    range into DXVK under a DXVK lock with the guest's `DISCARD` or
+    `NOOVERWRITE`. A `READONLY` lock copies from DXVK first and nothing
+    back.
+  - **Textures and surfaces.** `LockRect` locks DXVK's surface and keeps it
+    locked. The guest gets a shadow with DXVK's pitch, filled from DXVK
+    unless the lock is `DISCARD`. `UnlockRect` copies the rectangle's rows
+    back unless the lock is `READONLY`. Block formats (`DXT1`–`DXT5`) are
+    copied in 4×4 blocks.
+  - A second lock before the unlock, or an unknown flag, stops the run.
+- **`Present`.** The window override and dirty region must be NULL,
+  otherwise the run stops. After presenting, win32hle is told where the
+  picture is, so the mouse maps onto it.
+- **Full screen.** A full-screen device sets the guest's display size
+  (`hle_set_screen_size`), as a mode change does on Windows.
+- **Not implemented.** Every other method is a diagnostic stop. It prints
+  the interface, the method, the arguments as the guest passed them and
+  the lifted function that called it.
+- **Diagnostics.** `TM_D3D9_SHOTS=<dir>` writes the back buffer before
+  `Present` number 1, 2, 4, 8... and every 1000th, as PPM. The report at
+  exit counts the calls of every forwarded method.
+
+**What the game does with it** (one run, lavapipe, Xvfb 1024×768, about 60
+seconds, `docs/traces/dxvk_run_imports.json` for the imports):
+- `CreateDevice` with the game's exact parameters succeeds.
+- The game then:
+  - asks for the device caps and checks five texture formats;
+  - creates 304 vertex buffers (4 MB, write-only), 135 index buffers
+    (1 MB each) and its textures (DXT1/DXT3 among them);
+  - starts its intro and main menu.
+- Its own rendering code draws:
+  - the animated Lionhead Studios logo, from frame 1;
+  - then the main menu: the logo, six items in the Russian edition's text,
+    and the cursor, by frame 3000.
+- The menu's backdrop is black. It is a video, and Windows Media playback
+  is not implemented (DIRECTSHOW-STARTUP.md).
+- About 60 frames a second through lavapipe.
+- The pipeline is fixed-function:
+  - `SetFVF` and `DrawIndexedPrimitive` with `SetStreamSource` and
+    `SetIndices`, about 280,000 draws;
+  - lights and materials;
+  - texture stage and render states;
+  - `SetVertexShader` and `SetPixelShader` called only with NULL; no
+    shader is created.
+
+**Limitations, stated.**
+- **Display modes.** `IDirect3D9`'s mode list and `GetAdapterDisplayMode`
+  describe win32hle's display, not DXVK's. `GetAdapterDisplayMode` keeps
+  answering `X8R8G8B8` after the 16-bit full-screen device exists.
+- **No `D3DCREATE_FPU_PRESERVE`.** Windows would set the calling thread's
+  x87 precision to 24 bits. The guest's x87 state is not changed. The
+  run logs this.
+- **Buffer lock cost.** Every buffer `Unlock` copies the locked range into
+  DXVK: about 280,000 copies a minute in the menu. Fine on x86-64; a
+  measured cost on ARM64 is open.
+- `GetProcAddress(d3d9.dll, "DebugSetMute")` is asked about 80 times a
+  second and answered NULL (not exported here). The retail `d3d9.dll`
+  exports it; whether the game uses it when present is not checked.
+
+## 6. Building and testing
 
 [BUILD.md](BUILD.md) 5.1 gives the commands. In short: build DXVK with meson
 into a prefix, then configure this project with
-`-DTM_DXVK_PREFIX=<prefix>`. That adds the `dxvk_present` program, and,
-when `xvfb-run` is installed, the `dxvk_present` CTest.
+`-DTM_DXVK_PREFIX=<prefix>`. That adds the `dxvk_present` program and the
+backend in `tm_host`. When `xvfb-run` is installed, it also adds two CTests:
+`dxvk_present`, and `test_d3d9_dxvk` (`tests/c/test_d3d9_dxvk.c`: the
+backend through guest objects only, 55 checks). The second covers:
+- the forwarded `IDirect3D9` queries;
+- `CreateDevice` on a guest window, with the parameters written back;
+- COM identity, `QueryInterface`, reference counts, `GetDirect3D` and
+  `GetDevice`;
+- buffer and texture locks, a rectangle and DXT1 included;
+- a level freed with its texture;
+- a frame cleared and read back through `GetRenderTargetData`;
+- the stops: an unimplemented method, a `this` that is no device, a method
+  after the last `Release`, a second lock.
+
+The unit tests also pass under AddressSanitizer and UndefinedBehaviorSanitizer
+(GCC 13).
 
 Without `TM_DXVK_PREFIX` nothing DXVK-related is built. The rest of the
 build and its tests do not depend on DXVK.
