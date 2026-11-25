@@ -109,6 +109,8 @@ tm_c_test(test_loader src/host/tm_loader.c src/host/tm_kernel32.c)
 tm_c_test(test_dinput8 src/host/tm_dinput8.c src/host/tm_loader.c)
 tm_c_test(test_sysroot src/host/tm_sysroot.c src/host/tm_vfs.c src/host/tm_loader.c src/host/tm_kernel32.c)
 tm_c_test(test_vfs src/host/tm_vfs.c src/host/tm_sysroot.c src/host/tm_loader.c src/host/tm_wmvcore.c src/host/tm_dinput8.c)
+tm_c_test(test_vfs_audit src/host/tm_vfs.c src/host/tm_sysroot.c src/host/tm_loader.c)
+tm_c_test(test_loader_audit src/host/tm_loader.c src/host/tm_dinput8.c)
 # win32hle's own path selftest (patched by 0002), run against the patched hle_path.c
 add_executable(hle_path_selftest ${HLE_PATCHED}/hle_path_selftest.c ${HLE_SOURCES})
 target_include_directories(hle_path_selftest PRIVATE ${PCRECOMP}/runtime/recomp32 ${PCRECOMP}/runtime/win32hle)

@@ -128,6 +128,7 @@ function counts below) differs with it (docs/M2.md 2).
 | `--stop-at-winmain` | exit 0 as soon as `WinMain` (`0x005303C0`) is entered |
 | `--watchdog S` | stop after S seconds (exit 4) |
 | `--user DIR` | the guest's `D:\`: My Documents, Application Data, Local Settings\Temp (default `./tm_user`) |
+| `--seen-out FILE` | write every function entry address the run executed (`%08X`, one per line) on exit, on a crash and at `--stop-at-winmain`; input to `tools/eh_scan.py` |
 | `--system DIR` | the guest's `C:\WINDOWS` (with `SYSTEM32`), the runtime system directory (default `./tm_system`); the game, user and system directories may not be inside one another |
 
 Output lines:
@@ -146,7 +147,9 @@ win32hle error; 4 the watchdog.
 
 Expected for `--stop-at-winmain` on the 1.1 CD: `[bind] 60 imports are stubs`,
 `[poc] WinMain 0x005303C0 entered: ... 12978 function entries, 1245 distinct functions`,
-exit 0. Without it the run currently stops at `GetDiskFreeSpaceExW` (docs/M2.md 4).
+exit 0. Without it the run currently stops at the game's DirectShow start-up
+probe: the Windows Media warning box, then a fault on the exit path
+(docs/IMPORTS.md, "The current boundary"; docs/DIRECTSHOW-STARTUP.md).
 
 ## 7. Regression test
 
@@ -166,6 +169,12 @@ Shim tests (no game files needed):
 - `test_dinput8`: DirectInput 8;
 - `test_sysroot`: the Windows directory;
 - `test_vfs`: the virtual file system and host DLLs;
+- `test_vfs_audit`: file-system edge cases: capacity, allocation and
+  handle-table failures, search lifecycle, `GetFileAttributesA` errors,
+  wildcard rules, mount boundaries;
+- `test_loader_audit`: loader edge cases: the reserved handle range, stale
+  and malformed handles, reference counts, `GetProcAddress` by ordinal, COM
+  objects in guest memory;
 - `hle_path_selftest`: win32hle's own path selftest against the patched
   `hle_path.c`.
 
@@ -194,3 +203,9 @@ Its baseline is `tests/baselines/m3_boundary.json`. It changes only with
 `--imports-json FILE` writes every bound import with its status
 (implemented, diagnostic, win32hle-present, win32hle-verified, unsupported).
 `--import-trace FILE` records the calls the game makes (docs/IMPORTS.md).
+
+Exception-handling structures and what a run reached (docs/EXCEPTIONS.md):
+
+```bash
+python3 -I ~/tm/the-movies-android/tools/eh_scan.py ~/tm/game/Movies.exe ~/tm/work/functions.json seen.txt
+```

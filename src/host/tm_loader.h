@@ -30,11 +30,15 @@ typedef struct {
     void (*on_unload)(void);         /* last FreeLibrary (process detach) */
 } tm_host_dll;
 
+#define TM_LOADER_MAX_DLLS 16    /* host DLLs that can be registered */
+
 /* LoadLibraryA, GetModuleHandleA, GetProcAddress, FreeLibrary,
  * GetModuleFileNameA: overrides of win32hle's ("tm:<name>"). */
 extern const win32hle_shim tm_loader_overrides[];
 
-void tm_loader_add(const tm_host_dll *dll);
+/* Register a host DLL: 0 (and a message) when the table is full or the
+ * name is already registered. */
+int  tm_loader_add(const tm_host_dll *dll);
 void tm_loader_set_app_dir(const char *guest_exe_path);
 
 /* The registered host DLLs, for the file system's virtual entries. */

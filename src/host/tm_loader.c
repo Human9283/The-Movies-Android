@@ -12,7 +12,10 @@
  *     not. Handles are pseudo-modules (no image) at 0x7D000000 + 0x10000 *
  *     index. The reference count follows LoadLibrary/FreeLibrary: on_load
  *     runs at the first reference, on_unload at the last FreeLibrary, and
- *     the handle stops working.
+ *     the handle stops working. The handle range is reserved in guest
+ *     memory and made inaccessible (reserve_handles), so no guest allocation
+ *     can be handed out there and code that reads a handle as an image
+ *     faults at once, naming the address.
  *   - everything else goes to win32hle: its own system DLLs (kernel32,
  *     user32, ...) and DLL files, which it maps without running their code.
  *
@@ -41,6 +44,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/mman.h>
 #include "win32hle.h"
 #include "tm_loader.h"
 
@@ -51,7 +55,7 @@
 #define ERROR_INSUFFICIENT_BUFFER 122u
 #define HOST_DLL_BASE  0x7D000000u
 #define HOST_DLL_STEP  0x00010000u
-#define TM_MAX_HOST_DLLS 16
+#define TM_MAX_HOST_DLLS TM_LOADER_MAX_DLLS
 #define TM_MAX_ASKED 32
 
 int hle_guest_full_path(const char *in, char *out, size_t n);   /* patches/pcrecomp/0001 */
@@ -63,8 +67,31 @@ static char g_app_dir[600];                 /* guest, no trailing backslash */
 static struct { int dll; char name[64]; tm_export_state st; int n; } g_asked[TM_MAX_ASKED];
 static int g_nasked;
 
-void tm_loader_add(const tm_host_dll *dll) {
-    if (g_ndll < TM_MAX_HOST_DLLS) g_dll[g_ndll++] = dll;
+/* Keep [HOST_DLL_BASE, +16 * HOST_DLL_STEP) out of the guest allocator (it
+ * lies inside its "anywhere" range) and inaccessible. */
+static void reserve_handles(void) {
+    static int done;
+    if (done) return;
+    done = 1;
+    uint32_t size = HOST_DLL_STEP * TM_MAX_HOST_DLLS;
+    uint32_t lo = hle_vm_reserve(HOST_DLL_BASE, size);
+    if (lo != HOST_DLL_BASE) hle_fatal("host DLL handles: guest range 0x%08X..0x%08X already in use", HOST_DLL_BASE, HOST_DLL_BASE + size);
+    if (mprotect(hle_ptr(lo), size, PROT_NONE)) hle_fatal("host DLL handles: cannot protect 0x%08X", lo);
+}
+
+int tm_loader_add(const tm_host_dll *dll) {
+    reserve_handles();
+    for (int i = 0; i < g_ndll; i++)
+        if (!strcmp(g_dll[i]->name, dll->name)) {
+            fprintf(stderr, "[loader] host DLL %s registered twice\n", dll->name);
+            return 0;
+        }
+    if (g_ndll == TM_MAX_HOST_DLLS) {
+        fprintf(stderr, "[loader] host DLL %s not registered: the table holds %d\n", dll->name, TM_MAX_HOST_DLLS);
+        return 0;
+    }
+    g_dll[g_ndll++] = dll;
+    return 1;
 }
 int tm_loader_count(void) { return g_ndll; }
 const tm_host_dll *tm_loader_dll(int i) { return i >= 0 && i < g_ndll ? g_dll[i] : NULL; }

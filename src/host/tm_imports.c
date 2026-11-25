@@ -43,15 +43,21 @@ const tm_import_info tm_import_table[] = {
       "C:\\WINDOWS\\SYSTEM32 in the runtime system directory; length / size-needed contract; tests/c/test_sysroot.c" },
     { "FindFirstFileA", TM_IMPLEMENTED,
       "own listing: host entries merged with mounts (WINDOWS in C:\\) and visible host DLLs, no duplicates, NTFS "
-      "order, no . / .. in a root, *. = no extension, ERROR_PATH_NOT_FOUND / FILE_NOT_FOUND; tests/c/test_vfs.c" },
+      "order, no . / .. in a root, DOS wildcard rules (? * . at the end), ERROR_PATH_NOT_FOUND / FILE_NOT_FOUND / "
+      "FILENAME_EXCED_RANGE / NOT_ENOUGH_MEMORY / TOO_MANY_OPEN_FILES; tests/c/test_vfs.c, test_vfs_audit.c" },
     { "FindNextFileA", TM_IMPLEMENTED,
-      "the listing made by FindFirstFileA; ERROR_NO_MORE_FILES, ERROR_INVALID_HANDLE; tests/c/test_vfs.c" },
+      "the listing made by FindFirstFileA; ERROR_NO_MORE_FILES (handle stays valid), ERROR_INVALID_HANDLE, "
+      "ERROR_INVALID_PARAMETER; tests/c/test_vfs.c, test_vfs_audit.c" },
+    { "FindClose", TM_IMPLEMENTED,
+      "closes a search handle only; any other handle: FALSE, ERROR_INVALID_HANDLE, left open; "
+      "tests/c/test_vfs_audit.c" },
     { "GetFullPathNameA", TM_IMPLEMENTED,
       "lexical, the Windows way: relative to the guest's current directory, C:name, \\name, . and .., trailing dots "
       "and spaces; size-needed contract and file part; UNC names delegated; tests/c/test_vfs.c" },
     { "GetFileAttributesA", TM_IMPLEMENTED,
-      "a visible host DLL: FILE_ATTRIBUTE_ARCHIVE; otherwise win32hle's (a mount is its host directory); "
-      "tests/c/test_vfs.c" },
+      "a visible host DLL: FILE_ATTRIBUTE_ARCHIVE; a mount: its host directory; ERROR_FILE_NOT_FOUND / "
+      "PATH_NOT_FOUND by whether the parent exists, FILENAME_EXCED_RANGE; UNC delegated; "
+      "tests/c/test_vfs.c, test_vfs_audit.c" },
     { "CreateFileA", TM_IMPLEMENTED,
       "win32hle's, except a host DLL entry (no contents): ERROR_ACCESS_DENIED; tests/c/test_vfs.c" },
     { "DeleteFileA", TM_IMPLEMENTED,

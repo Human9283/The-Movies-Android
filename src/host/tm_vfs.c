@@ -15,9 +15,9 @@
  * so a listing never shows a name twice; the loader answers that name with
  * the host DLL too.
  *
- * Overrides ("tm:<name>"): FindFirstFileA, FindNextFileA (FindClose is
- * win32hle's: it closes any handle), GetFileAttributesA, GetFullPathNameA,
- * CreateFileA, DeleteFileA, CreateDirectoryA. Paths are made absolute the
+ * Overrides ("tm:<name>"): FindFirstFileA, FindNextFileA, FindClose,
+ * GetFileAttributesA, GetFullPathNameA, CreateFileA, DeleteFileA,
+ * CreateDirectoryA. Paths are made absolute the
  * Windows way (hle_guest_full_path, patches/pcrecomp/0001) before anything
  * is matched, so case, '/' and "..", relative names and C:name all reach
  * the same entry.
@@ -26,6 +26,16 @@
  * that match, and the virtual entries of that guest directory, in NTFS's
  * order (by name without case; "." and ".." first). A drive's root has no
  * "." and "..", as on NTFS. Without a wildcard, the one entry of that name.
+ * Masks follow the Win32 rules for FindFirstFile: the mask is rewritten into
+ * the DOS wildcard forms (DOS_STAR, DOS_QM, DOS_DOT) and matched as
+ * FsRtlIsNameInExpression documents them (tm_vfs_wild).
+ *
+ * Names longer than MAX_PATH - 1 fail with ERROR_FILENAME_EXCED_RANGE, as the
+ * ANSI file functions do (they convert the name into a MAX_PATH buffer).
+ *
+ * Threads: every function here runs as an import of guest code, under
+ * win32hle's machine lock (one thread at a time), or at start-up before any
+ * guest thread exists (tm_vfs_mount). The tables need no lock of their own.
  */
 #include <dirent.h>
 #include <errno.h>
@@ -44,10 +54,14 @@
 #define ERROR_PATH_NOT_FOUND     3u
 #define ERROR_ACCESS_DENIED      5u
 #define ERROR_INVALID_HANDLE     6u
+#define ERROR_NOT_ENOUGH_MEMORY  8u
+#define ERROR_TOO_MANY_OPEN_FILES 4u
 #define ERROR_NO_MORE_FILES     18u
 #define ERROR_INVALID_PARAMETER 87u
 #define ERROR_INVALID_NAME     123u
 #define ERROR_ALREADY_EXISTS   183u
+#define ERROR_FILENAME_EXCED_RANGE 206u
+#define TM_MAX_PATH 260
 #define FILE_ATTRIBUTE_READONLY  0x01u
 #define FILE_ATTRIBUTE_DIRECTORY 0x10u
 #define FILE_ATTRIBUTE_ARCHIVE   0x20u
@@ -58,7 +72,9 @@
 void hle_set_mount(const char *guest_dir, const char *host_dir);          /* patches/pcrecomp/0001 */
 int  hle_guest_full_path(const char *in, char *out, size_t n);
 
-#define TM_MAX_MOUNTS 8
+#define TM_MAX_MOUNTS 8                      /* = MAX_MOUNTS in patches/pcrecomp/0001 */
+/* virtual entries one directory can have: every mount and every host DLL */
+#define TM_VFS_MAX_VIRTUAL (TM_MAX_MOUNTS + TM_LOADER_MAX_DLLS)
 static struct { char guest[260], parent[260], leaf[64], host[PATH_MAX]; } g_mnt[TM_MAX_MOUNTS];
 static int g_nmnt;
 
@@ -80,7 +96,12 @@ int tm_vfs_mount(const char *guest, const char *host, char *why, size_t n) {
     }
     size_t gl = strlen(g);
     if (g[gl - 1] == '\\') g[--gl] = 0;
-    if (!realpath(host, h)) { snprintf(why, n, "the host directory %s does not exist", host); return 0; }
+    const char *last = strrchr(g, '\\');
+    if (!last || strlen(last + 1) >= sizeof g_mnt[0].leaf) {
+        snprintf(why, n, "the last component of %s is too long", g);
+        return 0;
+    }
+    if (!host || !realpath(host, h)) { snprintf(why, n, "the host directory %s does not exist", host); return 0; }
     struct stat st;
     if (stat(h, &st) || !S_ISDIR(st.st_mode)) { snprintf(why, n, "%s is not a directory", h); return 0; }
     for (int i = 0; i < g_nmnt; i++) {
@@ -143,9 +164,9 @@ static int split(const char *full, char *dir, size_t dn, char *leaf, size_t ln) 
 /* The virtual entry an absolute guest path names, if any. */
 static int virtual_of(const char *full, ventry *e) {
     char dir[1024], leaf[260];
-    ventry v[16];
+    ventry v[TM_VFS_MAX_VIRTUAL];
     if (!split(full, dir, sizeof dir, leaf, sizeof leaf)) return 0;
-    int n = virtual_entries(dir, v, 16);
+    int n = virtual_entries(dir, v, TM_VFS_MAX_VIRTUAL);
     for (int i = 0; i < n; i++) if (!strcasecmp(v[i].name, leaf)) { *e = v[i]; return 1; }
     return 0;
 }
@@ -182,63 +203,153 @@ static void fill(uint32_t o, const char *name, const char *host, int virtual_fil
     strncpy((char *)hle_ptr(o + 44), name, 259);
 }
 
-/* Windows wildcard match, without case: * any run, ? one character; "*.*"
- * also matches a name with no dot; a mask with * ending in "." matches the
- * names without an extension (and "." / ".."). */
-int tm_vfs_wild(const char *m, const char *s) {
-    if (!strcmp(m, "*.*") || !strcmp(m, "*")) return 1;
-    size_t ml = strlen(m);
-    if (ml > 1 && m[ml - 1] == '.' && strcmp(m, "..") && strchr(m, '*')) {   /* "*." : no extension */
-        if (strchr(s, '.') && strcmp(s, ".") && strcmp(s, "..")) return 0;
-        char head[260];
-        snprintf(head, sizeof head, "%.*s", (int)(ml - 1), m);
-        return tm_vfs_wild(head, s);
-    }
-    for (; *m; m++, s++) {
-        if (*m == '*') {
-            while (m[1] == '*') m++;
-            if (!m[1]) return 1;
-            for (; *s; s++) if (tm_vfs_wild(m + 1, s)) return 1;
-            return !strcmp(m + 1, ".*") || !strcmp(m + 1, ".");
+/* ---- masks ----
+ * FindFirstFile rewrites a mask that has a wildcard before matching it:
+ * trailing dots and spaces go (a trailing '.' meant "no extension"); a '.'
+ * followed by '*' or '?' becomes DOS_DOT; every other '?' becomes DOS_QM;
+ * and, for a mask that ended in '.', a final '*' becomes DOS_STAR. The
+ * tokens then match as FsRtlIsNameInExpression documents:
+ *   *         zero or more characters
+ *   ?         exactly one character (not produced by the rewrite)
+ *   DOS_STAR  zero or more characters, but not past the name's last '.'
+ *   DOS_QM    one character; at a '.' or at the end of the name, it and the
+ *             DOS_QMs after it match nothing
+ *   DOS_DOT   a '.', or nothing at the end of the name
+ * Characters compare without case (ASCII). "." and ".." are matched by a
+ * mask made only of wildcard tokens. 8.3 short names are not generated, so
+ * a mask is never matched against one (Windows can: "*.htm" may list
+ * "a.html" there). */
+enum { DOS_STAR = 1, DOS_QM = 2, DOS_DOT = 3 };
+
+static int expr_match(const unsigned char *e, const unsigned char *n, const unsigned char *last_dot, int depth) {
+    if (depth > 512) return 0;                               /* a pathological mask */
+    for (;;) {
+        switch (*e) {
+        case 0: return !*n;
+        case '*':
+            for (const unsigned char *t = n;; t++) {
+                if (expr_match(e + 1, t, last_dot, depth + 1)) return 1;
+                if (!*t) return 0;
+            }
+        case DOS_STAR:
+            for (const unsigned char *t = n;; t++) {
+                if (expr_match(e + 1, t, last_dot, depth + 1)) return 1;
+                if (!*t || (last_dot && t == last_dot)) return 0;
+            }
+        case DOS_QM:
+            if (!*n || *n == '.') { while (*e == DOS_QM) e++; continue; }
+            e++, n++;
+            continue;
+        case DOS_DOT:
+            if (*n == '.') { e++, n++; continue; }
+            if (!*n) { e++; continue; }
+            return 0;
+        case '?':
+            if (!*n) return 0;
+            e++, n++;
+            continue;
+        default: {
+            unsigned a = *e, c = *n;
+            if (a >= 'A' && a <= 'Z') a |= 0x20;
+            if (c >= 'A' && c <= 'Z') c |= 0x20;
+            if (!c || a != c) return 0;
+            e++, n++;
+            continue;
         }
-        if (!*s) return !strcmp(m, ".*") || !strcmp(m, ".");
-        if (*m != '?' && (*m | 0x20) != (*s | 0x20) && *m != *s) return 0;
+        }
     }
-    return !*s;
 }
 
-typedef struct { char name[260]; char host[PATH_MAX]; int virtual_file; } fentry;
-typedef struct { fentry *e; int n, at; } tfind;
-static void find_closer(void *o) { tfind *f = (tfind *)o; free(f->e); free(f); }
+/* The mask as FindFirstFile matches it (see above); 0 if it does not fit. */
+int tm_vfs_fixup_mask(const char *mask, char *out, size_t n) {
+    size_t len = strlen(mask);
+    if (len + 1 > n) return 0;
+    memcpy(out, mask, len + 1);
+    if (!len) return 1;
+    int no_ext = out[len - 1] == '.';
+    while (len && (out[len - 1] == '.' || out[len - 1] == ' ')) len--;
+    for (size_t i = 0; i < len; i++) {
+        if (out[i] == '.' && (out[i + 1] == '*' || out[i + 1] == '?')) out[i] = DOS_DOT;
+        else if (out[i] == '?') out[i] = DOS_QM;
+    }
+    out[len] = 0;
+    if (no_ext && len && out[len - 1] == '*') out[len - 1] = DOS_STAR;
+    return 1;
+}
+
+/* name against a mask as given to FindFirstFileA (a mask with a wildcard is
+ * rewritten first). */
+int tm_vfs_wild(const char *mask, const char *name) {
+    char e[TM_MAX_PATH * 2];
+    int wildcard = strpbrk(mask, "*?") != NULL;
+    if (!wildcard) return !strcasecmp(mask, name);
+    if (!tm_vfs_fixup_mask(mask, e, sizeof e)) return 0;
+    if (!strcmp(name, ".") || !strcmp(name, "..")) {
+        for (const char *c = e; *c; c++)
+            if (*c != '*' && *c != '?' && *c != DOS_STAR && *c != DOS_QM && *c != DOS_DOT) return 0;
+        return 1;
+    }
+    const char *dot = strrchr(name, '.');
+    return expr_match((const unsigned char *)e, (const unsigned char *)name, (const unsigned char *)dot, 0);
+}
+
+/* One search: its names, each either in the host directory (vi < 0) or a
+ * virtual entry of v[vi]. */
+typedef struct { char name[260]; int vi; } fentry;
+typedef struct {
+    fentry *e;
+    int n, cap, at;
+    char hdir[PATH_MAX];
+    ventry *v;                               /* the directory's virtual entries */
+} tfind;
+static void find_closer(void *o) { tfind *f = (tfind *)o; if (f) free(f->e), free(f->v); free(f); }
 static int by_name(const void *a, const void *b) {
     const char *x = ((const fentry *)a)->name, *y = ((const fentry *)b)->name;
     int dx = !strcmp(x, ".") ? 0 : !strcmp(x, "..") ? 1 : 2, dy = !strcmp(y, ".") ? 0 : !strcmp(y, "..") ? 1 : 2;
     return dx != dy ? dx - dy : strcasecmp(x, y);
 }
-static void add(tfind *f, const char *name, const char *host, int vf) {
-    if (f->n % 64 == 0) f->e = (fentry *)realloc(f->e, sizeof *f->e * (size_t)(f->n + 64));
+/* 0 when memory runs out (nothing added). */
+static int add(tfind *f, const char *name, int vi) {
+    if (f->n == f->cap) {
+        int cap = f->cap ? f->cap * 2 : 64;
+        fentry *e = (fentry *)realloc(f->e, sizeof *f->e * (size_t)cap);
+        if (!e) return 0;
+        f->e = e, f->cap = cap;
+    }
     snprintf(f->e[f->n].name, sizeof f->e[0].name, "%s", name);
-    snprintf(f->e[f->n].host, sizeof f->e[0].host, "%s", host);
-    f->e[f->n++].virtual_file = vf;
+    f->e[f->n++].vi = vi;
+    return 1;
+}
+static void fill_entry(uint32_t out, const tfind *f, const fentry *e) {
+    if (e->vi >= 0) { fill(out, e->name, f->v[e->vi].host, !f->v[e->vi].is_dir); return; }
+    char h[PATH_MAX + 264];
+    snprintf(h, sizeof h, "%s/%s", f->hdir, e->name);
+    fill(out, e->name, h, 0);
 }
 static void not_found(const char *pat, uint32_t err) {
     if (hle_filetrace()) fprintf(stderr, "[file] FindFirstFileA \"%s\": not found\n", pat);
     hle_set_last_error(err);
 }
 
+/* Allocation can be made to fail, for the tests. */
+static int g_fail_alloc_after = -1;
+void tm_vfs_test_fail_alloc(int after) { g_fail_alloc_after = after; }
+static int alloc_fails(void) { return g_fail_alloc_after >= 0 && g_fail_alloc_after-- == 0; }
+
 static void k_FindFirstFileA(void) {                     /* (pattern, &data) */
     static int closer_set;
     if (!closer_set) hle_handle_set_closer(TM_H_FIND, find_closer), closer_set = 1;
     const char *pat = ASTR(0);
     uint32_t out = A32(1);
-    char full[1024], dir[1024], mask[260], hdir[PATH_MAX];
+    char full[1024], dir[1024], mask[TM_MAX_PATH];
     if (!pat || !out) { hle_set_last_error(ERROR_INVALID_PARAMETER); RET(INVALID_HANDLE, 2); }
     size_t pl = strlen(pat);
+    if (pl >= TM_MAX_PATH) { not_found(pat, ERROR_FILENAME_EXCED_RANGE); RET(INVALID_HANDLE, 2); }
     if (!pl || pat[pl - 1] == '\\' || pat[pl - 1] == '/') { not_found(pat, ERROR_FILE_NOT_FOUND); RET(INVALID_HANDLE, 2); }
     /* the mask as given ("*." keeps its dot); the directory made absolute */
     const char *sl = pat + pl;
     while (sl > pat && sl[-1] != '\\' && sl[-1] != '/' && sl[-1] != ':') sl--;
-    char gdir[1024];
+    char gdir[TM_MAX_PATH + 2];
     snprintf(mask, sizeof mask, "%s", sl);
     snprintf(gdir, sizeof gdir, "%.*s", (int)(sl - pat), pat);
     if (!gdir[0]) snprintf(gdir, sizeof gdir, ".");
@@ -246,66 +357,112 @@ static void k_FindFirstFileA(void) {                     /* (pattern, &data) */
     if (!dl) { not_found(pat, ERROR_PATH_NOT_FOUND); RET(INVALID_HANDLE, 2); }
     if (dl > 3 && dir[dl - 1] == '\\') dir[--dl] = 0;
     snprintf(full, sizeof full, "%s%s%s", dir, dl == 3 ? "" : "\\", mask);
+    tfind *f = alloc_fails() ? NULL : (tfind *)calloc(1, sizeof *f);
+    if (!f) { not_found(pat, ERROR_NOT_ENOUGH_MEMORY); RET(INVALID_HANDLE, 2); }
     struct stat st;
-    if (!hle_host_path_base(dir, hdir, sizeof hdir) || stat(hdir, &st) || !S_ISDIR(st.st_mode)) {
+    if (!hle_host_path_base(dir, f->hdir, sizeof f->hdir) || stat(f->hdir, &st) || !S_ISDIR(st.st_mode)) {
+        find_closer(f);
         not_found(pat, ERROR_PATH_NOT_FOUND);
         RET(INVALID_HANDLE, 2);
     }
-    ventry v[16];
-    int nv = virtual_entries(dir, v, 16);
-    tfind *f = (tfind *)calloc(1, sizeof *f);
+    ventry vt[TM_VFS_MAX_VIRTUAL];
+    int nv = virtual_entries(dir, vt, TM_VFS_MAX_VIRTUAL);
+    if (nv) {
+        f->v = alloc_fails() ? NULL : (ventry *)malloc(sizeof *f->v * (size_t)nv);
+        if (!f->v) { find_closer(f); not_found(pat, ERROR_NOT_ENOUGH_MEMORY); RET(INVALID_HANDLE, 2); }
+        memcpy(f->v, vt, sizeof *f->v * (size_t)nv);
+    }
     int wildcard = strchr(mask, '*') || strchr(mask, '?');
+    int oom = 0;
     if (!wildcard) {
         int done = 0;
         for (int i = 0; i < nv && !done; i++)
-            if (!strcasecmp(v[i].name, mask)) add(f, v[i].name, v[i].host, !v[i].is_dir), done = 1;
+            if (!strcasecmp(f->v[i].name, mask)) oom = !add(f, f->v[i].name, i), done = 1;
         char one[PATH_MAX];
         if (!done && strcmp(mask, ".") && strcmp(mask, "..") && hle_host_path_base(full, one, sizeof one) && stat(one, &st) == 0) {
             const char *b = strrchr(one, '/');
-            add(f, b ? b + 1 : one, one, 0);
+            /* the name as it is on disk, in the directory hle_path found it in */
+            if (b) snprintf(f->hdir, sizeof f->hdir, "%.*s", (int)(b - one) ? (int)(b - one) : 1, one);
+            oom = alloc_fails() || !add(f, b ? b + 1 : one, -1);
         }
     } else {
         int root = strlen(dir) == 3;
-        DIR *d = opendir(hdir);
+        DIR *d = opendir(f->hdir);
         struct dirent *de;
-        while (d && (de = readdir(d))) {
+        while (!oom && d && (de = readdir(d))) {
             int dot = !strcmp(de->d_name, ".") || !strcmp(de->d_name, "..");
             if ((dot && root) || !tm_vfs_wild(mask, de->d_name)) continue;
             int hidden = 0;
-            for (int i = 0; i < nv; i++) if (!strcasecmp(v[i].name, de->d_name)) hidden = 1;
+            for (int i = 0; i < nv; i++) if (!strcasecmp(f->v[i].name, de->d_name)) hidden = 1;
             if (hidden) continue;
-            char h[PATH_MAX + 260];
-            snprintf(h, sizeof h, "%s/%s", hdir, de->d_name);
-            add(f, de->d_name, h, 0);
+            oom = alloc_fails() || !add(f, de->d_name, -1);
         }
         if (d) closedir(d);
-        for (int i = 0; i < nv; i++) if (tm_vfs_wild(mask, v[i].name)) add(f, v[i].name, v[i].host, !v[i].is_dir);
-        if (f->n) qsort(f->e, (size_t)f->n, sizeof *f->e, by_name);
+        for (int i = 0; i < nv && !oom; i++) if (tm_vfs_wild(mask, f->v[i].name)) oom = !add(f, f->v[i].name, i);
+        if (f->n && !oom) qsort(f->e, (size_t)f->n, sizeof *f->e, by_name);
     }
+    if (oom) { find_closer(f); not_found(pat, ERROR_NOT_ENOUGH_MEMORY); RET(INVALID_HANDLE, 2); }
     if (!f->n) { find_closer(f); not_found(pat, ERROR_FILE_NOT_FOUND); RET(INVALID_HANDLE, 2); }
-    fill(out, f->e[0].name, f->e[0].host, f->e[0].virtual_file);
-    f->at = 1;
-    if (hle_filetrace()) fprintf(stderr, "[file] FindFirstFileA \"%s\" in %s\n", pat, hdir);
     uint32_t h = hle_handle_alloc(TM_H_FIND, f);
-    if (!h) { find_closer(f); RET(INVALID_HANDLE, 2); }
+    if (!h) { find_closer(f); not_found(pat, ERROR_TOO_MANY_OPEN_FILES); RET(INVALID_HANDLE, 2); }
+    fill_entry(out, f, &f->e[0]);
+    f->at = 1;
+    if (hle_filetrace()) fprintf(stderr, "[file] FindFirstFileA \"%s\" in %s\n", pat, f->hdir);
     RET(h, 2);
 }
 
+/* After the last entry the handle stays valid (ERROR_NO_MORE_FILES each
+ * time) until FindClose. */
 static void k_FindNextFileA(void) {                      /* (handle, &data) */
     tfind *f = (tfind *)hle_handle_obj(A32(0), TM_H_FIND);
     if (!f) { hle_set_last_error(ERROR_INVALID_HANDLE); RET(0, 2); }
+    if (!A32(1)) { hle_set_last_error(ERROR_INVALID_PARAMETER); RET(0, 2); }
     if (f->at >= f->n) { hle_set_last_error(ERROR_NO_MORE_FILES); RET(0, 2); }
-    fentry *e = &f->e[f->at++];
-    fill(A32(1), e->name, e->host, e->virtual_file);
+    fill_entry(A32(1), f, &f->e[f->at++]);
     RET(1, 2);
+}
+
+/* Only a search handle: anything else (a file, a closed search) fails with
+ * ERROR_INVALID_HANDLE and is left open. */
+static void k_FindClose(void) {                          /* (handle) */
+    uint32_t h = A32(0);
+    if (hle_handle_type(h) != TM_H_FIND) { hle_set_last_error(ERROR_INVALID_HANDLE); RET(0, 1); }
+    hle_handle_close(h);
+    RET(1, 1);
 }
 
 /* ---- single-path queries ---- */
 static void delegate(const char *name) { recomp_lookup_import(hle_resolve(name))(); }
 
+/* GetFileAttributesA: INVALID_FILE_ATTRIBUTES with ERROR_FILE_NOT_FOUND when
+ * the directory exists but the name is not in it, ERROR_PATH_NOT_FOUND when
+ * the directory (or the drive) does not exist or the name is empty,
+ * ERROR_FILENAME_EXCED_RANGE past MAX_PATH. */
+uint32_t tm_vfs_attributes(const char *name, uint32_t *err) {
+    char full[1024], dir[1024], leaf[TM_MAX_PATH], host[PATH_MAX];
+    struct stat st;
+    *err = 0;
+    if (!name || !*name) { *err = ERROR_PATH_NOT_FOUND; return 0xFFFFFFFFu; }
+    if (strlen(name) >= TM_MAX_PATH) { *err = ERROR_FILENAME_EXCED_RANGE; return 0xFFFFFFFFu; }
+    if (!hle_guest_full_path(name, full, sizeof full)) { *err = ERROR_PATH_NOT_FOUND; return 0xFFFFFFFFu; }
+    ventry e;
+    if (virtual_of(full, &e) && !e.is_dir) return FILE_ATTRIBUTE_ARCHIVE;
+    if (hle_host_path_base(full, host, sizeof host) && stat(host, &st) == 0) return attrs_of(&st);
+    int in_dir = split(full, dir, sizeof dir, leaf, sizeof leaf) && hle_host_path_base(dir, host, sizeof host) &&
+                 stat(host, &st) == 0 && S_ISDIR(st.st_mode);
+    *err = in_dir ? ERROR_FILE_NOT_FOUND : ERROR_PATH_NOT_FOUND;
+    return 0xFFFFFFFFu;
+}
 static void k_GetFileAttributesA(void) {                 /* (name) */
-    if (tm_vfs_virtual_file(ASTR(0))) RET(FILE_ATTRIBUTE_ARCHIVE, 1);
-    delegate("GetFileAttributesA");                      /* a mount resolves to its host directory */
+    const char *name = ASTR(0);
+    char full[1024];
+    if (name && *name && strlen(name) < TM_MAX_PATH && !hle_guest_full_path(name, full, sizeof full)) {
+        delegate("GetFileAttributesA");                  /* a UNC name: win32hle's */
+        return;
+    }
+    uint32_t err, a = tm_vfs_attributes(name, &err);
+    if (a == 0xFFFFFFFFu) hle_set_last_error(err);
+    RET(a, 1);
 }
 
 /* GetFullPathNameA(name, size, buf, &filePart): the length without the
@@ -348,6 +505,7 @@ static void k_CreateDirectoryA(void) {                   /* (name, sa) */
 const win32hle_shim tm_vfs_overrides[] = {
     { "tm:FindFirstFileA",     k_FindFirstFileA },
     { "tm:FindNextFileA",      k_FindNextFileA },
+    { "tm:FindClose",          k_FindClose },
     { "tm:GetFileAttributesA", k_GetFileAttributesA },
     { "tm:GetFullPathNameA",   k_GetFullPathNameA },
     { "tm:CreateFileA",        k_CreateFileA },

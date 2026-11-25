@@ -45,6 +45,7 @@
 
 static int      g_stop_at_winmain;
 static const char *g_itrace_path;   /* --import-trace FILE */
+static const char *g_seen_path;     /* --seen-out FILE: the code VAs entered, one per line */
 static void itrace_flush(void);
 static uint64_t g_t0;
 static uint32_t g_entries;          /* every RECOMP_ENTER */
@@ -132,7 +133,17 @@ static uint32_t tm_resolve(const char *name) {
 }
 
 static const char *status_name_int(int s) { return tm_import_status_name((tm_import_status)s); }
-static void itrace_flush(void) { if (g_itrace_path) tm_itrace_write(g_itrace_path, status_name_int); }
+/* --seen-out: every VA in the image's code range a run entered (diagnostic;
+ * the run itself is unchanged). */
+static void seen_flush(void) {
+    if (!g_seen_path || !g_seen) return;
+    FILE *f = fopen(g_seen_path, "w");
+    if (!f) return;
+    for (uint32_t bit = 0; bit < (SEEN_HI - SEEN_LO) / 2; bit++)
+        if (g_seen[bit >> 3] & (1u << (bit & 7))) fprintf(f, "%08X\n", SEEN_LO + 2u * bit);
+    fclose(f);
+}
+static void itrace_flush(void) { if (g_itrace_path) tm_itrace_write(g_itrace_path, status_name_int); seen_flush(); }
 static void on_hle_exit(int code) { (void)code; tm_dinput8_report(stderr); tm_loader_report(stderr); itrace_flush(); }
 
 static void write_imports_json(const char *path) {
@@ -232,11 +243,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--system") && i + 1 < argc) system_dir = argv[++i];
         else if (!strcmp(argv[i], "--imports-json") && i + 1 < argc) imports_json = argv[++i];
         else if (!strcmp(argv[i], "--import-trace") && i + 1 < argc) g_itrace_path = argv[++i];
+        else if (!strcmp(argv[i], "--seen-out") && i + 1 < argc) g_seen_path = argv[++i];
         else if (argv[i][0] != '-' && !game) game = argv[i];
         else { fprintf(stderr, "unknown option %s\n", argv[i]); return 64; }
     }
     if (!game) {
-        fprintf(stderr, "usage: %s <game dir> [--stop-at-winmain] [--watchdog S] [--user DIR] [--system DIR] [--imports-json FILE] [--import-trace FILE]\n", argv[0]);
+        fprintf(stderr, "usage: %s <game dir> [--stop-at-winmain] [--watchdog S] [--user DIR] [--system DIR] [--imports-json FILE] [--import-trace FILE] [--seen-out FILE]\n", argv[0]);
         recomp_trace_help();
         return 64;
     }

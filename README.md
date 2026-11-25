@@ -10,7 +10,9 @@ of the game.
 
 > **Status: early bring-up.** The game does not run yet. On 64-bit Linux
 > the recompiled start-up code reaches `WinMain` and runs the game's own
-> start-up until the first unimplemented Windows call; see [Status](#status).
+> start-up as far as its DirectShow start-up probe, before the main window
+> is created. The probe needs DirectShow objects that do not exist yet; see
+> [Status](#status).
 
 ## Contents
 
@@ -49,12 +51,13 @@ builds need their own lift.
 | M0: install game data from the discs on Linux | done: 705/705 files |
 | M1: function catalog and lift of `Movies.exe` 1.1 | done: 85,910 functions, 0 lift errors, 7 unresolvable ITAIL labels |
 | M2: lifted start-up code reaches `WinMain` | done on Linux x86-64; arm64 and Android not yet run |
-| M3: run to the game's own Direct3D 9 device initialisation (no rendering) | in progress: [docs/M3.md](docs/M3.md) |
+| M3: run to the game's own Direct3D 9 device initialisation (no rendering) | in progress, stopped at the DirectShow start-up probe: [docs/M3.md](docs/M3.md), [docs/DIRECTSHOW-STARTUP.md](docs/DIRECTSHOW-STARTUP.md) |
 | M4: the first genuine frame from the game's rendering code | planned |
 | Later: video, audio, input, Android packaging | planned |
 
-Measured results and open problems: [docs/M2.md](docs/M2.md) and
-[docs/AUDIT.md](docs/AUDIT.md).
+Measured results and open problems: [docs/M2.md](docs/M2.md),
+[docs/AUDIT.md](docs/AUDIT.md) and
+[docs/REPOSITORY-AUDIT.md](docs/REPOSITORY-AUDIT.md).
 
 ## Requirements
 
@@ -91,14 +94,24 @@ python3 -m unittest tools/test_tm_install.py
 python3 tests/m2_winmain.py --host ~/tm/build/tm_host --game ~/tm/game
 ```
 
+```bash
+python3 tests/m3_boundary.py --host ~/tm/build/tm_host --game ~/tm/game
+```
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
 ## Project layout
 
 ```
 tools/tm_install.py     install the game from the disc images
 tools/lift_health.py    lift statistics and unresolvable jump targets
 tools/crt_init_seeds.py seed the catalog with the CRT initializer tables
+tools/eh_scan.py        exception-handling structures in Movies.exe, and what a run reached
 tools/test_*.py         unit tests
-tests/                  regression tests against the real game (M2: WinMain)
+tests/                  regression tests against the real game (M2, M3 boundary)
+tests/c/                shim tests in C (no game files)
 src/host/               the host: boot, import binding, game-specific shims
 CMakeLists.txt          host build for 64-bit Linux
 docs/                   audit, build steps, milestone reports
@@ -112,6 +125,9 @@ docs/                   audit, build steps, milestone reports
 - [docs/M2.md](docs/M2.md): first-boot results
 - [docs/M3.md](docs/M3.md): plan to the game window and Direct3D 9 device initialisation; M4 criteria
 - [docs/IMPORTS.md](docs/IMPORTS.md): the imports the game calls, their status and what is verified
+- [docs/DIRECTSHOW-STARTUP.md](docs/DIRECTSHOW-STARTUP.md): the DirectShow start-up probe, the current boundary
+- [docs/EXCEPTIONS.md](docs/EXCEPTIONS.md): C++ EH and SEH in the executable, and what a run reaches (B4)
+- [docs/REPOSITORY-AUDIT.md](docs/REPOSITORY-AUDIT.md): correctness audit of the host, its tests and its limits
 - [docs/EXTERNAL-REFERENCES.md](docs/EXTERNAL-REFERENCES.md): other projects' findings, checked against this executable
 
 ## License

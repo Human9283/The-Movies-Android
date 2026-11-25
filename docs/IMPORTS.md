@@ -101,6 +101,7 @@ described below (`tests/m3_boundary.py`; the full trace is
 | `CreateDirectoryA` | implemented | 43 | after WinMain | `0x00A2EBD7` |
 | `CreateFileA` | implemented | 28 | after WinMain | `0x00A489E0` |
 | `DeleteFileA` | implemented | 1 | after WinMain | `0x00A329D4` |
+| `FindClose` | implemented | 29 | after WinMain | `0x00A33368` |
 | `FindFirstFileA` | implemented | 178 | after WinMain | `0x00A33368` |
 | `FindNextFileA` | implemented | 716 | after WinMain | `0x0095AAC0` |
 | `GetDiskFreeSpaceExW` | implemented | 1 | after WinMain | `0x00992DC0` |
@@ -119,7 +120,6 @@ described below (`tests/m3_boundary.py`; the full trace is
 | `DefWindowProcA` | win32hle-present | 6 | after WinMain | `0x0052FCD0` |
 | `FileTimeToLocalFileTime` | win32hle-present | 27 | after WinMain | `0x00A33368` |
 | `FileTimeToSystemTime` | win32hle-present | 27 | after WinMain | `0x00A33368` |
-| `FindClose` | win32hle-present | 29 | after WinMain | `0x00A33368` |
 | `GetClientRect` | win32hle-present | 1 | after WinMain | `0x005303C0` |
 | `GetStockObject` | win32hle-present | 1 | after WinMain | `0x005303C0` |
 | `GetTempFileNameA` | win32hle-present | 1 | after WinMain | `0x00964740` |
@@ -305,7 +305,7 @@ A host DLL is a system DLL this host implements itself. Each one
 | `visible` | listed in that directory by `FindFirstFileA`, `GetFileAttributesA` (a virtual entry: nothing on disk) |
 | `loadable` | `LoadLibraryA` gives a module; if not, `ERROR_BAD_EXE_FORMAT` |
 | `exports` | each export of the real DLL that this host knows about, with a shim when it is implemented, or a reason when it is not |
-| handle, references | a pseudo-module at `0x7D000000 + 0x10000 * index`, counted as above |
+| handle, references | a pseudo-module at `0x7D000000 + 0x10000 * index`, counted as above. The range for all 16 slots (`0x7D000000`–`0x7D0FFFFF`) is reserved in the guest address space and left inaccessible when the first host DLL is registered, so no guest allocation can be placed there and reading a handle as memory faults. At most 16 host DLLs (`TM_LOADER_MAX_DLLS`); a 17th or a duplicate name is refused with a message |
 | `on_load`, `on_unload` | attach at the first reference (may fail the load), detach at the last `FreeLibrary` |
 
 The file system and the loader read the same table, so a name is answered
@@ -462,11 +462,36 @@ overlap, on either the guest or the host side: `tm_vfs_mount` refuses
 
 | Function | Behaviour now |
 |---|---|
-| `FindFirstFileA`, `FindNextFileA` | our own listing: the host directory's names and the virtual entries, merged without duplicates, in NTFS's order (by name without case, `.` and `..` first). A drive's root has no `.` and `..`. `*.` matches names without an extension. A missing directory fails with `ERROR_PATH_NOT_FOUND`, a missing name with `ERROR_FILE_NOT_FOUND`, a bad handle with `ERROR_INVALID_HANDLE`. `FindClose` is win32hle's (it closes any handle) |
-| `GetFileAttributesA` | a host DLL entry: `FILE_ATTRIBUTE_ARCHIVE`; otherwise win32hle's (a mount is its host directory: `FILE_ATTRIBUTE_DIRECTORY`) |
+| `FindFirstFileA`, `FindNextFileA` | our own listing: the host directory's names and the virtual entries, merged without duplicates, in NTFS's order (by name without case, `.` and `..` first). A drive's root has no `.` and `..`. Wildcards follow the rules below. A missing directory fails with `ERROR_PATH_NOT_FOUND` (3), a missing name with `ERROR_FILE_NOT_FOUND` (2), a name of 260 characters or more with `ERROR_FILENAME_EXCED_RANGE` (206), an allocation failure with `ERROR_NOT_ENOUGH_MEMORY` (8), a full handle table with `ERROR_TOO_MANY_OPEN_FILES` (4). `FindNextFileA`: a handle that is not a search, `ERROR_INVALID_HANDLE` (6); a NULL buffer, `ERROR_INVALID_PARAMETER` (87); the end, `ERROR_NO_MORE_FILES` (18), and the handle stays valid until `FindClose` |
+| `FindClose` | ours: closes a search handle; any other handle (a file, an event, a closed search, NULL) gives FALSE with `ERROR_INVALID_HANDLE` and is left open. win32hle's closed any handle type |
+| `GetFileAttributesA` | a host DLL entry: `FILE_ATTRIBUTE_ARCHIVE`; a mount: its host directory's attributes; otherwise the file's. A missing name in an existing directory: `ERROR_FILE_NOT_FOUND` (2); a missing directory on the way, NULL or `""`: `ERROR_PATH_NOT_FOUND` (3); 260 characters or more: `ERROR_FILENAME_EXCED_RANGE` (206). win32hle's gave 2 for every failure. UNC names are left to win32hle |
 | `GetFullPathNameA` | the normalisation above, as a guest path; the length, or the size needed with the buffer untouched; the file part, NULL after a trailing `\`. win32hle returned a host path for a relative name. UNC names are left to win32hle |
 | `CreateFileA`, `DeleteFileA`, `CreateDirectoryA` | win32hle's, except on a host DLL entry: it has no contents, so opening or deleting it fails with `ERROR_ACCESS_DENIED`, and creating a directory of its name fails with `ERROR_ALREADY_EXISTS` |
 | `SetCurrentDirectoryA`, `GetCurrentDirectoryA` | win32hle's, through the patched path code: `C:\WINDOWS` is the system directory and comes back as `C:\WINDOWS` |
+
+Wildcards (`FindFirstFileA`), as `FindFirstFileEx` documents them and
+as NT matches them (`FsRtlIsNameInExpression` with the DOS wildcards):
+- trailing dots and spaces of the mask are dropped. A mask that ended in
+  `.` then matches names without an extension: `*.` is every name with no
+  dot, and not `a.txt`;
+- `?` matches one character, or nothing at the end of the name or before
+  its last dot: `a??` matches `a`, `ab` and `abc`;
+- `.` followed by `*` or `?` matches a dot or the end of the name: `*.*`
+  matches every name, `a.*` matches `a` and `a.txt`;
+- `*` matches any run of characters, dots included;
+- matching ignores case (ASCII);
+- `.` and `..` match a mask made only of `*`, `?` and `.`.
+
+These rules were written from Microsoft's documentation, with Wine's
+`kernelbase` mask handling (LGPL) read for comparison only. No code was
+copied. `tests/c/test_vfs_audit.c` holds 36 mask cases.
+
+Limits:
+- 8 mounts and 16 host DLLs. Their virtual entries in one directory are
+  never cut short. A mount whose last component is 64 characters or more
+  is refused.
+- All of this runs under win32hle's machine lock, as every shim does.
+  Mounts are set at start-up only, before guest code runs.
 
 Differences from Windows, all documented here:
 - A host DLL entry has no bytes and no version resource. Windows would open
@@ -474,6 +499,10 @@ Differences from Windows, all documented here:
 - Short (8.3) names are not generated (`cAlternateFileName` is empty).
 - `MoveFileA` and `CopyFileA` know nothing of host DLL entries. The game
   doesn't import `CopyFileA` or `MoveFileA` on the start-up path.
+- `CloseHandle` (win32hle) still closes a search handle; Windows refuses
+  it. Not reached by the game.
+- A trailing `\` after a file name (`C:\Movies.exe\`) is not checked
+  against Windows.
 
 Tests:
 - `tests/c/test_vfs.c` (74 checks): the root listing (`WINDOWS` in `C:\*`,
@@ -484,6 +513,14 @@ Tests:
   host DLL entries refused for open, delete and replace, mount overlap,
   and the four DLL questions for a test DLL and for `wmvcore.dll` and
   `dinput8.dll`.
+- `tests/c/test_vfs_audit.c` (134 checks): mount and host DLL capacity,
+  a full virtual listing, allocation failures at each stage, handle-table
+  exhaustion, the search handle's lifecycle, `GetFileAttributesA` errors,
+  the wildcard rules, and mount boundaries (a sibling `WINDOWS_OLD`,
+  repeated and mixed separators, `.` and `..`, relative, `C:name`, `\name`).
+- `tests/c/test_loader_audit.c` (36 checks): the reserved handle range,
+  stale and malformed handles, reference counts, `GetProcAddress` by
+  ordinal and with NULL, and COM objects and vtables in guest memory.
 - `tests/c/test_sysroot.c`: separation and the directory functions.
 - `hle_path_selftest`: win32hle's own path test against the patched file.
   One of its checks expected a relative `..\file.txt` to stay relative to

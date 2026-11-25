@@ -72,7 +72,7 @@ What win32hle **lacks** and The Movies needs:
 | Subsystem | In win32hle | The Movies needs |
 |---|---|---|
 | Direct3D | DirectX 6 (DDraw + D3D3), software rasteriser, Metal on macOS | **Direct3D 9** (`d3d9.dll` via `LoadLibrary`); D3DX is linked into the game |
-| Video | Bink via FFmpeg | **DirectShow**: `CLSID_FilterGraph`, `CLSID_WMAsfReader`, the game's own `CTextureRenderer@MV` filter [doc.] |
+| Video | Bink via FFmpeg | **DirectShow**: for playback `CLSID_FilterGraph`, `CLSID_WMAsfReader` (`sub_0097E190`), the game's own `CTextureRenderer@MV` filter [doc.]; at start-up a separate probe creates `CLSID_FilterGraph`, `CLSID_CaptureGraphBuilder2` and `CLSID_WMAsfWriter` (`sub_009AD7A0`, docs/DIRECTSHOW-STARTUP.md) [meas.] |
 | Input | DirectInput 3/5 | **DirectInput 8** (`DirectInput8Create`) |
 | Audio | DirectSound 1 on SDL2 | DirectSound 8 **or** OpenAL (`OpenAL32.dll`/`wrap_oal.dll`) |
 | Codecs | none | `msacm32` (7 `acmStream*` functions); Ogg Vorbis is linked into the game |
@@ -198,7 +198,7 @@ checksum. `Data/pak`: 8 archives, 891 MB. `Data/Audio`: 888 MB.
 | Import calls | `native_bridge`, MSVC asm | C shim in the lifted model (`A32`/`RET`) | win32hle, no asm |
 | Callbacks | VEH + non-executable `.text` | no VEH | explicit `hle_call_guest()` |
 | Guest COM → host | real DLL vtables | none | guest vtables whose slots are shim VAs; every D3D9/DInput8/DShow method is a shim |
-| SEH / C++ EH | the Windows kernel | none | walk the guest `FS:[0]` chain ourselves; whether this works in lifted code is **unknown** (B4) |
+| SEH / C++ EH | the Windows kernel | none | walk the guest `FS:[0]` chain ourselves; the lift keeps the chain but has no catch landing pads (B4, docs/EXCEPTIONS.md) |
 | Byte order | LE | LE | unchanged |
 | x87 | lifted FPU on `double` | same | 80 → 64-bit precision, as in the reference |
 | SSE/3DNow! | hidden | hidden | unchanged; NEON is a later optimisation |
@@ -222,8 +222,8 @@ Ordered by how early each one stops the path.
 | B1 | **No lifted code for CD 1.1.** | required | **resolved in M1**: 85,910 functions, 0 errors |
 | B2 | **The reference host is Win32 x86 only** (native32: MSVC asm, VEH, real DLLs). | required | replaced by win32hle; host in `src/host/` |
 | B3 | **No Direct3D 9** in any portable pcrecomp layer: D3D9, shaders, fixed function → Vulkan/GLES. | critical, the largest | options in 5.3 |
-| B4 | **Guest C++ exceptions and SEH** are not handled by win32hle. Unknown whether the game throws on normal paths. | possibly critical | measure in M3 |
-| B5 | **DirectShow + WMV**: intro, menu backdrop (`frontend_loop.wmv`), tutorials, credits. The reference showed a black menu without video. | high | an HLE graph for one shape (file → ASF reader → the game's filter) |
+| B4 | **Guest C++ exceptions and SEH** are not handled by win32hle. 5,646 functions have C++ EH frames and 1,031 throw; no throw is taken on the start-up path measured so far (docs/EXCEPTIONS.md). A throw stops the run, logged. | possibly critical later | measured for start-up; needs an EH-enabled re-lift and a dispatcher once a throw is reached |
+| B5 | **DirectShow + WMV**: intro, menu backdrop (`frontend_loop.wmv`), tutorials, credits. The reference showed a black menu without video. Start-up itself needs a filter graph, a capture graph builder and the ASF writer filter (docs/DIRECTSHOW-STARTUP.md). | high; **blocks start-up** | the start-up probe first; playback (file → ASF reader → the game's filter) after |
 | B6 | **Audio**: DirectSound 8 or OpenAL, plus `msacm32` (codecs unknown). | high | prefer OpenAL (a C API, no COM); confirm the game picks it |
 | B7 | **DirectInput 8** instead of 3/5. | medium | extend `dinput.c` |
 | B8 | **64-bit host**: everything the guest holds a pointer to must live inside its 4 GB. | cross-cutting | a design rule for every shim |
@@ -320,7 +320,8 @@ Each milestone is checked on its own, with a measurable criterion.
 ## 7. Open questions
 
 1. Does the game call `RaiseException`/`_CxxThrowException` on normal paths
-   (B4)? M3 answers it.
+   (B4)? Not on the start-up path measured so far (docs/EXCEPTIONS.md); open
+   for the rest of M3 and later.
 2. Which audio path does the game choose when both `dsound.dll` and
    `OpenAL32.dll` exist?
 3. Which ACM formats are needed (are the `.lug` banks ADPCM)?
