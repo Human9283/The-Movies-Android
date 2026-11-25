@@ -59,7 +59,7 @@ input (M5) are the largest. M3 is in progress and is not counted.
 | M0: install game data from the discs on Linux | done: 705/705 files |
 | M1: function catalog and lift of `Movies.exe` 1.1 | done: 85,910 functions, 0 lift errors, 7 unresolvable ITAIL labels |
 | M2: lifted start-up code reaches `WinMain` | done on Linux x86-64; arm64 and Android not yet run |
-| M3: run to the game's own Direct3D 9 device initialisation (no rendering) | in progress, stopped at the game's `CreateDevice` (recorded, no device yet): [docs/M3.md](docs/M3.md), [docs/D3D9-REQUIREMENTS.md](docs/D3D9-REQUIREMENTS.md) |
+| M3: run to the game's own Direct3D 9 device initialisation (no rendering) | in progress, stopped at the game's `CreateDevice` (recorded, no device yet): [docs/M3.md](docs/M3.md), [docs/D3D9-REQUIREMENTS.md](docs/D3D9-REQUIREMENTS.md). Backend chosen: DXVK Native; its proof of concept creates and presents the game's device request on software Vulkan ([docs/DXVK-INTEGRATION.md](docs/DXVK-INTEGRATION.md)) |
 | M4: the first genuine frame from the game's rendering code | planned |
 | Later: video, audio, input, Android packaging | planned |
 
@@ -73,6 +73,7 @@ Measured results and open problems: [docs/M2.md](docs/M2.md),
 - Python 3.10+ with `pefile`, `capstone`, `unicorn`, `pycdlib`
 - `msitools`, `cabextract`
 - CMake 3.20+, Ninja, Clang or GCC, SDL2 and SDL2_ttf development packages
+- Optional, for the Direct3D 9 backend: DXVK Native v3.1.1 built with meson, and a Vulkan 1.3 driver ([docs/BUILD.md](docs/BUILD.md) 5.1)
 - A checkout of [pcrecomp](https://github.com/sp00nznet/pcrecomp) and of
   [themovies](https://github.com/sp00nznet/themovies) (for its lift driver)
 - The three disc images of The Movies (CD edition)
@@ -120,6 +121,7 @@ tools/eh_scan.py        exception-handling structures in Movies.exe, and what a 
 tools/test_*.py         unit tests
 tests/                  regression tests against the real game (M2, M3 boundary)
 tests/c/                shim tests in C (no game files)
+tests/dxvk/             DXVK Native proof of concept (no game files)
 src/host/               the host: boot, import binding, game-specific shims
 CMakeLists.txt          host build for 64-bit Linux
 docs/                   audit, build steps, milestone reports
@@ -135,6 +137,8 @@ docs/                   audit, build steps, milestone reports
 - [docs/IMPORTS.md](docs/IMPORTS.md): the imports the game calls, their status and what is verified
 - [docs/DIRECTSHOW-STARTUP.md](docs/DIRECTSHOW-STARTUP.md): the DirectShow start-up probe and what is implemented for it (not playback or export)
 - [docs/D3D9-REQUIREMENTS.md](docs/D3D9-REQUIREMENTS.md): the Direct3D 9 calls the game makes and the device it asks for
+- [docs/DXVK-INTEGRATION.md](docs/DXVK-INTEGRATION.md): DXVK Native (pinned v3.1.1) as the Direct3D 9 backend; the proof of concept and the integration decisions
+- [docs/ANDROID-FEASIBILITY.md](docs/ANDROID-FEASIBILITY.md): what DXVK requires of an Android GPU, the risks, and how a device is measured
 - [docs/EXCEPTIONS.md](docs/EXCEPTIONS.md): C++ EH and SEH in the executable, and what a run reaches (B4)
 - [docs/REPOSITORY-AUDIT.md](docs/REPOSITORY-AUDIT.md): correctness audit of the host, its tests and its limits
 - [docs/EXTERNAL-REFERENCES.md](docs/EXTERNAL-REFERENCES.md): other projects' findings, checked against this executable

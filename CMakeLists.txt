@@ -120,3 +120,27 @@ target_compile_definitions(hle_path_selftest PRIVATE _GNU_SOURCE RECOMP_RETADDR=
 target_compile_options(hle_path_selftest PRIVATE -w -fno-strict-aliasing)
 target_link_libraries(hle_path_selftest PRIVATE PkgConfig::SDL2 Threads::Threads m)
 add_test(NAME hle_path_selftest COMMAND hle_path_selftest)
+
+# ---- DXVK Native (docs/DXVK-INTEGRATION.md) ----------------------------------
+# TM_DXVK_PREFIX: an install of DXVK Native's d3d9 (meson install, SDL2 WSI).
+# With it, dxvk_present is built: a real D3D9 device on Vulkan, cleared,
+# presented and read back. Its test needs an X display or xvfb-run, and a
+# Vulkan driver (Mesa's lavapipe will do: VK_ICD_FILENAMES).
+set(TM_DXVK_PREFIX "" CACHE PATH "DXVK Native install prefix (include/dxvk, lib*/libdxvk_d3d9.so)")
+if(TM_DXVK_PREFIX)
+  enable_language(CXX)
+  find_library(DXVK_D3D9 dxvk_d3d9 PATHS "${TM_DXVK_PREFIX}/lib" "${TM_DXVK_PREFIX}/lib/x86_64-linux-gnu"
+               "${TM_DXVK_PREFIX}/lib/aarch64-linux-gnu" NO_DEFAULT_PATH REQUIRED)
+  add_executable(dxvk_present tests/dxvk/dxvk_present.cpp)
+  set_target_properties(dxvk_present PROPERTIES CXX_STANDARD 17)
+  target_include_directories(dxvk_present PRIVATE "${TM_DXVK_PREFIX}/include/dxvk")
+  target_link_libraries(dxvk_present PRIVATE ${DXVK_D3D9} PkgConfig::SDL2)
+  get_filename_component(DXVK_LIBDIR "${DXVK_D3D9}" DIRECTORY)
+  set_target_properties(dxvk_present PROPERTIES BUILD_RPATH "${DXVK_LIBDIR}")
+  find_program(XVFB_RUN xvfb-run)
+  if(XVFB_RUN)
+    # the game's own request: 1024x768 X1R5G5B5 full screen
+    add_test(NAME dxvk_present COMMAND ${XVFB_RUN} -a -s "-screen 0 1024x768x24" $<TARGET_FILE:dxvk_present> 1024 768 24 0)
+    set_tests_properties(dxvk_present PROPERTIES ENVIRONMENT "DXVK_WSI_DRIVER=SDL2;DXVK_LOG_LEVEL=warn" TIMEOUT 120)
+  endif()
+endif()

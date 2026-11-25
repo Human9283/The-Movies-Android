@@ -112,6 +112,46 @@ Check that the lifted code is linked (85,910 functions):
 nm ~/tm/build/tm_host | grep -c " T sub_"
 ```
 
+### 5.1 DXVK Native (optional)
+
+The Direct3D 9 backend ([DXVK-INTEGRATION.md](DXVK-INTEGRATION.md)). It needs
+meson, glslang and the Vulkan headers:
+
+```bash
+sudo apt install glslang-tools libvulkan-dev
+```
+
+```bash
+pip install meson
+```
+
+```bash
+git clone --depth 1 --branch v3.1.1 --recurse-submodules https://github.com/doitsujin/dxvk ~/tm/dxvk
+```
+
+Pinned: tag `v3.1.1`, commit `b1a1c99ab52b687cf950d62c88bc2fa316b41663`.
+
+```bash
+meson setup ~/tm/dxvk-build ~/tm/dxvk --buildtype=release --prefix=$HOME/tm/dxvk-install -Denable_dxgi=false -Denable_d3d8=false -Denable_d3d10=false -Denable_d3d11=false -Dnative_sdl2=enabled -Dnative_sdl3=disabled -Dnative_glfw=disabled
+```
+
+```bash
+ninja -C ~/tm/dxvk-build install
+```
+
+About 2 minutes on 4 cores. Then add `-DTM_DXVK_PREFIX=$HOME/tm/dxvk-install`
+to the `cmake -S` command above. That builds `dxvk_present`, the proof of
+concept. If `xvfb-run` is installed (`sudo apt install xvfb`), it also adds the
+`dxvk_present` CTest. That test needs a Vulkan 1.3 driver. Without a GPU,
+Mesa's lavapipe works (`sudo apt install mesa-vulkan-drivers`). Run it by
+hand:
+
+```bash
+DXVK_WSI_DRIVER=SDL2 xvfb-run -a -s "-screen 0 1024x768x24" ~/tm/build/dxvk_present 1024 768 24 0
+```
+
+The arguments are width, height, `D3DFORMAT` and windowed (0 or 1).
+
 ## 6. Run
 
 ```bash
@@ -181,6 +221,9 @@ Shim tests (no game files needed):
   error results, and what must stop the run;
 - `test_d3d9`: `d3d9.dll`, `Direct3DCreate9`, the device-free
   `IDirect3D9` methods, and what must stop the run;
+- `dxvk_present` (only with `TM_DXVK_PREFIX` and `xvfb-run`): a real
+  DXVK device with the game's device request, cleared, presented and read
+  back (DXVK-INTEGRATION.md 3);
 - `hle_path_selftest`: win32hle's own path selftest against the patched
   `hle_path.c`.
 

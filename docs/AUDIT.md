@@ -298,6 +298,14 @@ variable.
 **Recommendation:** A as the main path, B as the fallback. Decided after M3,
 from a log of every D3D9 method, format and shader the game actually uses.
 
+**Decision (M3):** A, DXVK Native pinned at v3.1.1. A proof of concept
+creates, clears and presents the game's exact device request on software
+Vulkan ([DXVK-INTEGRATION.md](DXVK-INTEGRATION.md)). DXVK 3.1.1 requires
+Vulkan 1.3 and a fixed feature list, including `geometryShader` and
+`textureCompressionBC`. Whether Android drivers meet it is open, and is to be
+measured on devices ([ANDROID-FEASIBILITY.md](ANDROID-FEASIBILITY.md)). B
+stays the fallback for drivers that do not.
+
 ---
 
 ## 6. Plan and success criteria
