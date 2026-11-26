@@ -11,6 +11,12 @@ game code (lifted, guest memory)
   -> Vulkan -> GPU
 ```
 
+This document describes the Linux x86-64 host integration with upstream
+DXVK Native 3.1.1. Runtime observations below were made under lavapipe/Xvfb;
+they do not describe the Android fork or establish Android compatibility.
+The Android application uses a separate DXVK Native fork (see
+[ANDROID-PORT-AUDIT.md](ANDROID-PORT-AUDIT.md)).
+
 Tags: [src] read from the DXVK source at the pinned commit; [run]
 measured here; [doc.] upstream documentation; [hyp.] not verified.
 
