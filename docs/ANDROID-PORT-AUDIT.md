@@ -59,8 +59,9 @@ project's run records.
 - The Linux command-line entry point is now isolated in `src/host/tm_host_main.c`; the reusable bootstrap is `tm_host_run()` in `src/host/tm_host.c`. The Android caller/JNI layer does not exist yet.
 - The game directory is passed as a command-line argument and defaults
   to relative host paths such as `tm_user` and `tm_system`.
-- The game itself still has no Android Gradle target, activity/JNI runtime
-  integration, Android asset/data installer, or APK packaging. A separate
+- The game itself still has no Android game Gradle target, linked native
+  runtime, activity/JNI game integration, Android data importer, or game APK
+  packaging. A separate
   `android-probe/` and `android-d3d9-probe/` Gradle projects now exist on
   the active feature branch. Both are standalone diagnostics and must not
   be mistaken for game packaging.
@@ -128,7 +129,8 @@ DXVK 2.4.1 baseline.
 
 The Android D3D9 probe's CMake build now compiles the repository's portable
 host C translation units with the Android NDK for `arm64-v8a`, including the
-runtime bootstrap, loader, Win32 shims, VFS, input, media and D3D9 host modules.
+runtime bootstrap, the new Android SDL entry point (`tm_host_android.c`),
+loader, Win32 shims, VFS, input, media and D3D9 host modules.
 The existing `tm_d3d9_dxvk.cpp` bridge is also compiled against the pinned
 Android DXVK headers. These are object-only checks: the diagnostic APK still
 does not link the game runtime, and no generated `recomp_*.c` files are
