@@ -230,3 +230,45 @@ The existing Linux command-line options are preserved by forwarding their values
 ### Reusable CMake source group
 
 The desktop target's source list has also been collected into `TM_RUNTIME_SOURCES` and `tm_host` now consumes that list. This is a mechanical build-graph preparation for a future Android shared-library target; it does not change the current target type, dependencies, compiler flags or test graph. The Android target is intentionally not declared until SDL2/NDK/DXVK dependency handling is specified and can be validated.
+
+
+## Runtime/CLI source split (follow-up implementation)
+
+The previous entry-point extraction left the Linux `main()` in
+`src/host/tm_host.c`, guarded by `#ifndef __ANDROID__`. That still made
+the runtime translation unit own the desktop command-line adapter. This
+has now been corrected:
+
+- `src/host/tm_host.c` contains the shared `tm_host_run()` bootstrap and
+  runtime helpers; it no longer defines `main()`.
+- `src/host/tm_host_main.c` contains the Linux argument parser and calls
+  `tm_host_run()`.
+- The desktop CMake target explicitly adds `tm_host_main.c` alongside
+  `TM_RUNTIME_SOURCES`.
+
+This is a mechanical source-boundary change. It does not add an Android
+target, JNI, Gradle, SDL Android activity glue, or an Android DXVK build.
+The desktop build and tests have not been run in this environment. The
+next user-side validation remains the existing Linux configure/build/CTest
+and the game boundary test before further changes to the shared runtime.
+
+### Remaining constraints in the extracted runtime API
+
+The current `tm_host_run()` seam is not yet a complete Android lifecycle
+API:
+
+- It still installs process-wide POSIX signal handlers and an optional
+  `SIGALRM` watchdog.
+- The WinMain diagnostic stop path calls `_exit(0)`; it is intended for
+  desktop diagnostics, not normal Android app operation.
+- The default user/system paths are relative when callers pass NULL.
+  Android must always pass explicit app-private absolute paths.
+- Runtime state is held in file-static globals, so repeated start/stop
+  within one process is not currently supported or proven.
+- SDL window/surface creation is still initiated by the existing D3D9
+  backend path; Android pause/resume and native-window recreation have
+  not been integrated.
+
+The Android bridge must therefore be a one-shot launch initially, pass
+explicit paths, leave diagnostic stop/watchdog options disabled, and
+coordinate SDL lifecycle before it can be considered usable.
