@@ -87,7 +87,9 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
     VkPhysicalDeviceFeatures2 f2 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = chain };
     vkGetPhysicalDeviceFeatures2(gpu, &f2);
 #define CORE(name) LOGI("feature %-42s %s", #name, f2.features.name ? "YES" : "NO")
-    CORE(depthBiasClamp); CORE(depthClamp); CORE(dualSrcBlend); CORE(fillModeNonSolid);
+    bool required_features_ok = true;
+#define REQUIRED_CORE(name) do { bool ok = f2.features.name != 0; LOGI("required %-39s %s", #name, ok ? "PASS" : "FAIL"); if (!ok) required_features_ok = false; } while (0)
+    REQUIRED_CORE(depthBiasClamp); REQUIRED_CORE(depthClamp); REQUIRED_CORE(dualSrcBlend); REQUIRED_CORE(fillModeNonSolid);
     CORE(fragmentStoresAndAtomics); CORE(fullDrawIndexUint32); CORE(geometryShader);
     CORE(imageCubeArray); CORE(independentBlend); CORE(multiDrawIndirect); CORE(multiViewport);
     CORE(occlusionQueryPrecise); CORE(robustBufferAccess); CORE(sampleRateShading);
@@ -96,7 +98,8 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
     CORE(shaderSampledImageArrayDynamicIndexing); CORE(textureCompressionBC);
 #undef CORE
 #define FEAT(obj, name) LOGI("feature %-42s %s", #name, (obj).name ? "YES" : "NO")
-    FEAT(f11, shaderDrawParameters); FEAT(f11, storageBuffer16BitAccess);
+#define REQUIRED_FEAT(obj, name) do { bool ok = (obj).name != 0; LOGI("required %-39s %s", #name, ok ? "PASS" : "FAIL"); if (!ok) required_features_ok = false; } while (0)
+    REQUIRED_FEAT(f11, shaderDrawParameters); REQUIRED_FEAT(f11, storageBuffer16BitAccess);
     FEAT(f12, bufferDeviceAddress); FEAT(f12, descriptorIndexing); FEAT(f12, storageBuffer8BitAccess);
     FEAT(f12, descriptorBindingSampledImageUpdateAfterBind);
     FEAT(f12, descriptorBindingUpdateUnusedWhilePending); FEAT(f12, descriptorBindingPartiallyBound);
@@ -170,7 +173,7 @@ static void handle_cmd(struct android_app *app, int32_t cmd) {
 }
 
 void android_main(struct android_app *app) {
-    app->onAppCmd = handle_cmd;
+    app_dummy();\n    app->onAppCmd = handle_cmd;
     LOGI("Probe started. Waiting for Android native window.");
     while (!app->destroyRequested) {
         int events = 0; struct android_poll_source *source = NULL;
