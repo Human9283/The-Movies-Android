@@ -115,7 +115,8 @@ These Linux tests do not validate Android runtime behavior.
 - Wide-character filesystem imports and some Windows path semantics are
   incomplete.
 - DirectShow media playback and film export are not implemented.
-- Android guest-memory reservation, PE mapping, import binding and full
-  game execution remain unverified.
-- Android touch, Activity lifecycle, audio/video and save/load remain
-  unverified.
+- Android guest-memory reservation, PE mapping and import binding still
+  need explicit device-log confirmation; the game currently reaches its
+  D3D9 intro rendering loop but stalls before the main menu.
+- Android touch-to-mouse mapping and Activity surface/lifecycle behaviour
+  are under active validation; audio/video and save/load remain unverified.
