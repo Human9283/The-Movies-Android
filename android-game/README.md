@@ -16,7 +16,8 @@ target. It is separate from the Linux desktop target and the standalone
 
 The private CI build produces a self-contained ARM64 APK. It extracts the
 user-owned Russian CD 1.1 installation from the private game-data release,
-packages the 705 installed files as an uncompressed USTAR asset, and embeds
+normalizes 705 MSI rows to 699 unique installed files, packages them as an
+uncompressed USTAR asset, and embeds
 that asset only in the private APK artifact. No game files are committed to
 this public source repository.
 
