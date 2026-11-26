@@ -560,17 +560,21 @@ can be built or launched on Android.
 
 ### What remains before the game can run
 
-1. Add an Android JNI/native entry point and Gradle application around
-   `tm_host_run()`; keep the Linux CLI executable and its build path intact.
-2. Cross-compile the actual lifted C translation units and pcrecomp /
-   win32hle runtime for Android `arm64-v8a`.
-3. Validate the guest's 4 GiB address-space reservation, PE image mapping,
-   relocation and import binding under Android/Bionic.
-4. Pass explicit app-private game, user and system directories to the host;
-   keep all original game files outside the APK and repository.
-5. Link the existing guest D3D9 bridge to the tested Android DXVK library
-   and exercise the real game's D3D9 resource, texture, presentation and
-   fixed-function call sequence.
+1. The new `src/host/tm_host_android.c` SDL entry point now calls
+   `tm_host_run()` with explicit app-private game, user and system paths.
+   It is compile-checked only; a dedicated Android game Gradle/CMake target
+   must still link it with the complete runtime.
+2. The Android NDK probe build now compiles the portable host C sources,
+   Android SDL entry point, DXVK guest bridge, pcrecomp guest-memory source
+   and PE loader as ARM64 objects. This checks source compatibility only;
+   the objects are not linked into the probe APK.
+3. Build the actual lifted C translation units and the complete
+   pcrecomp/win32hle runtime for Android `arm64-v8a`. Generated game code
+   remains local and is not in the public repository.
+4. Validate the guest's 4 GiB address-space reservation, PE image mapping,
+   relocation and import binding at runtime under Android/Bionic.
+5. Add a supported game-data import flow and connect the tested DXVK library
+   to the real game's D3D9 workload.
 6. Integrate SDL/Android surface lifecycle, pause/resume, touch-to-mouse,
    audio and video; then test save/load and a full studio session.
 
