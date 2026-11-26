@@ -8,11 +8,11 @@ This is not a remake or a clone. The game's own code runs, translated
 instruction by instruction, with its original data. You need your own copy
 of the game.
 
-> **Status: early bring-up.** The game does not run yet. On 64-bit Linux
-> the recompiled start-up code reaches `WinMain` and runs the game's own
-> start-up, past its DirectShow start-up probe, as far as its own Direct3D 9
-> `CreateDevice` call. That call is recorded, but no device exists yet; see
-> [Status](#status).
+> **Status: Linux runtime works; Android port not started at device level.**
+> On Linux x86-64, the original game reaches the Lionhead logo, main menu and
+> 3D studio lot through DXVK Native. Video playback and audio remain
+> incomplete or unverified. No Android APK or Android device run exists yet;
+> see [Status](#status) and [Android feasibility](docs/ANDROID-FEASIBILITY.md).
 
 ## Contents
 
@@ -130,7 +130,7 @@ tests/                  regression tests against the real game (M2, M3 boundary)
 tests/c/                shim tests in C (no game files)
 tests/dxvk/             DXVK Native proof of concept (no game files)
 src/host/               the host: boot, import binding, game-specific shims
-CMakeLists.txt          host build for 64-bit Linux
+CMakeLists.txt          shared runtime source list; active target is Linux desktop
 docs/                   audit, build steps, milestone reports
 ```
 
