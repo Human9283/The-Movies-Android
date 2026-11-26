@@ -160,7 +160,7 @@ with the same name [doc.]).
   used for behaviour only.
 - Wine's `quartz` and `qcap` (LGPL-2.1) for comparison only. No code was
   read into this repository and none may be copied: the repository is
-  MIT. See docs/REPOSITORY-AUDIT.md, "References".
+  MIT. See docs/HOST-IMPLEMENTATION.md, "References".
 
 ## 9. Implemented: start-up probe compatibility
 
