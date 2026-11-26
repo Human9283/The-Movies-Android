@@ -177,6 +177,6 @@ the run gets further.
 
 ## Decision
 
-No EH runtime now. It becomes a milestone item (docs/REPOSITORY-AUDIT.md,
+No EH runtime now. It becomes a milestone item (docs/HOST-IMPLEMENTATION.md,
 "Next milestones") when the first `RaiseException` is reached on a path
 the game is expected to survive, or before M6 at the latest.
