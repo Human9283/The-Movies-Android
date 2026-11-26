@@ -434,9 +434,27 @@ static void dev_GetDeviceState(void) {                  /* (this, cbData, lpvDat
             uint8_t b[3];
             hle_input_raw(&x, &y);
             buttons(b);
-            MEM32(p) = (uint32_t)(x - o->last_x), MEM32(p + 4) = (uint32_t)(y - o->last_y), MEM32(p + 8) = (uint32_t)(z - o->last_z);
+            int dx = x - o->last_x, dy = y - o->last_y, dz = z - o->last_z;
+            MEM32(p) = (uint32_t)dx, MEM32(p + 4) = (uint32_t)dy, MEM32(p + 8) = (uint32_t)dz;
             o->last_x = x, o->last_y = y, o->last_z = z;
             for (uint32_t i = 0; i < 3; i++) MEM8(p + 12 + i) = b[i];
+            /* Log a bounded sample plus every button transition. This tells us
+             * whether SDL Android taps reach the game's DirectInput device. */
+            if (getenv("TM_DINPUT_TRACE")) {
+                static uint64_t reads;
+                static uint8_t previous[3];
+                static int have_previous;
+                ++reads;
+                int changed = !have_previous || memcmp(previous, b, sizeof b) != 0;
+                if (reads <= 24 || changed || reads % 120 == 0) {
+                    fprintf(stderr,
+                        "[dinput8] mouse state #%llu raw=(%d,%d) delta=(%d,%d,%d) buttons=(%u,%u,%u)\\n",
+                        (unsigned long long)reads, x, y, dx, dy, dz, b[0] ? 1u : 0u,
+                        b[1] ? 1u : 0u, b[2] ? 1u : 0u);
+                }
+                memcpy(previous, b, sizeof b);
+                have_previous = 1;
+            }
         } else {
             uint8_t k[256];
             keyboard(k);
