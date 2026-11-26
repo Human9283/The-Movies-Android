@@ -1,31 +1,61 @@
-# The Movies for Android — ARM64 application target
+# The Movies for Android — ARM64 application
 
-This is a separate Android application project. It does not alter the desktop CMake target or the diagnostic android-d3d9-probe APK.
+This directory contains the native Android application project. It is
+separate from the Linux desktop target and the diagnostic
+`android-d3d9-probe/` application.
 
-## What is implemented
+## Application
 
-- SDL2 Android activity integration.
-- A first-run Storage Access Framework folder picker.
-- Recursive copy of the user's installed game folder into app-private storage.
-- Validation of Movies.exe and Data/ before launch.
-- A dedicated NDK CMake target that links the real host, pcrecomp/win32hle, generated lifted C, SDL2 and Android DXVK Native D3D9 into libmain.so.
+- ABI: `arm64-v8a`
+- Minimum SDK: 24
+- Compile SDK: 36
+- Target SDK: 35
+- NDK: 28.2.13676358
+- CMake: 3.22.1
+- SDL activity: `GameActivity`, subclass of `SDLActivity`
 
-The importer expects an already installed game directory, not the three-disc ISO archive. It copies the directory selected by the user; it does not download, extract, or package copyrighted game files.
+`SetupActivity` imports an already installed game directory through the
+Android Storage Access Framework. The selected directory must contain
+`Movies.exe` and `Data/`. Files are copied to app-private
+`files/game/`; user-writable files and the synthetic Windows system root
+are stored separately in `files/user/` and `files/system/`.
 
-## Build inputs
+The importer stages the copy, validates the required files and then
+activates it. It does not install from disc images, download game data or
+package copyrighted game files in the APK.
 
-| Property | Meaning |
+## Native library loading
+
+`GameActivity.getLibraries()` loads the following libraries in order:
+
+1. `SDL2`
+2. `SDL2_ttf`
+3. `dxvk_d3d9`
+4. `main`
+
+The final library contains the Android SDL entry point and the game host.
+It calls `tm_host_run()` with the app-private game, user and system paths.
+
+## Native build inputs
+
+Gradle requires these properties:
+
+| Property | Contents |
 |---|---|
-| sdlRoot | SDL2 source tree (Android Java sources and headers) |
-| dxvkRoot | Android DXVK Native source tree (headers) |
-| pcrecompRoot | Pinned pcrecomp source tree |
-| tmGen | Private generated lift directory |
-| sdlLibrary | Built Android libSDL2.so |
-| dxvkLibrary | Built Android libdxvk_d3d9.so |
+| `sdlRoot` | SDL2 source tree, including Android Java sources and headers |
+| `dxvkRoot` | Android DXVK Native source tree and headers |
+| `pcrecompRoot` | Pinned pcrecomp source tree |
+| `tmGen` | Private generated C lift directory |
+| `sdlLibrary` | Built Android `libSDL2.so` |
+| `sdl2TtfIncludeDir` | SDL2_ttf include directory |
+| `sdl2TtfLibrary` | Built Android `libSDL2_ttf.so` |
+| `dxvkLibrary` | Built Android `libdxvk_d3d9.so` |
 
-The matching libSDL2.so, libdxvk_d3d9.so and NDK libc++_shared.so must be copied to app/src/main/jniLibs/arm64-v8a/ before Gradle packaging.
+The corresponding shared libraries and NDK `libc++_shared.so` must be
+available to the Gradle packaging step under
+`app/src/main/jniLibs/arm64-v8a/`.
 
-Example (paths are illustrative):
+Example invocation (environment variables must point to the build inputs):
 
 ```sh
 gradle --no-daemon -p android-game \
@@ -34,17 +64,29 @@ gradle --no-daemon -p android-game \
   -PpcrecompRoot="$PCRECOMP_ROOT" \
   -PtmGen="$TM_GEN" \
   -PsdlLibrary="$SDL_LIB" \
+  -Psdl2TtfIncludeDir="$SDL_TTF_INCLUDE" \
+  -Psdl2TtfLibrary="$SDL_TTF_LIB" \
   -PdxvkLibrary="$DXVK_LIB" \
   :app:assembleDebug
 ```
 
-## Current status and validation gates
+The Android CMake entry point is
+`app/src/main/cpp/CMakeLists.txt`; it includes the repository's shared
+top-level CMake configuration. The generated lift is supplied by private
+CI and is not stored in this public repository.
 
-The Android application shell and full-link CMake target are present. The first full ARM64 build is running in private workflow [45809671909](https://github.com/Human9283/the-movies-gamedata/actions/runs/45809671909); the latest known attempt is still in progress, so no successful full game APK is claimed yet. Once the APK is produced, it must be tested on the Galaxy S24 Ultra for:
+## Validation status
 
-1. 4 GiB guest-memory reservation and PE mapping;
-2. entry into the lifted CRT and WinMain;
-3. first actual game frame through the tested DXVK Native D3D9 path;
-4. touch input, pause/resume, sound/video and save/load.
+The standalone Android DXVK Native D3D9 diagnostic passed on a Samsung
+Galaxy S24 Ultra (Snapdragon 8 Gen 3 / Adreno 750). It validates the tested
+SDL/Vulkan/D3D9 backend path, not the game runtime.
 
-Do not treat the D3D9 probe result as evidence that the original game runs.
+The full-game ARM64 build runs in private CI:
+[workflow run 45809671909](https://github.com/Human9283/the-movies-gamedata/actions/runs/45809671909).
+At the latest status check on 2026-11-26, attempt 3 was still running.
+A successful full-game APK has not yet been verified.
+
+After the APK build, runtime validation must cover guest-memory reservation,
+PE mapping and relocation, import binding, CRT initialization, `WinMain`,
+the game's D3D9 device and first rendered frame. Menu/studio operation,
+touch input, pause/resume, audio, video and save/load remain unverified.
