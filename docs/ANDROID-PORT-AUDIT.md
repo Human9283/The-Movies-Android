@@ -86,7 +86,14 @@ lifted C translation units, SDL2, SDL2_ttf and the Android DXVK Native
 D3D9 library.
 
 The generated lift is supplied to private CI as `TM_GEN`; it is not
-committed to this public repository.
+committed to this public repository. Before CMake configuration, the
+private workflow splits large generated C translation units at function
+boundaries into chunks no larger than 3 MiB and validates preservation of
+functions and symbols. It generates `recomp_dispatch.S` and excludes the
+original `recomp_dispatch.c` from the Android target. Generated C chunks
+receive `RECOMP_LOCAL_REGS` and compile with `-O0 -g0`; Ninja compilation
+is limited to one job. These are first-link memory mitigations, not
+runtime optimizations.
 
 Build inputs are passed as Gradle properties:
 
@@ -179,15 +186,16 @@ exceptions does not establish semantic correctness or runtime coverage.
 ## 9. Build and runtime status
 
 The full-game ARM64 build is executed in private CI so generated C and
-game data remain private:
-[workflow run 45809671909](https://github.com/Human9283/the-movies-gamedata/actions/runs/45809671909).
+game data remain private. The latest low-memory/assembly-dispatch experiment
+is [run 45887244868](https://github.com/Human9283/the-movies-gamedata/actions/runs/45887244868);
+the preceding experiment is [run 45885363769](https://github.com/Human9283/the-movies-gamedata/actions/runs/45885363769).
 
-At the status check on 2026-11-26, workflow run 45809671909 (attempt 3)
-was still running. SDL2, SDL2_ttf, Android DXVK Native, the pinned
-pcrecomp runtime and shared-library staging had completed; the active
-step was linking the full Android game host and building the APK. APK
-verification and artifact upload had not started. No successful full-game
-APK is claimed.
+At the documentation update on 2026-11-26, both runs had been observed
+in progress. In the newer run, dispatch generation, generated-source
+splitting and Android dependency/toolchain setup had completed. The full
+native link, APK verification and artifact upload were not yet confirmed.
+No successful full-game APK is claimed. Check the workflow pages for live
+status; this paragraph is a dated snapshot.
 
 The standalone D3D9 diagnostic passed on the S24 Ultra:
 [workflow run 45793972336](https://github.com/Human9283/The-Movies-Android/actions/runs/45793972336).
