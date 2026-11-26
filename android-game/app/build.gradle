@@ -30,7 +30,9 @@ android {
                     "-DPCRECOMP_SOURCE_DIR=" + pcrecompRoot,
                     "-DTM_GEN=" + tmGen,
                     "-DSDL2_ROOT=" + sdlRoot,
-                    "-DSDL2_LIBRARY=" + sdlLibrary,\n                    "-DSDL2_TTF_INCLUDE_DIR=" + sdl2TtfIncludeDir,\n                    "-DSDL2_TTF_LIBRARY=" + sdl2TtfLibrary,
+                    "-DSDL2_LIBRARY=" + sdlLibrary,
+                    "-DSDL2_TTF_INCLUDE_DIR=" + sdl2TtfIncludeDir,
+                    "-DSDL2_TTF_LIBRARY=" + sdl2TtfLibrary,
                     "-DDXVK_ROOT=" + dxvkRoot,
                     "-DDXVK_D3D9_LIBRARY=" + dxvkLibrary
             }
