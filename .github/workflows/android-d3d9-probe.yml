@@ -62,6 +62,13 @@ jobs:
           git -C "$DXVK_DIR" checkout f2c7207b3d8bc848fe3a27cef34ee5e67aeec552
           echo "DXVK_ROOT=$DXVK_DIR" >> "$GITHUB_ENV"
 
+      - name: Fetch pinned pcrecomp headers for host bridge compile check
+        run: |
+          PCRECOMP_DIR="$RUNNER_TEMP/pcrecomp"
+          git clone https://github.com/sp00nznet/pcrecomp.git "$PCRECOMP_DIR"
+          git -C "$PCRECOMP_DIR" checkout 7c07a0b42059b6dc4313d9b4ebded6f7a72db8f3
+          echo "PCRECOMP_ROOT=$PCRECOMP_DIR" >> "$GITHUB_ENV"
+
       - name: Build DXVK Native D3D9 for Android ARM64
         run: |
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
@@ -71,11 +78,14 @@ jobs:
           mkdir -p android-d3d9-probe/app/src/main/jniLibs/arm64-v8a
           cp "$SDL_LIB" android-d3d9-probe/app/src/main/jniLibs/arm64-v8a/libSDL2.so
           cp "$RUNNER_TEMP/dxvk-build/arm64-v8a/lib/libdxvk_d3d9.so" android-d3d9-probe/app/src/main/jniLibs/arm64-v8a/
+          mkdir -p android-d3d9-probe/app/src/main/assets/third_party
+          cp "$DXVK_ROOT/LICENSE" android-d3d9-probe/app/src/main/assets/third_party/DXVK-LICENSE.txt
+          cp "$SDL_ROOT/LICENSE.txt" android-d3d9-probe/app/src/main/assets/third_party/SDL2-LICENSE.txt
 
       - name: Build Android D3D9 test APK
         run: |
           gradle --no-daemon -p android-d3d9-probe \
-            -PsdlRoot="$SDL_ROOT" -PdxvkRoot="$DXVK_ROOT" :app:assembleDebug
+            -PsdlRoot="$SDL_ROOT" -PdxvkRoot="$DXVK_ROOT" -PpcrecompRoot="$PCRECOMP_ROOT" :app:assembleDebug
 
       - name: Verify native libraries and APK contents
         run: |
@@ -86,6 +96,9 @@ jobs:
           unzip -l "$APK" | grep "lib/arm64-v8a/libSDL2.so"
           unzip -l "$APK" | grep "lib/arm64-v8a/libdxvk_d3d9.so"
           unzip -l "$APK" | grep "lib/arm64-v8a/libmain.so"
+          unzip -l "$APK" | grep "assets/third_party/DXVK-LICENSE.txt"
+          unzip -l "$APK" | grep "assets/third_party/SDL2-LICENSE.txt"
+          test -n "$(find android-d3d9-probe/app/.cxx -name 'tm_d3d9_dxvk.cpp.o' -print -quit)"
 
       - uses: actions/upload-artifact@v4
         with:
