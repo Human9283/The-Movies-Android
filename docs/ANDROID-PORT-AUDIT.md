@@ -50,7 +50,7 @@ project's run records.
 
 ### 2. The current executable is not an Android app
 
-- `src/host/tm_host.c` exposes a conventional `main(argc, argv)`.
+- The Linux command-line entry point is now isolated in `src/host/tm_host_main.c`; the reusable bootstrap is `tm_host_run()` in `src/host/tm_host.c`. The Android caller/JNI layer does not exist yet.
 - The game directory is passed as a command-line argument and defaults
   to relative host paths such as `tm_user` and `tm_system`.
 - There is no Android Gradle project, manifest, Java/Kotlin activity,
@@ -65,10 +65,9 @@ project's run records.
 
 ### 3. Build-system blockers
 
-The active CMake implementation currently assumes a desktop build:
+The active CMake implementation still assumes a desktop build for its configured target:
 
-- The file's header advertises Android and Linux AArch64, but its active
-  target graph does not implement either platform-specific build path.
+- The Linux target now uses a reusable `TM_RUNTIME_SOURCES` list plus the separate `tm_host_main.c` adapter. No Android target or Linux AArch64 validation target is implemented yet.
 - `find_package(PkgConfig REQUIRED)` and
   `pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2 SDL2_ttf)`
   require desktop pkg-config modules. Android should use SDL2's Android
