@@ -22,7 +22,7 @@ public final class MainActivity extends SDLActivity {
     private void saveTrace(String line) {
         android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         String old = prefs.getString(TRACE, "");
-        String next = (old + line + "\\n");
+        String next = (old + line + "\n");
         if (next.length() > 24000) next = next.substring(next.length() - 24000);
         prefs.edit().putString(TRACE, next).commit();
     }
