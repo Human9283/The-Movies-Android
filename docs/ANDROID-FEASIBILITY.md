@@ -453,9 +453,11 @@ not a change to the fork's upstream repository or to the Linux DXVK build.
   `lib/arm64-v8a/*.so` files and inspect those exact packaged binaries.
 - A separate source review found incorrectly escaped newline and NUL
   character literals in the native probe report buffer. These were fixed:
-  the original multi-character constants could corrupt report termination
-  and cause out-of-bounds string reads. This was a real source defect,
-  independent of the shared-runtime change.
+  the original multi-character character constants were implementation-
+  defined when narrowed to `char`, so the report's line endings and NUL
+  termination were not being written as intended. This was a real report-
+  buffer defect, but it has not been established as the cause of the earlier
+  process exit; it is independent of the shared-runtime change.
 - The corrected workflow and source changes are being rebuilt in GitHub
   Actions. A green build will prove compilation, packaging and static ELF
   checks only. It will not prove the app starts on the phone.
