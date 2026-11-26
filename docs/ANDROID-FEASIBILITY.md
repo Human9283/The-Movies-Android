@@ -175,3 +175,36 @@ current wiki requirements.
 
 No APK has been built and no Android device capability has been measured
 as part of this update.
+
+
+## 6. Standalone Android Vulkan probe added
+
+A separate diagnostic project now exists at `android-probe/`. It uses
+Android `NativeActivity` and NDK `android_native_app_glue`, not SDL and
+not the lifted game. The purpose is to measure the phone's Vulkan driver
+before attempting to build DXVK for Bionic.
+
+The probe:
+- creates a real `VK_KHR_android_surface` surface from the activity window;
+- reports Vulkan loader/device API versions, GPU and driver IDs;
+- checks graphics and surface-present queue support;
+- checks `VK_KHR_swapchain`, `VK_KHR_depth_clip_enable`,
+  `VK_EXT_robustness2`, `VK_KHR_maintenance5`,
+  `VK_KHR_maintenance6`, and `VK_KHR_load_store_op_none`;
+- queries the mandatory core Vulkan 1.1/1.2/1.3 feature set and the
+  required extension features from the exact pinned DXVK source;
+- checks the 256-byte push-constant limit and surface capabilities.
+
+The authoritative feature list was read from
+`src/dxvk/dxvk_device_info.cpp` at DXVK commit
+`b1a1c99ab52b687cf950d62c88bc2fa316b41663`; the required Vulkan API
+version is `VK_API_VERSION_1_3` in that same revision's
+`src/dxvk/dxvk_instance.h`. This avoids applying requirements from a
+newer DXVK release to the project's pinned version.
+
+Build instructions and PowerShell logcat commands are in
+[`android-probe/README.md`](../android-probe/README.md). The probe has
+not yet been compiled or run on a phone. Its PASS result, if obtained,
+means only that the enumerated hardware capabilities meet this subset of
+DXVK's gate; it does not prove that DXVK itself builds or links against
+Android's Bionic/WSI.
