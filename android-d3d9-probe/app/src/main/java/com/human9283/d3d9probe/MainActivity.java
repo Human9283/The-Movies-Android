@@ -20,8 +20,10 @@ public final class MainActivity extends SDLActivity {
 
     @Override
     protected String[] getLibraries() {
-        // SDL must be loaded before DXVK; the app entry point is loaded last.
-        return new String[] { "SDL2", "dxvk_d3d9", "main" };
+        // Load only SDL and the probe entry point here. DXVK is loaded lazily
+        // from native code with dlopen(), so a linker/dependency error can be
+        // reported in-app instead of aborting SDLActivity startup.
+        return new String[] { "SDL2", "main" };
     }
 
     @Override
