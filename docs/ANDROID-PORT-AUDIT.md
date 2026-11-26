@@ -182,8 +182,12 @@ The full-game ARM64 build is executed in private CI so generated C and
 game data remain private:
 [workflow run 45809671909](https://github.com/Human9283/the-movies-gamedata/actions/runs/45809671909).
 
-At the latest status check (2026-11-26), attempt 3 was still running.
-No successful full-game APK is claimed.
+At the status check on 2026-11-26, workflow run 45809671909 (attempt 3)
+was still running. SDL2, SDL2_ttf, Android DXVK Native, the pinned
+pcrecomp runtime and shared-library staging had completed; the active
+step was linking the full Android game host and building the APK. APK
+verification and artifact upload had not started. No successful full-game
+APK is claimed.
 
 The standalone D3D9 diagnostic passed on the S24 Ultra:
 [workflow run 45793972336](https://github.com/Human9283/The-Movies-Android/actions/runs/45793972336).
