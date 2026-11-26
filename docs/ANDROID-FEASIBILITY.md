@@ -2,7 +2,7 @@
 
 This document separates what was read or measured from what is assumed,
 for running the port on Android ARM64 with DXVK Native as the Direct3D 9
-backend ([DXVK-INTEGRATION.md](DXVK-INTEGRATION.md)). The game runtime has not run on Android. A separate diagnostic APK now builds in CI, but no physical-device report has been collected yet.
+backend ([DXVK-INTEGRATION.md](DXVK-INTEGRATION.md)). The game runtime has not run on Android. A separate diagnostic APK builds in CI, and an initial physical-device report has now been collected from a Samsung Galaxy S24 Ultra (Adreno 750).
 
 Tags: [src] read from source at a stated revision; [static] read from
 `Movies.exe` 1.1; [run] measured here;
@@ -179,37 +179,60 @@ No APK has been built and no Android device capability has been measured
 as part of this update.
 
 
-## 6. Standalone Android Vulkan probe added
+## 6. Standalone Android Vulkan probe
 
-A separate diagnostic project now exists at `android-probe/`. It uses
-Android `NativeActivity` and NDK `android_native_app_glue`, not SDL and
-not the lifted game. The purpose is to measure the phone's Vulkan driver
-before attempting to build DXVK for Bionic.
+A separate diagnostic project exists at `android-probe/`. It uses a small
+Java Activity and JNI bridge, not SDL, NativeActivity, or the lifted game.
+The APK builds in GitHub Actions and presents a copyable on-screen report.
 
 The probe:
-- creates a real `VK_KHR_android_surface` surface from the activity window;
+- creates a real `VK_KHR_android_surface` surface from an Android Surface;
 - reports Vulkan loader/device API versions, GPU and driver IDs;
 - checks graphics and surface-present queue support;
-- checks `VK_KHR_swapchain`, `VK_KHR_depth_clip_enable`,
-  `VK_EXT_robustness2`, `VK_KHR_maintenance5`,
-  `VK_KHR_maintenance6`, and `VK_KHR_load_store_op_none`;
-- queries the mandatory core Vulkan 1.1/1.2/1.3 feature set and the
-  required extension features from the exact pinned DXVK source;
-- checks the 256-byte push-constant limit and surface capabilities.
+- reports the DXVK 3.1.1 extension and feature gate from the pinned source;
+- checks a baseline subset for DXVK 2.4.1;
+- attempts actual Vulkan logical-device creation with that baseline subset;
+- attempts Android swapchain creation and reports the result.
 
-The authoritative feature list was read from
-`src/dxvk/dxvk_device_info.cpp` at DXVK commit
-`b1a1c99ab52b687cf950d62c88bc2fa316b41663`; the required Vulkan API
-version is `VK_API_VERSION_1_3` in that same revision's
-`src/dxvk/dxvk_instance.h`. This avoids applying requirements from a
-newer DXVK release to the project's pinned version.
+The DXVK 3.1.1 feature list is read from `src/dxvk/dxvk_device_info.cpp`
+at commit `b1a1c99ab52b687cf950d62c88bc2fa316b41663`. The DXVK 2.4.1
+comparison is based on the upstream
+[`dxvk_adapter.cpp`](https://github.com/doitsujin/dxvk/blob/v2.4.1/src/dxvk/dxvk_adapter.cpp)
+and
+[`dxvk_extensions.h`](https://github.com/doitsujin/dxvk/blob/v2.4.1/src/dxvk/dxvk_extensions.h).
+The 2.4.1 source marks robustness2 and swapchain as required while
+maintenance5, depth clip and transform feedback are optional.
 
-Build instructions and PowerShell logcat commands are in
-[`android-probe/README.md`](../android-probe/README.md). The probe has
-not yet been compiled or run on a phone. Its PASS result, if obtained,
-means only that the enumerated hardware capabilities meet this subset of
-DXVK's gate; it does not prove that DXVK itself builds or links against
-Android's Bionic/WSI.
+A Vulkan device/swapchain smoke-test PASS is not proof that DXVK Native
+links against Bionic, that the D3D9 backend initializes, or that a frame
+renders. Build and usage instructions are in
+[`android-probe/README.md`](../android-probe/README.md).
+
+## 7. First physical-device report: Galaxy S24 Ultra
+
+The first report was copied from a Samsung Galaxy S24 Ultra with
+Snapdragon 8 Gen 3 / Adreno 750.
+
+- Vulkan loader API: 1.4.0; physical-device API: 1.3.128.
+- Graphics and presentation queue families are available.
+- `VK_KHR_swapchain`, `VK_EXT_depth_clip_enable`, and
+  `VK_EXT_robustness2` are exposed.
+- The device does not expose `VK_KHR_maintenance5`,
+  `VK_KHR_maintenance6`, or `VK_KHR_load_store_op_none`; therefore
+  it fails the pinned DXVK 3.1.1 hardware gate.
+- Every core and extension feature printed as PASS by the initial probe
+  passed; the report was capability enumeration only and did not create a
+  Vulkan logical device.
+
+This result rules out the unmodified DXVK 3.1.1 path on this driver, not
+Android as a whole. The next candidate is DXVK 2.4.1, whose upstream source
+has a less restrictive required-extension set. The updated probe now
+attempts a logical device and swapchain with a baseline subset of its
+unconditionally enabled features. That result is pending a new APK run
+on the phone.
+
+The current project pin remains DXVK 3.1.1 until a real Android build and
+runtime test justify changing it.
 
 ## 5. External Android recompilation reference (2026-11-26)
 
