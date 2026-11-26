@@ -2,7 +2,7 @@
 
 This document separates what was read or measured from what is assumed,
 for running the port on Android ARM64 with DXVK Native as the Direct3D 9
-backend ([DXVK-INTEGRATION.md](DXVK-INTEGRATION.md)). The game runtime has not run on Android. The repository now has two separate diagnostic apps: a Vulkan capability/WSI probe tested on a Samsung Galaxy S24 Ultra (Adreno 750), and an SDL2 + Android DXVK Native D3D9 probe whose APK and physical-device execution are being validated.
+backend ([DXVK-INTEGRATION.md](DXVK-INTEGRATION.md)). The game runtime has not run on Android. The Vulkan capability/WSI probe and a separate SDL2 + Android DXVK Native D3D9 smoke test have both been run on a Samsung Galaxy S24 Ultra (Adreno 750); the latter successfully creates a D3D9 device, draws a fixed-function triangle and presents a frame. The game host is not yet integrated into the Android app.
 
 Tags: [src] read from source at a stated revision; [static] read from
 `Movies.exe` 1.1; [run] measured here;
@@ -527,3 +527,61 @@ bug was the confirmed cause of the previous crash; the next physical-device
 run will determine that.
 
 The staged launcher and SDL WSI instrumentation built successfully in GitHub Actions run [45786134694](https://github.com/Human9283/The-Movies-Android/actions/runs/45786134694), commit `bd05a64`. The APK artifact is `the-movies-dxvk-d3d9-probe-arm64` (ID `15099869888`); CI verified its AArch64 native libraries, separate preflight library, shared C++ runtime dependencies, 16 KB ELF load-segment alignment, and 16 KB APK alignment. The 0.3.0 APK has not yet been run on the Galaxy S24 Ultra; the next measurement is the copied preflight report followed by the SDL/DXVK test.
+
+
+## 11. Physical Android DXVK D3D9 smoke test: PASS (2026-11-26)
+
+The user ran the Android D3D9 probe on a Samsung Galaxy S24 Ultra
+(Snapdragon 8 Gen 3 / Adreno 750). The copied native report confirms:
+
+- SDL initialization: PASS.
+- SDL Vulkan loader and Android surface: PASS.
+- Android-adapted DXVK Native library load: PASS.
+- DXVK reports version 1.9.2.
+- `Direct3DCreate9`: PASS.
+- `IDirect3D9::CreateDevice`: PASS; backbuffer 1440×3120.
+- Fixed-function clear/draw: started.
+- `IDirect3DDevice9::Present`: PASS; the probe reports
+  `PASS D3D9 fixed-function triangle + Present`.
+
+The corresponding ARM64 APK 0.8.0 was built successfully by
+[workflow run 45793972336](https://github.com/Human9283/The-Movies-Android/actions/runs/45793972336)
+at commit `59e2d3a265c97ff97907dd0508857b07a13f8cdb`. The workflow's
+Android-specific WSI patch reuses SDL window ID 1 for Vulkan extension
+enumeration. This avoids the Android SDL restriction that only one window
+can exist per Activity; the prior DXVK extension provider attempted to
+create a hidden second window and failed before Vulkan instance creation.
+The desktop dummy-window behavior is retained outside Android.
+
+This result closes the standalone Android D3D9 backend smoke-test gate for
+this device and this pinned community fork. It does **not** establish that
+the complete The Movies D3D9 workload is supported, nor that the game host
+can be built or launched on Android.
+
+### What remains before the game can run
+
+1. Add an Android JNI/native entry point and Gradle application around
+   `tm_host_run()`; keep the Linux CLI executable and its build path intact.
+2. Cross-compile the actual lifted C translation units and pcrecomp /
+   win32hle runtime for Android `arm64-v8a`.
+3. Validate the guest's 4 GiB address-space reservation, PE image mapping,
+   relocation and import binding under Android/Bionic.
+4. Pass explicit app-private game, user and system directories to the host;
+   keep all original game files outside the APK and repository.
+5. Link the existing guest D3D9 bridge to the tested Android DXVK library
+   and exercise the real game's D3D9 resource, texture, presentation and
+   fixed-function call sequence.
+6. Integrate SDL/Android surface lifecycle, pause/resume, touch-to-mouse,
+   audio and video; then test save/load and a full studio session.
+
+The current `CMakeLists.txt` still describes a Linux desktop target graph:
+it requires desktop pkg-config SDL2/SDL2_ttf and defines `tm_host` as an
+executable. The existing Android workflows build only diagnostic APKs and
+compile the game D3D9 bridge as an object-only compatibility check. No
+Android shared-library target or full-game APK is claimed yet.
+
+The Linux DXVK Native 3.1.1 pin and Linux runtime remain unchanged. The
+Android test uses the pinned community adaptation
+`Star1xr/dxvk-native-android` commit
+`f2c7207b3d8bc848fe3a27cef34ee5e67aeec552`; this is not upstream Android
+support from DXVK.
