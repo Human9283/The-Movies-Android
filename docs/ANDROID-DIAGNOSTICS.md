@@ -9,7 +9,7 @@ The Android app keeps diagnostic data in its private app storage. It does not re
 3. Choose a destination in Android's document picker.
 4. Attach `the-movies-diagnostics.zip` to the bug report.
 
-The setup screen remains available when game files have already been imported. If the game process crashes, reopen the app and export the report before clearing app data or reinstalling.
+The setup screen remains available when game files have already been imported. If the game process stalls or crashes, reopen the app and export the report before clearing app data or reinstalling. Exporting does not require ADB or a desktop computer. The archive is created locally; it is not automatically uploaded to GitHub or made available to the developer.
 
 ## Archive contents
 
@@ -24,6 +24,14 @@ The application log and native log are stored under the app-private `files/logs/
 ## Privacy
 
 The archive is created locally and is not uploaded automatically. It can contain local filesystem paths, device model information, crash traces, and game/runtime diagnostics. Review the archive before sharing it. The archive does not include the user's game installation, save files, or account credentials.
+
+## Reports used during development
+
+For a useful report of a splash-screen stall, leave the game running long
+enough to reproduce the issue, then return to the setup screen and export
+the archive. Include whether the app was manually closed or whether it
+terminated by itself. A native shutdown trace after a manual exit must not
+be interpreted as the cause of the preceding stall.
 
 ## Current limitations
 
