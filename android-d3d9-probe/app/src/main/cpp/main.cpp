@@ -1,6 +1,9 @@
 #include <SDL.h>
 #include <SDL_vulkan.h>
 #include <SDL_system.h>
+#include <SDL_syswm.h>
+#include <android/native_window.h>
+#include <vulkan/vulkan.h>
 #include <d3d9.h>
 #include <android/log.h>
 #include <jni.h>
@@ -11,6 +14,7 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <vector>
 
 #define TAG "TM-D3D9-PROBE"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -101,6 +105,99 @@ extern "C" int SDL_main(int, char**) {
     }
 
     reportf("SDL_CreateWindow: PASS");
+
+    // SDL's Android video driver owns the ANativeWindow. Confirm that it is
+    // present and has a usable extent before asking SDL/DXVK to create WSI.
+    SDL_SysWMinfo wm_info{};
+    SDL_VERSION(&wm_info.version);
+    if (SDL_GetWindowWMInfo(window, &wm_info) != SDL_TRUE ||
+        wm_info.subsystem != SDL_SYSWM_ANDROID || !wm_info.info.android.window) {
+        reportf("FAIL SDL Android native window: %s", SDL_GetError());
+        SDL_DestroyWindow(window);
+        SDL_Vulkan_UnloadLibrary();
+        SDL_Quit();
+        return 17;
+    }
+    ANativeWindow* native_window = wm_info.info.android.window;
+    const int native_width = ANativeWindow_getWidth(native_window);
+    const int native_height = ANativeWindow_getHeight(native_window);
+    reportf("SDL Android ANativeWindow: PASS size=%dx%d", native_width, native_height);
+    if (native_width <= 0 || native_height <= 0) {
+        reportf("FAIL Android ANativeWindow has empty extent");
+        SDL_DestroyWindow(window);
+        SDL_Vulkan_UnloadLibrary();
+        SDL_Quit();
+        return 17;
+    }
+
+    // Reproduce SDL's Android Vulkan WSI path before loading DXVK. Retry
+    // briefly because Android can deliver the Activity before its Surface
+    // has settled; DXVK must not be the first caller of CreateAndroidSurfaceKHR.
+    unsigned int instance_extension_count = 0;
+    if (SDL_Vulkan_GetInstanceExtensions(window, &instance_extension_count, nullptr) != SDL_TRUE ||
+        instance_extension_count == 0) {
+        reportf("FAIL SDL_Vulkan_GetInstanceExtensions: %s", SDL_GetError());
+        SDL_DestroyWindow(window);
+        SDL_Vulkan_UnloadLibrary();
+        SDL_Quit();
+        return 18;
+    }
+    std::vector<const char*> instance_extensions(instance_extension_count);
+    if (SDL_Vulkan_GetInstanceExtensions(window, &instance_extension_count, instance_extensions.data()) != SDL_TRUE) {
+        reportf("FAIL SDL_Vulkan_GetInstanceExtensions(list): %s", SDL_GetError());
+        SDL_DestroyWindow(window);
+        SDL_Vulkan_UnloadLibrary();
+        SDL_Quit();
+        return 18;
+    }
+
+    VkApplicationInfo app_info{};
+    app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    app_info.pApplicationName = "The Movies SDL WSI preflight";
+    app_info.apiVersion = VK_API_VERSION_1_1;
+    VkInstanceCreateInfo instance_info{};
+    instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    instance_info.pApplicationInfo = &app_info;
+    instance_info.enabledExtensionCount = instance_extension_count;
+    instance_info.ppEnabledExtensionNames = instance_extensions.data();
+
+    VkInstance sdl_instance = VK_NULL_HANDLE;
+    VkResult vk_result = vkCreateInstance(&instance_info, nullptr, &sdl_instance);
+    if (vk_result != VK_SUCCESS) {
+        reportf("FAIL SDL WSI vkCreateInstance: VkResult=%d", static_cast<int>(vk_result));
+        SDL_DestroyWindow(window);
+        SDL_Vulkan_UnloadLibrary();
+        SDL_Quit();
+        return 18;
+    }
+    reportf("SDL WSI vkCreateInstance: PASS; extensions=%u", instance_extension_count);
+
+    VkSurfaceKHR sdl_surface = VK_NULL_HANDLE;
+    bool surface_ready = false;
+    for (int attempt = 1; attempt <= 20; ++attempt) {
+        SDL_ClearError();
+        if (SDL_Vulkan_CreateSurface(window, sdl_instance, &sdl_surface) == SDL_TRUE) {
+            surface_ready = true;
+            reportf("SDL_Vulkan_CreateSurface: PASS (attempt %d)", attempt);
+            break;
+        }
+        reportf("SDL_Vulkan_CreateSurface attempt %d failed: %s", attempt, SDL_GetError());
+        SDL_Delay(100);
+    }
+    if (surface_ready) {
+        SDL_Vulkan_DestroySurface(sdl_instance, sdl_surface);
+        reportf("SDL Vulkan Android surface preflight: PASS");
+    } else {
+        reportf("FAIL SDL Vulkan Android surface preflight after 20 attempts");
+        vkDestroyInstance(sdl_instance, nullptr);
+        SDL_DestroyWindow(window);
+        SDL_Vulkan_UnloadLibrary();
+        SDL_Quit();
+        return 19;
+    }
+    vkDestroyInstance(sdl_instance, nullptr);
+
+    reportf("DXVK load begins only after SDL Android Surface preflight");
     void* dxvk_library = dlopen("libdxvk_d3d9.so", RTLD_NOW | RTLD_LOCAL);
     if (!dxvk_library) {
         reportf("FAIL dlopen libdxvk_d3d9.so: %s", dlerror());

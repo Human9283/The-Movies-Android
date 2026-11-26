@@ -10,16 +10,19 @@ import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.util.Log;
 
 import org.libsdl.app.SDLActivity;
 
 public final class MainActivity extends SDLActivity {
+    private static final String TAG = "TM-D3D9-ACTIVITY";
     private TextView statusView;
 
     private native String nativeGetProbeReport();
 
     @Override
     protected String[] getLibraries() {
+        Log.i(TAG, "SDLActivity requested native libraries");
         // Load only SDL and the probe entry point here. DXVK is loaded lazily
         // from native code with dlopen(), so a linker/dependency error can be
         // reported in-app instead of aborting SDLActivity startup.
@@ -28,7 +31,9 @@ public final class MainActivity extends SDLActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        Log.i(TAG, "SDLActivity onCreate enter");
         super.onCreate(savedInstanceState);
+        Log.i(TAG, "SDLActivity onCreate returned; brokenLibraries=" + mBrokenLibraries + ", layout=" + (mLayout != null));
         if (mBrokenLibraries || mLayout == null) return;
 
         LinearLayout panel = new LinearLayout(this);
@@ -69,6 +74,7 @@ public final class MainActivity extends SDLActivity {
     }
 
     public void updateProbeStatus(String status) {
+        Log.i(TAG, status);
         runOnUiThread(() -> {
             if (statusView != null) statusView.setText(status);
         });

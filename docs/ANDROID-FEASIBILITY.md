@@ -494,3 +494,37 @@ capture the Android crash log and identify the exact failing library or
 symbol before changing the backend or lowering DXVK requirements.
 
 The Linux DXVK 3.1.1 build and the Linux game runtime remain unchanged.
+
+
+## 10. Integrated Android Vulkan / SDL Surface preflight (2026-11-26)
+
+The D3D9 diagnostic APK now starts in a separate Java `VulkanPreflightActivity`
+rather than immediately entering SDLActivity. The preflight reuses the
+standalone Vulkan probe implementation in a separate `libvulkanpreflight.so`
+library. It waits for `SurfaceHolder.Callback.surfaceCreated`, obtains an
+`ANativeWindow`, creates `VK_KHR_android_surface`, reports the physical
+device's extension list and the `VK_EXT_robustness2` /
+`VK_KHR_maintenance5` feature bits, then attempts its Vulkan device,
+swapchain, clear and present smoke test. DXVK is not loaded in this stage.
+
+After the report appears, the user can press **Запустить DXVK** to enter the
+SDLActivity. The SDL-side native test now:
+- retrieves SDL's Android `ANativeWindow` via `SDL_GetWindowWMInfo`;
+- checks its dimensions;
+- obtains SDL's Vulkan instance-extension list;
+- creates a Vulkan instance and calls `SDL_Vulkan_CreateSurface` before
+  calling `dlopen("libdxvk_d3d9.so")`;
+- retries the SDL surface creation for up to two seconds and reports each
+  failed attempt;
+- only proceeds to DXVK after the SDL Android surface preflight succeeds.
+
+This deliberately separates three stages: Java Surface / Android WSI,
+SDL's Android WSI, and DXVK's D3D9 device initialization. A successful
+standalone preflight does not establish that SDL's own surface is ready or
+that DXVK can create a device. A failed SDL surface check will now be
+reported before DXVK is loaded. No claim is made that the Surface lifecycle
+bug was the confirmed cause of the previous crash; the next physical-device
+run will determine that.
+
+The new launcher and SDL WSI instrumentation are awaiting a fresh CI build
+and a repeat run on the Galaxy S24 Ultra.

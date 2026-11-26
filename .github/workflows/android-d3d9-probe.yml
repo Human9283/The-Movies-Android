@@ -148,6 +148,7 @@ jobs:
           "$NDK_BIN/llvm-nm" -D "$APK_LIBDIR/libdxvk_d3d9.so" | grep -q Direct3DCreate9
           unzip -l "$APK" | grep "lib/arm64-v8a/libSDL2.so"
           unzip -l "$APK" | grep "lib/arm64-v8a/libmain.so"
+          unzip -l "$APK" | grep "lib/arm64-v8a/libvulkanpreflight.so"
           unzip -l "$APK" | grep "lib/arm64-v8a/libdxvk_d3d9.so"
           unzip -l "$APK" | grep "lib/arm64-v8a/libc++_shared.so"
           unzip -l "$APK" | grep "assets/third_party/DXVK-LICENSE.txt"

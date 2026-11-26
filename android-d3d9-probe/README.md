@@ -4,6 +4,22 @@ This is a diagnostic application, not an Android build of The Movies. It contain
 
 **Validation status:** a corrected APK build completed successfully in [workflow run 45742406462](https://github.com/Human9283/The-Movies-Android/actions/runs/45742406462). Its packaged native libraries were independently inspected: all are AArch64, use the packaged shared C++ runtime, and have 16 KB ELF load-segment alignment. Earlier APKs did not start successfully on the target phone. The corrected APK has **not yet been tested on the phone**. Do not treat a green CI build as a successful device test; acceptance requires a visible rendered triangle and a copied report showing D3D9 `CreateDevice` and `Present` succeeded.
 
+## Startup and diagnostic sequence
+
+The launcher first opens a standalone Vulkan preflight screen. It does not
+load SDL or DXVK. It waits for a Java `SurfaceView.surfaceCreated` callback,
+obtains the corresponding `ANativeWindow`, creates
+`VK_KHR_android_surface`, enumerates the device and extension/feature support,
+then attempts a minimal logical device, swapchain, clear and present. The
+report can be copied even when the later SDL/DXVK stage crashes.
+
+After the preflight has finished, press **Запустить DXVK**. The SDL test then
+checks its own `ANativeWindow`, creates and destroys a Vulkan surface through
+`SDL_Vulkan_CreateSurface` (retrying briefly), and only then loads DXVK. This
+distinguishes a Java/Android Surface failure from an SDL WSI or DXVK failure.
+The preflight's DXVK 3.1.1 / 2.4.1 rows are reference comparisons, not a claim
+that the Android fork pinned below has identical feature requirements.
+
 ## What it tests
 
 The APK starts SDL2's Android Activity and creates an SDL Vulkan window. It then loads the pinned Android DXVK Native D3D9 library and attempts:
@@ -14,7 +30,7 @@ The APK starts SDL2's Android Activity and creates an SDL Vulkan window. It then
 4. A fixed-function `XYZRHW | DIFFUSE` triangle
 5. `IDirect3DDevice9::Present`
 
-The expected successful result is a blue background with a light/green triangle and the status line `PASS D3D9 fixed-function triangle + Present`. The top panel has a **Copy report** button; paste its contents into the ChatGPT conversation.
+The expected successful result is a blue background with a light/green triangle and the status line `PASS D3D9 fixed-function triangle + Present`. The Vulkan preflight screen has a **Скопировать отчёт** button; paste its contents into the ChatGPT conversation. The SDL/DXVK screen retains its own **Copy report** button if it starts successfully.
 
 If the app stops early or shows an error, copy the report anyway. It includes the stage and HRESULT or SDL error.
 

@@ -15,6 +15,7 @@ endif()
 find_library(ANDROID_LIBRARY android REQUIRED)
 find_library(LOG_LIBRARY log REQUIRED)
 find_library(DL_LIBRARY dl REQUIRED)
+find_library(VULKAN_LIBRARY vulkan REQUIRED)
 
 if(NOT DEFINED PCRECOMP_SOURCE_DIR OR NOT EXISTS "${PCRECOMP_SOURCE_DIR}/runtime/win32hle/win32hle.h")
     message(FATAL_ERROR "PCRECOMP_SOURCE_DIR must point to the pinned pcrecomp checkout")
@@ -39,6 +40,10 @@ target_include_directories(tm_d3d9_dxvk_compile PRIVATE
 )
 target_compile_options(tm_d3d9_dxvk_compile PRIVATE -Wall -Wno-unused-function -Wno-unused-parameter)
 
+add_library(vulkanpreflight SHARED vulkan_preflight.c)
+target_link_libraries(vulkanpreflight PRIVATE ${ANDROID_LIBRARY} ${LOG_LIBRARY} ${VULKAN_LIBRARY})
+target_compile_options(vulkanpreflight PRIVATE -Wall -Wextra -Werror=return-type)
+
 add_library(main SHARED main.cpp)
 add_dependencies(main tm_d3d9_dxvk_compile)
 target_compile_features(main PRIVATE cxx_std_17)
@@ -50,4 +55,4 @@ target_include_directories(main PRIVATE
     "${DXVK_SOURCE_DIR}/include/native"
 )
 target_compile_options(main PRIVATE -Wall -Wextra -Wno-unused-parameter)
-target_link_libraries(main PRIVATE ${SDL2_LIBRARY} ${ANDROID_LIBRARY} ${LOG_LIBRARY} ${DL_LIBRARY})
+target_link_libraries(main PRIVATE ${SDL2_LIBRARY} ${ANDROID_LIBRARY} ${LOG_LIBRARY} ${DL_LIBRARY} ${VULKAN_LIBRARY})
