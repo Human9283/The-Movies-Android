@@ -61,7 +61,7 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
 
     const char *required_exts[] = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        "VK_KHR_depth_clip_enable",
+        "VK_EXT_depth_clip_enable",
         "VK_EXT_robustness2",
         "VK_KHR_maintenance5",
         "VK_KHR_maintenance6",
@@ -83,7 +83,7 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
     VkPhysicalDeviceMaintenance6FeaturesKHR m6 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_6_FEATURES_KHR };
     void *chain = NULL;
 #define PUSH_FEATURE(x) do { (x).pNext = chain; chain = &(x); } while (0)
-    if (has_device_extension(gpu, "VK_KHR_depth_clip_enable")) PUSH_FEATURE(depth);
+    if (has_device_extension(gpu, "VK_EXT_depth_clip_enable")) PUSH_FEATURE(depth);
     if (has_device_extension(gpu, "VK_EXT_robustness2")) PUSH_FEATURE(robust);
     if (has_device_extension(gpu, "VK_KHR_maintenance5")) PUSH_FEATURE(m5);
     if (has_device_extension(gpu, "VK_KHR_maintenance6")) PUSH_FEATURE(m6);
@@ -111,7 +111,7 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
     REQUIRED_FEAT(f13, inlineUniformBlock); REQUIRED_FEAT(f13, computeFullSubgroups); REQUIRED_FEAT(f13, dynamicRendering);
     REQUIRED_FEAT(f13, maintenance4); REQUIRED_FEAT(f13, shaderDemoteToHelperInvocation);
     REQUIRED_FEAT(f13, shaderZeroInitializeWorkgroupMemory); REQUIRED_FEAT(f13, subgroupSizeControl); REQUIRED_FEAT(f13, synchronization2);
-    if (has_device_extension(gpu, "VK_KHR_depth_clip_enable")) REQUIRED_FEAT(depth, depthClipEnable);
+    if (has_device_extension(gpu, "VK_EXT_depth_clip_enable")) REQUIRED_FEAT(depth, depthClipEnable);
     else required_features_ok = false;
     if (has_device_extension(gpu, "VK_EXT_robustness2")) {
         REQUIRED_FEAT(robust, robustBufferAccess2); REQUIRED_FEAT(robust, nullDescriptor);
