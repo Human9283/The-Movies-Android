@@ -2,7 +2,7 @@
 
 This is a diagnostic application, not an Android build of The Movies. It contains no game executable, lifted game code, ISO, assets, saves or user files.
 
-**Validation status:** a corrected APK build completed successfully in [workflow run 45742406462](https://github.com/Human9283/The-Movies-Android/actions/runs/45742406462). Its packaged native libraries were independently inspected: all are AArch64, use the packaged shared C++ runtime, and have 16 KB ELF load-segment alignment. Earlier APKs did not start successfully on the target phone. The corrected APK has **not yet been tested on the phone**. Do not treat a green CI build as a successful device test; acceptance requires a visible rendered triangle and a copied report showing D3D9 `CreateDevice` and `Present` succeeded.
+**Validation status:** the staged Vulkan/Surface + SDL/DXVK APK 0.3.0 built successfully in [workflow run 45786134694](https://github.com/Human9283/The-Movies-Android/actions/runs/45786134694), artifact `the-movies-dxvk-d3d9-probe-arm64` (ID `15099869888`). The CI verified APK contents, AArch64 native libraries, shared C++ runtime dependencies, 16 KB ELF load-segment alignment, and 16 KB APK alignment. Earlier APKs did not start successfully on the target phone. Version 0.3.0 has **not yet been tested on the phone**. Do not treat a green CI build as a successful device test; Android acceptance still requires a copied preflight report and, separately, a visible D3D9 triangle with successful `CreateDevice` and `Present`.
 
 ## Startup and diagnostic sequence
 
