@@ -12,10 +12,14 @@ inherently x86-64-only: the CMake top-level check requires a 64-bit host,
 and the generated guest code uses 32-bit guest addresses. An AArch64 host
 is therefore a plausible target.
 
-However, the current repository is still a Linux desktop executable, not
-an Android application. The Android port is blocked first by application
-lifecycle/window integration and build-system assumptions, then by whether
-the selected DXVK build and the actual phone Vulkan driver can run.
+The game runtime in this repository is still a Linux desktop executable,
+not an Android game application. A separate diagnostic-only Android app
+has since been added under `android-probe/` on the active feature branch.
+That APK verifies the Android Vulkan loader, surface and selected device
+capabilities; it does not host the game or include DXVK. The full Android
+game port remains blocked by application lifecycle/window integration,
+build-system assumptions, and the compatibility of the selected DXVK
+build with the actual phone Vulkan driver.
 
 Do not start by changing the lifted game code or by assuming that DXVK
 3.1.1 will work on every Android GPU.
@@ -53,8 +57,11 @@ project's run records.
 - The Linux command-line entry point is now isolated in `src/host/tm_host_main.c`; the reusable bootstrap is `tm_host_run()` in `src/host/tm_host.c`. The Android caller/JNI layer does not exist yet.
 - The game directory is passed as a command-line argument and defaults
   to relative host paths such as `tm_user` and `tm_system`.
-- There is no Android Gradle project, manifest, Java/Kotlin activity,
-  JNI bridge, Android asset/data installer, or APK packaging.
+- The game itself still has no Android Gradle target, activity/JNI runtime
+  integration, Android asset/data installer, or APK packaging. A separate
+  `android-probe/` Gradle project now exists on the active feature branch;
+  it is only a standalone Vulkan hardware diagnostic and must not be
+  mistaken for game packaging.
 - The runtime currently expects the game directory to be available as a
   normal filesystem path. Android must select a private app data directory
   or a user-imported directory and pass that path to the native runtime.
@@ -367,3 +374,28 @@ It does **not** verify Vulkan capability results, a rendered frame, DXVK
 Bionic compatibility, or the game runtime. The first hardware run is still
 required on the target phone. See
 [`android-probe/README.md`](../android-probe/README.md).
+
+
+## Status update: standalone Vulkan diagnostic APK (2026-11-26)
+
+The audit above describes the game runtime, not the separate probe. Since
+the audit was first written, the feature branch
+`audit/android-arm64-next-steps` gained an `android-probe/` project.
+
+- GitHub Actions run
+  [45734393656](https://github.com/Human9283/The-Movies-Android/actions/runs/45734393656)
+  completed successfully and uploaded
+  `the-movies-vulkan-probe-arm64-debug`.
+- The APK targets Android `arm64-v8a`, uses a Java Activity plus JNI to
+  provide an Android Surface to native Vulkan code, and displays the
+  capability report on screen with a clipboard-copy button.
+- The native check queries loader/device API versions, GPU and driver
+  properties, graphics/present queues, the DXVK 3.1.1 feature/extension
+  gate, and Android surface capabilities.
+- The probe does not create a Vulkan logical device, does not load DXVK,
+  and does not launch The Movies. A successful APK build is not a device
+  compatibility result. A physical-device report is still required.
+
+This update supersedes the audit's earlier statements that no Android
+Gradle project or APK exists, but only for the diagnostic app. All findings
+about the absence of an Android game runtime remain valid.
