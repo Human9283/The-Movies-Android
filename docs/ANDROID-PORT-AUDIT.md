@@ -507,16 +507,20 @@ object-only and is not an Android link of the game runtime.
 
 1. Preserve the Linux desktop build and its regression tests; no Linux
    DXVK pin or runtime change is required for this Android result.
-2. Add an Android-specific CMake shared-library target and JNI/SDLActivity
-   entry point around the existing `tm_host_run()` API.
-3. Cross-compile the full lifted translation units and pinned
-   pcrecomp/win32hle runtime with the Android NDK.
-4. Validate the 4 GiB guest-memory reservation, PE mapping/relocation and
-   import binding on the phone.
-5. Supply explicit app-private game/user/system paths and connect the
-   existing guest D3D9 bridge to the tested Android DXVK library.
-6. Exercise the actual game's D3D9 workload, then implement and validate
-   lifecycle, touch input, audio/video and save/load.
+2. The Android SDL entry point now exists in `src/host/tm_host_android.c`.
+   It calls `tm_host_run()`, validates the user's `Movies.exe` and
+   `Data/`, and supplies separate app-private game/user/system paths.
+3. The Android probe CMake target now compiles the portable host C modules,
+   Android SDL entry point, DXVK guest bridge, pcrecomp guest-memory source
+   and PE loader as ARM64 objects. This is compile-only validation; none of
+   these objects are linked into the diagnostic APK.
+4. Add a dedicated Android game Gradle/CMake target and link the full host,
+   pcrecomp/win32hle runtime and user's locally generated lifted C.
+5. Validate the 4 GiB guest-memory reservation, PE mapping/relocation and
+   import binding on the phone; source compilation alone does not prove
+   those runtime behaviors.
+6. Add a supported game-data import flow, then exercise the actual game's
+   D3D9 workload, lifecycle, touch input, audio/video and save/load.
 
 The top-level `CMakeLists.txt` remains Linux-desktop-only today: it
 requires desktop pkg-config SDL2/SDL2_ttf and defines the `tm_host`
