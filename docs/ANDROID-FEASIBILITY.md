@@ -432,9 +432,11 @@ the lifted game, the game host, or proprietary game data.
 
 Android's NDK guidance recommends using one shared C++ runtime when an
 application contains multiple shared libraries that use the C++ standard
-library. The probe therefore configures SDL2, the JNI `main` library and
-DXVK to use the same NDK `libc++_shared.so`, packages that runtime once,
-and checks the packaged ELF `DT_NEEDED` entries. The DXVK fork's build
+library. The probe therefore configures the JNI `main` library and DXVK to use the same NDK
+`libc++_shared.so`, packages that runtime once, and checks their packaged
+ELF `DT_NEEDED` entries. SDL2 itself is a C library, so it is checked as an
+ARM64 ELF and packaged dependency but is not required to depend on the C++
+runtime. The DXVK fork's build
 script originally added `-static-libstdc++`; the workflow removes that
 flag for this application build. This is a project-specific adaptation,
 not a change to the fork's upstream repository or to the Linux DXVK build.
