@@ -1,70 +1,65 @@
-# Android Vulkan diagnostic
+# Android Vulkan diagnostic APK
 
-## Build configuration
+This page tracks the standalone Android hardware probe. It is **not** an
+Android build of The Movies and does not include game code, game data, DXVK,
+disc images, or copyrighted assets.
 
-| Property | Value |
-|---|---|
-| Project | `android-probe/` |
-| ABI | `arm64-v8a` |
-| SDK Platform | 36 |
-| NDK | 28.2.13676358 |
-| CMake | 3.22.1 |
-| Application ID | `com.human9283.themoviesprobe` |
-| Workflow | [45734393656](https://github.com/Human9283/The-Movies-Android/actions/runs/45734393656) |
-| Artifact | `the-movies-vulkan-probe-arm64-debug` |
+## Current build
 
-The APK is a diagnostic application, not a game build.
+- Branch containing the APK project: `audit/android-arm64-next-steps`
+- Successful CI run:
+  https://github.com/Human9283/The-Movies-Android/actions/runs/45734393656
+- Artifact: `the-movies-vulkan-probe-arm64-debug`
+- ABI: `arm64-v8a`
+- Build toolchain: Android SDK 36, NDK 28.2.13676358, CMake 3.22.1
+- App ID: `com.human9283.themoviesprobe`
 
-## Measured operations
+The workflow run proves that the diagnostic APK compiles and packages. It
+does not prove that the app has been run on a physical Android device or
+that the device can run DXVK.
 
-The Java Activity passes an Android `Surface` to native code through JNI.
-The native probe reports Vulkan loader/device properties, queue families,
-extensions, feature bits and surface capabilities. Later probe revisions
-also create a logical device and swapchain, clear a swapchain image and
-present it.
+## What it measures
 
-The probe does not load DXVK or execute The Movies.
+The app passes an Android `Surface` to native code through JNI and checks:
 
-## Galaxy S24 Ultra measurement
+- Vulkan loader API version;
+- physical GPU name, API version, driver version, vendor and device IDs;
+- graphics and presentation queue support;
+- selected extensions required by the pinned DXVK Native 3.1.1 build;
+- the core and extension feature bits used by that DXVK compatibility gate;
+- Android Vulkan surface capabilities.
 
-Device: Snapdragon 8 Gen 3 / Adreno 750.
+The check does not create a Vulkan logical device, load DXVK, render a frame,
+or launch The Movies. A passing hardware gate is only an initial
+compatibility signal.
 
-- Vulkan loader API: 1.4.0.
-- Physical-device API: 1.3.128.
-- Driver version: 2150604801.
-- Graphics and presentation queues: available.
-- `VK_KHR_swapchain`, `VK_EXT_depth_clip_enable` and
-  `VK_EXT_robustness2`: exposed.
-- The strict DXVK 3.1.1 extension gate fails because
-  `VK_KHR_maintenance5`, `VK_KHR_maintenance6` and
-  `VK_KHR_load_store_op_none` are absent.
-- The probe's DXVK 2.4.1 baseline subset created a logical device and a
-  four-image swapchain; clear and present completed.
+## Collect a device report
 
-The 2.4.1 result applies only to the feature subset explicitly requested by
-the probe. It is not a test of the complete upstream DXVK 2.4.1 runtime.
-The Android-adapted DXVK Native 1.9.2 fork has separately passed a D3D9
-device/draw/present test on this device:
-[android-d3d9-probe](../android-d3d9-probe/README.md).
+The report records the phone's Vulkan implementation, GPU, driver, queue support,
+required extensions and surface capabilities. It helps determine whether the
+device meets the graphics requirements being evaluated for the Android port.
+It does not test DXVK or run the game.
 
-## Reproduction
+1. Download the debug APK from the successful workflow run linked above.
+2. Install it on an ARM64 Android device and open **The Movies Vulkan Probe**.
+3. Wait for the diagnostic report to appear.
+4. Use the app's copy-report control.
+5. Paste the copied text into a project discussion or GitHub issue.
 
-1. Download the debug APK from the
-   [Vulkan probe workflow](https://github.com/Human9283/The-Movies-Android/actions/workflows/android-vulkan-probe.yml).
-2. Install it on an Android ARM64 device.
-3. Open the app and wait for the report.
-4. Tap **Скопировать отчёт** to copy the complete report.
+The app requires no internet connection, login, storage permission, or other
+runtime Android permission. It queries the local Vulkan implementation.
+The report includes hardware and driver identification; users should review
+it before posting publicly.
 
-The application requires no network connection, login or runtime storage
-permission.
+## Current validation boundary
 
-## Validation boundary
+- [x] Android ARM64 debug APK builds in GitHub Actions.
+- [x] Report is presented in the app UI.
+- [x] Report can be copied through Android's clipboard.
+- [ ] Run on a physical Android device and collect a report.
+- [ ] Verify the actual device against the DXVK 3.1.1 feature gate.
+- [ ] Build and run DXVK Native on Android.
+- [ ] Build and run The Movies on Android.
 
-- [x] ARM64 APK builds in GitHub Actions.
-- [x] Report display and clipboard copy.
-- [x] Physical-device report collected on the Galaxy S24 Ultra.
-- [x] Logical-device and swapchain creation.
-- [x] Swapchain clear and present.
-- [ ] Full The Movies runtime on Android.
-
-The Vulkan probe is a hardware diagnostic only.
+The APK is a temporary GitHub Actions artifact, not a release. Artifact
+retention and public visibility follow the repository's GitHub settings.
