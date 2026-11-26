@@ -34,6 +34,7 @@ target_include_directories(tm_d3d9_dxvk_compile PRIVATE
     "${SDL2_INCLUDE_DIR}"
     "${DXVK_SOURCE_DIR}/include/native/directx"
     "${DXVK_SOURCE_DIR}/include/native/windows"
+    "${DXVK_SOURCE_DIR}/include/native/android"
     "${DXVK_SOURCE_DIR}/include/native"
 )
 target_compile_options(tm_d3d9_dxvk_compile PRIVATE -Wall -Wno-unused-function -Wno-unused-parameter)
