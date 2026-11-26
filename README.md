@@ -19,8 +19,8 @@ of the game.
 - [Project layout](#project-layout)
 - [Documentation](#documentation)
 - [Android Vulkan probe](android-probe/README.md)
-- [Android DXVK D3D9 probe](android-d3d9-probe/README.md)
-- [Android DXVK D3D9 probe](android-d3d9-probe/README.md)
+- [Android game application](android-game/README.md)
+- [Android DXVK D3D9 diagnostic](android-d3d9-probe/README.md)
 - [License](#license)
 - [Credits](#credits)
 
@@ -132,7 +132,8 @@ tests/dxvk/             DXVK Native proof of concept (no game files)
 src/host/               the host: boot, import binding, game-specific shims
 CMakeLists.txt          shared runtime source list; active target is Linux desktop
 android-probe/          standalone Android Vulkan capability/surface probe
-android-d3d9-probe/     standalone Android SDL2 + DXVK Native D3D9 probe
+android-d3d9-probe/     standalone Android SDL2 + DXVK Native D3D9 diagnostic
+android-game/           Android ARM64 application and full-game native target
 docs/                   audit, build steps, milestone reports
 ```
 
