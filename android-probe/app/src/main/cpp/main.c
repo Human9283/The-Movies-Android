@@ -30,7 +30,7 @@ static void append_report(const char *level, const char *fmt, ...) {
             ? added : sizeof(g_report) - g_report_len - 1;
     }
     if (g_report_len < sizeof(g_report) - 1) {
-        g_report[g_report_len++] = '\\n';
+        g_report[g_report_len++] = '\n';
         g_report[g_report_len] = '\\0';
     }
 }
@@ -75,7 +75,7 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
     VkQueueFamilyProperties q[32];
     if (qn > 32) qn = 32;
     vkGetPhysicalDeviceQueueFamilyProperties(gpu, &qn, q);
-    bool graphics = false, present = false;
+    bool graphics = false, present = false;\n    uint32_t graphics_family = UINT32_MAX, present_family = UINT32_MAX;
     for (uint32_t i = 0; i < qn; i++) {
         VkBool32 supports_present = VK_FALSE;
         vkGetPhysicalDeviceSurfaceSupportKHR(gpu, i, surface, &supports_present);
@@ -170,7 +170,66 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
                  required_features_ok && cr == VK_SUCCESS;
     LOGI("DXVK v3.1.1 hardware gate: %s (does not prove Android linking/runtime compatibility)",
          ready ? "PASS" : "FAIL");
-    LOGI("NOTE: no Vulkan device is created; this is capability enumeration only.");
+    /* DXVK 2.4.1 baseline smoke test. In upstream v2.4.1, swapchain and
+       robustness2 are required; maintenance5, depth-clip and transform
+       feedback are optional. Test device creation with the core features
+       DXVK enables unconditionally, then try creating an Android swapchain. */
+    bool base_ext_ok = has_device_extension(gpu, VK_KHR_SWAPCHAIN_EXTENSION_NAME)
+                    && has_device_extension(gpu, "VK_EXT_robustness2");
+    bool base_features_ok = f2.features.robustBufferAccess
+                         && f12.timelineSemaphore && f12.hostQueryReset
+                         && f12.vulkanMemoryModel
+                         && f13.synchronization2 && f13.dynamicRendering
+                         && f13.maintenance4
+                         && robust.robustBufferAccess2 && robust.nullDescriptor;
+    LOGI("DXVK 2.4.1 baseline extensions: %s", base_ext_ok ? "PASS" : "FAIL");
+    LOGI("DXVK 2.4.1 baseline features: %s", base_features_ok ? "PASS" : "FAIL");
+    if (props.apiVersion >= VK_API_VERSION_1_3 && graphics && present
+        && graphics_family != UINT32_MAX && present_family != UINT32_MAX
+        && base_ext_ok && base_features_ok && cr == VK_SUCCESS) {
+        float priority = 1.0f;
+        VkDeviceQueueCreateInfo queues[2] = {
+            { .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = graphics_family, .queueCount = 1, .pQueuePriorities = &priority },
+            { .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = present_family, .queueCount = 1, .pQueuePriorities = &priority }
+        };
+        uint32_t queue_count = graphics_family == present_family ? 1 : 2;
+        VkPhysicalDeviceRobustness2FeaturesEXT er = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT, .robustBufferAccess2 = VK_TRUE, .nullDescriptor = VK_TRUE };
+        VkPhysicalDeviceVulkan13Features e13 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, .synchronization2 = VK_TRUE, .dynamicRendering = VK_TRUE, .maintenance4 = VK_TRUE };
+        VkPhysicalDeviceVulkan12Features e12 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .timelineSemaphore = VK_TRUE, .hostQueryReset = VK_TRUE, .vulkanMemoryModel = VK_TRUE };
+        er.pNext = &e13; e13.pNext = &e12;
+        VkPhysicalDeviceFeatures2 e2 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &er, .features = { .robustBufferAccess = VK_TRUE } };
+        const char *device_exts[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME, "VK_EXT_robustness2" };
+        VkDeviceCreateInfo dci = { .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, .pNext = &e2, .queueCreateInfoCount = queue_count, .pQueueCreateInfos = queues, .enabledExtensionCount = 2, .ppEnabledExtensionNames = device_exts };
+        VkDevice device = VK_NULL_HANDLE;
+        VkResult dvr = vkCreateDevice(gpu, &dci, NULL, &device);
+        LOGI("DXVK 2.4.1 baseline vkCreateDevice: %s (%d)", dvr == VK_SUCCESS ? "PASS" : "FAIL", dvr);
+        if (dvr == VK_SUCCESS) {
+            PFN_vkCreateSwapchainKHR create_sc = (PFN_vkCreateSwapchainKHR)vkGetDeviceProcAddr(device, "vkCreateSwapchainKHR");
+            PFN_vkDestroySwapchainKHR destroy_sc = (PFN_vkDestroySwapchainKHR)vkGetDeviceProcAddr(device, "vkDestroySwapchainKHR");
+            PFN_vkGetSwapchainImagesKHR get_sc_images = (PFN_vkGetSwapchainImagesKHR)vkGetDeviceProcAddr(device, "vkGetSwapchainImagesKHR");
+            VkSurfaceFormatKHR formats[32]; uint32_t format_count = 0;
+            VkResult fr = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &format_count, NULL);
+            if (fr == VK_SUCCESS && format_count) { if (format_count > 32) format_count = 32; fr = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &format_count, formats); }
+            VkSwapchainKHR sc = VK_NULL_HANDLE; VkResult sr = VK_ERROR_INITIALIZATION_FAILED;
+            if (create_sc && destroy_sc && get_sc_images && fr == VK_SUCCESS && format_count) {
+                VkSurfaceCapabilitiesKHR scaps; sr = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &scaps);
+                if (sr == VK_SUCCESS && (scaps.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)) {
+                    VkExtent2D extent = scaps.currentExtent;
+                    if (extent.width == UINT32_MAX) { extent.width = scaps.minImageExtent.width; extent.height = scaps.minImageExtent.height; }
+                    VkCompositeAlphaFlagBitsKHR alpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+                    if (!(scaps.supportedCompositeAlpha & alpha)) { const VkCompositeAlphaFlagBitsKHR opts[] = { VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR }; for (unsigned k=0;k<3;k++) if (scaps.supportedCompositeAlpha & opts[k]) { alpha=opts[k]; break; } }
+                    uint32_t image_count = scaps.minImageCount; if (scaps.maxImageCount && image_count > scaps.maxImageCount) image_count = scaps.maxImageCount;
+                    uint32_t family_indices[] = { graphics_family, present_family };
+                    VkSwapchainCreateInfoKHR sci = { .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR, .surface = surface, .minImageCount = image_count, .imageFormat = formats[0].format, .imageColorSpace = formats[0].colorSpace, .imageExtent = extent, .imageArrayLayers = 1, .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, .imageSharingMode = graphics_family == present_family ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT, .queueFamilyIndexCount = graphics_family == present_family ? 0 : 2, .pQueueFamilyIndices = graphics_family == present_family ? NULL : family_indices, .preTransform = scaps.currentTransform, .compositeAlpha = alpha, .presentMode = VK_PRESENT_MODE_FIFO_KHR, .clipped = VK_TRUE };
+                    sr = create_sc(device, &sci, NULL, &sc);
+                } else if (sr == VK_SUCCESS) sr = VK_ERROR_FORMAT_NOT_SUPPORTED;
+            }
+            if (sr == VK_SUCCESS && sc) { uint32_t nimages=0; VkResult ir=get_sc_images(device, sc, &nimages, NULL); LOGI("DXVK 2.4.1 baseline vkCreateSwapchainKHR: %s (%d), images=%u", ir==VK_SUCCESS && nimages ? "PASS" : "FAIL", ir, nimages); destroy_sc(device, sc, NULL); }
+            else LOGI("DXVK 2.4.1 baseline vkCreateSwapchainKHR: FAIL (%d)", sr);
+            vkDeviceWaitIdle(device); vkDestroyDevice(device, NULL);
+        }
+    } else LOGI("DXVK 2.4.1 baseline device/swapchain smoke test: SKIPPED (prerequisite missing)");
+    LOGI("NOTE: Vulkan device/swapchain smoke test only; DXVK itself is not linked or run.");
     (void)instance;
 }
 
@@ -223,8 +282,8 @@ JNIEXPORT jstring JNICALL
 Java_com_human9283_themoviesprobe_MainActivity_runProbe(JNIEnv *env, jobject thiz, jobject surface) {
     (void)thiz;
     g_report_len = 0;
-    g_report[0] = '\\0';
-    LOGI("The Movies Vulkan Probe 0.2");
+    g_report[0] = '\0';
+    LOGI("The Movies Vulkan Probe 0.3");
     ANativeWindow *window = ANativeWindow_fromSurface(env, surface);
     if (!window) {
         LOGE("Could not obtain Android surface window.");
