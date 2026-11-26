@@ -526,5 +526,4 @@ reported before DXVK is loaded. No claim is made that the Surface lifecycle
 bug was the confirmed cause of the previous crash; the next physical-device
 run will determine that.
 
-The new launcher and SDL WSI instrumentation are awaiting a fresh CI build
-and a repeat run on the Galaxy S24 Ultra.
+The staged launcher and SDL WSI instrumentation built successfully in GitHub Actions run [45786134694](https://github.com/Human9283/The-Movies-Android/actions/runs/45786134694), commit `bd05a64`. The APK artifact is `the-movies-dxvk-d3d9-probe-arm64` (ID `15099869888`); CI verified its AArch64 native libraries, separate preflight library, shared C++ runtime dependencies, 16 KB ELF load-segment alignment, and 16 KB APK alignment. The 0.3.0 APK has not yet been run on the Galaxy S24 Ultra; the next measurement is the copied preflight report followed by the SDL/DXVK test.
