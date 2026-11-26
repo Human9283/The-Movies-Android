@@ -1,62 +1,42 @@
 # The Movies — Android Vulkan capability probe
 
-This is a deliberately separate diagnostic APK. It does **not** include the
-lifted game, game data, DXVK, or the main runtime. It checks the actual
-Android device before the project attempts a DXVK port.
+This is a separate diagnostic APK. It contains no lifted game code, game assets, DXVK binaries, or proprietary game data.
 
-## Current CI build
+## Current status
 
-The Android ARM64 debug APK builds successfully in GitHub Actions:
-https://github.com/Human9283/The-Movies-Android/actions/runs/45734393656
+The first Samsung Galaxy S24 Ultra (Snapdragon 8 Gen 3, Adreno 750) report showed Vulkan 1.3.128, graphics and presentation queues, swapchain support, and all reported Vulkan 1.3 core features passing. The driver does not expose the DXVK 3.1.1 extensions `VK_KHR_maintenance5`, `VK_KHR_maintenance6`, and `VK_KHR_load_store_op_none`.
 
-Download the artifact named `the-movies-vulkan-probe-arm64-debug` from that
-run. This is a debug diagnostic APK, not a release or a game APK. CI confirms
-compilation and packaging; it does not substitute for a run on a physical
-phone.
+This does **not** rule out DXVK 2.4.x. In upstream DXVK v2.4.1, `VK_EXT_robustness2` and `VK_KHR_swapchain` are required, while `VK_KHR_maintenance5`, `VK_EXT_depth_clip_enable`, and `VK_EXT_transform_feedback` are optional. The updated probe checks the baseline features DXVK 2.4.1 enables unconditionally, attempts `vkCreateDevice`, and then attempts Android swapchain creation. This remains a smoke test, not proof that DXVK Native itself links or renders.
 
-## What it checks
+Upstream references:
+- [DXVK v2.4.1 adapter feature checks](https://github.com/doitsujin/dxvk/blob/v2.4.1/src/dxvk/dxvk_adapter.cpp)
+- [DXVK v2.4.1 extension requirements](https://github.com/doitsujin/dxvk/blob/v2.4.1/src/dxvk/dxvk_extensions.h)
+- [DXVK driver support notes](https://github.com/doitsujin/dxvk/wiki/Driver-support)
 
-The game currently uses DXVK Native 3.1.1. The pinned upstream source
-(`doitsujin/dxvk`, commit
-`b1a1c99ab52b687cf950d62c88bc2fa316b41663`) requires Vulkan 1.3,
-a graphics queue, `VK_KHR_swapchain`, and a set of mandatory core and
-extension features. This probe uses that pinned source's
-`DxvkDeviceCapabilities::getFeatureList()` as its reference. It reports
-device properties, queue/presentation support, required extension
-availability, core Vulkan 1.1/1.2/1.3 features, and selected extension
-features. It also creates an Android Vulkan surface and queries its
-capabilities.
+## Download and use
 
-It deliberately does not create a Vulkan device or run DXVK. A passing
-report is a feasibility signal, not proof that DXVK links or renders on Android.
+Open the [Android Vulkan probe workflow](https://github.com/Human9283/The-Movies-Android/actions/workflows/android-vulkan-probe.yml). Open the latest successful run on branch `audit/android-arm64-next-steps`, then download the artifact `the-movies-vulkan-probe-arm64-debug`. Install the APK, open it, wait for the report, and tap **Скопировать отчёт**. Paste the report into the project discussion.
 
-## Use on the phone
+## Checks
 
-1. Install and open **The Movies Vulkan Probe**.
-2. Wait for the report to appear on screen.
-3. Tap **Скопировать отчёт**.
-4. Return to ChatGPT and paste the copied text into the conversation.
+- Vulkan loader and physical-device API versions;
+- GPU identity, device limits, graphics and present queue families;
+- extensions and feature support used by the DXVK 3.1.1 gate;
+- DXVK 2.4.1 baseline extension and feature availability;
+- actual `vkCreateDevice` with the selected baseline features;
+- Android surface capabilities and attempted swapchain creation.
 
-The probe needs no internet connection, account, login, storage permission,
-or other Android permission. It only queries the local Vulkan driver.
+The app does not include DXVK, Wine, the game executable, or game assets. A successful device/swapchain smoke test is useful evidence, but does not substitute for building and running the real runtime.
+
+## Community reports
+
+Please include exact phone model and SoC, Android version/build number, and the complete copied report. This will help build a compatibility matrix across Adreno, Mali, and other Android GPUs. Do not post ISO images or copyrighted game assets.
 
 ## Build
 
-Open the `android-probe` directory in Android Studio. Install:
-- Android SDK Platform 36;
-- Android SDK Build-Tools;
-- Android NDK 28.2.13676358;
-- CMake 3.22.1;
-- JDK 17 (for this Android Gradle Plugin line).
+Open `android-probe` in Android Studio. Required components: Android SDK Platform 36, Build-Tools 36.0.0, NDK 28.2.13676358, CMake 3.22.1, and JDK 17. Only `arm64-v8a` is packaged.
 
-Build the `app` debug variant. The only packaged ABI is `arm64-v8a`.
-The app uses a small Java Activity and a JNI bridge to pass an Android
-`Surface` to the native Vulkan probe. No SDL or game code is involved.
-
-## Optional logcat fallback
-
-If the on-screen report is blank, the same diagnostic lines are written to
-Android logcat under tag `TM-VK-PROBE`. They can be collected with ADB:
+## Logcat fallback
 
 ```powershell
 adb logcat -c
