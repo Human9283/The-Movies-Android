@@ -15,8 +15,9 @@ is therefore a plausible target.
 The game runtime in this repository is still a Linux desktop executable,
 not an Android game application. A separate diagnostic-only Android app
 has since been added under `android-probe/` on the active feature branch.
-That APK verifies the Android Vulkan loader, surface and selected device
-capabilities; it does not host the game or include DXVK. The full Android
+It verifies the Android Vulkan loader, surface and selected device
+capabilities, and now attempts logical-device/swapchain creation using a
+DXVK 2.4.1 baseline feature subset; it does not host the game or include DXVK. The full Android
 game port remains blocked by application lifecycle/window integration,
 build-system assumptions, and the compatibility of the selected DXVK
 build with the actual phone Vulkan driver.
@@ -98,10 +99,12 @@ desktop target.
 
 ### 4. DXVK and Vulkan are a separate gate
 
-The current Android feasibility document correctly records that DXVK
-3.1.1 requires Vulkan 1.3 and a substantial feature/extension set,
-including geometry shaders, shaderInt64, BC texture compression and
-recent maintenance extensions.
+The current Android feasibility document records the first S24 Ultra
+report: Adreno 750 exposes Vulkan 1.3.128 and the basic WSI path, but lacks
+three extensions required by the pinned DXVK 3.1.1 build. The project is
+therefore evaluating DXVK 2.4.1 as a lower-requirement candidate; its
+baseline still needs a real Android device/swapchain test and a separate
+DXVK Native build/runtime test.
 
 The game itself uses DXT1/DXT3 textures. The fact that the game uses
 D3D9 fixed-function rendering does not remove DXVK's Vulkan device
@@ -116,6 +119,9 @@ Vulkan/SDL proof of concept for the target device and capture:
 - successful DXVK D3D9 device creation and one presented frame.
 
 A desktop lavapipe pass does not establish any of these Android facts.
+The first S24 Ultra report is recorded in `docs/ANDROID-FEASIBILITY.md`;
+the next APK adds a real Vulkan device and swapchain smoke test for the
+DXVK 2.4.1 baseline.
 
 ## Recommended implementation sequence
 
