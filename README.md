@@ -8,7 +8,7 @@ This is not a remake or a clone. The game's own code runs, translated
 instruction by instruction, with its original data. You need your own copy
 of the game.
 
-> **Status: Linux game runtime works; Android D3D9 backend smoke test passes; Android game port is not yet implemented.** On Linux x86-64, the original game reaches the Lionhead logo, main menu and 3D studio lot through DXVK Native. Video playback and audio remain incomplete or unverified. On a Samsung Galaxy S24 Ultra (Snapdragon 8 Gen 3 / Adreno 750), the separate Android SDL2 + DXVK Native 1.9.2 diagnostic app successfully created a D3D9 device, drew a fixed-function triangle and presented a frame. The successful ARM64 APK build and packaging checks are recorded in [workflow run 45793972336](https://github.com/Human9283/The-Movies-Android/actions/runs/45793972336). This proves the tested D3D9 backend path, not that The Movies or its lifted runtime runs on Android: the diagnostic app contains no game host, lifted game code or game data. The next stage is Android host/JNI integration, guest-memory validation and the original game's first frame. See [Android feasibility and measured results](docs/ANDROID-FEASIBILITY.md), [the Vulkan probe](android-probe/README.md), and [the D3D9 probe](android-d3d9-probe/README.md).
+> **Status: the Android game application shell and full-link target now exist; the first complete ARM64 game build is being validated.** On Linux x86-64, the original game reaches the Lionhead logo, main menu and 3D studio lot through DXVK Native. On a Samsung Galaxy S24 Ultra (Snapdragon 8 Gen 3 / Adreno 750), the separate Android SDL2 + DXVK Native 1.9.2 diagnostic app successfully creates a D3D9 device, draws a fixed-function triangle and presents a frame ([probe run 45793972336](https://github.com/Human9283/The-Movies-Android/actions/runs/45793972336)). The active feature branch now includes `android-game/`, an SDLActivity-based app shell, a SAF game-folder importer, an Android SDL entry point and a CMake target intended to link the full lifted runtime. A private CI workflow is attempting the first complete Android ARM64 link using the private CD 1.1 lift. **The original game has not yet been linked into a successful APK or launched on Android.** The standalone D3D9 probe is not the game. See [Android feasibility and measured results](docs/ANDROID-FEASIBILITY.md), [the Android port audit](docs/ANDROID-PORT-AUDIT.md), [the Vulkan probe](android-probe/README.md), and [the D3D9 probe](android-d3d9-probe/README.md).
 
 ## Contents
 
@@ -60,7 +60,8 @@ input (M5) are the largest. M4 is done on Linux, not yet on Android, and is not 
 | M2: lifted start-up code reaches `WinMain` | done on Linux x86-64; arm64 and Android not yet run |
 | M3: run to the game's own Direct3D 9 device initialisation | done on Linux x86-64: the game's `CreateDevice` succeeds on DXVK Native, and its resources and rendering calls are traced ([docs/M3.md](docs/M3.md), [docs/D3D9-REQUIREMENTS.md](docs/D3D9-REQUIREMENTS.md), [docs/DXVK-INTEGRATION.md](docs/DXVK-INTEGRATION.md)) |
 | M4: the first genuine frame from the game's rendering code | on Linux (software Vulkan): the intro logo and the main menu, drawn by the game's own code. Not yet on Android |
-| Later: video, audio, input, Android packaging | started on Linux: the menus answer the mouse, and a new game reaches the studio lot in 3D; no video, sound not checked |
+| Android shell and game target | implemented on the feature branch; full ARM64 link is in CI, not yet verified |
+| Later: video, audio, input | started on Linux: the menus answer the mouse, and a new game reaches the studio lot in 3D; no video, sound not checked |
 
 Measured results and open problems: [docs/M2.md](docs/M2.md),
 [docs/AUDIT.md](docs/AUDIT.md) and
@@ -148,6 +149,7 @@ docs/                   audit, build steps, milestone reports
 - [docs/DXVK-INTEGRATION.md](docs/DXVK-INTEGRATION.md): DXVK Native (pinned v3.1.1) as the Direct3D 9 backend; the proof of concept and the integration decisions, and the backend in the host: its design, what the game does with it, its limits
 - [docs/ANDROID-FEASIBILITY.md](docs/ANDROID-FEASIBILITY.md): Android GPU requirements, DXVK risks, measured S24 Ultra results and current porting status
 - [docs/ANDROID-PORT-AUDIT.md](docs/ANDROID-PORT-AUDIT.md): source audit, Android host architecture, remaining integration blockers
+- [android-game/README.md](android-game/README.md): Android game application target, build inputs and validation gates
 - [docs/ANDROID-VULKAN-PROBE.md](docs/ANDROID-VULKAN-PROBE.md): standalone Vulkan probe and report workflow
 - [docs/EXCEPTIONS.md](docs/EXCEPTIONS.md): C++ EH and SEH in the executable, and what a run reaches (B4)
 - [docs/REPOSITORY-AUDIT.md](docs/REPOSITORY-AUDIT.md): correctness audit of the host, its tests and its limits
