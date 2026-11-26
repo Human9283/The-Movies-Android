@@ -6,8 +6,6 @@ files.
 
 ## Current result: passed on Galaxy S24 Ultra
 
-<badge> </badge>
-
 The user ran the probe on a Samsung Galaxy S24 Ultra (Snapdragon 8 Gen 3 /
 Adreno 750). The copied native report ended with:
 
