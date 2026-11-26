@@ -417,3 +417,17 @@ The user successfully installed and ran probe 0.3 on a Samsung Galaxy S24 Ultra 
 - Real `vkCreateDevice` and `vkCreateSwapchainKHR` calls both succeed (VkResult 0); the swapchain has four images.
 
 This supersedes the earlier audit statement that the 2.4.1 logical-device/swapchain test was pending. It is still only a Vulkan smoke test: DXVK is neither linked nor executed, and no D3D9 frame has been presented. The next meaningful milestone is an Android ARM64 DXVK Native build plus a minimal D3D9 create/present test. Keep the desktop/Linux backend and its DXVK 3.1.1 pin unchanged; evaluate 2.4.1 as an Android-specific candidate only.
+
+
+## Android D3D9 renderer bring-up (2026-11-26)
+
+The updated S24 Ultra report confirms successful Vulkan device creation and swapchain creation. The next test is no longer another feature-enumeration probe: it is a standalone D3D9 runtime using a pinned Android-adapted DXVK Native fork.
+
+- Candidate fork: [Star1xr/dxvk-native-android](https://github.com/Star1xr/dxvk-native-android), pinned at `f2c7207b3d8bc848fe3a27cef34ee5e67aeec552`.
+- Its base is DXVK Native `native-1.9.2b` (upstream commit `c8dc91fabd00cac11d697ccf07426e798393cd40`). The fork has an Android Meson/NDK build path and SDL2 WSI. It also has mobile D3D9 feature fallbacks.
+- Its own GitHub Actions run `42513858066` completed successfully. This is cross-build evidence only, not an S24 runtime result.
+- New project: `android-d3d9-probe/`. Its workflow builds SDL2, builds the pinned `libdxvk_d3d9.so`, and packages an ARM64 SDLActivity app. The app uses `SDL_WINDOW_VULKAN`, loads the DXVK D3D9 export, creates a HAL device, and attempts a fixed-function draw plus `Present`.
+
+The Android candidate is separate from the Linux backend; no Linux DXVK pin is changed. The probe contains no original game executable, lifted code, ISO, assets or saves. The workflow is still in progress; no build or runtime success is claimed here.
+
+A successful on-device triangle test will validate DXVK's Android SDL2 WSI and a minimal D3D9 path. It will not yet validate the game's full D3D9 feature/resource use, video, audio, input, lifecycle, memory mapping or simulation. Those remain later integration gates.
