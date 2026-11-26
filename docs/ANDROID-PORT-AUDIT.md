@@ -22,6 +22,19 @@ Do not start by changing the lifted game code or by assuming that DXVK
 
 ## Findings from source
 
+### Important correction: aspirational CMake comment
+
+The current `CMakeLists.txt` header says the same file builds for Linux
+x86-64, Linux arm64 and Android arm64-v8a with an NDK toolchain. That
+statement is not borne out by the actual build logic below it. The file
+unconditionally requires desktop `PkgConfig`, SDL2 and SDL2_ttf, uses
+desktop library discovery and defines only the `tm_host` executable.
+There is no Android shared-library target or JNI/SDLActivity integration.
+The Android feasibility document also explicitly marks the NDK build as
+"not done". Treat the header line as a target/intent, not evidence of a
+working Android build. Linux AArch64 is likewise not yet measured in the
+project's run records.
+
 ### 1. Host architecture
 
 - `CMakeLists.txt` rejects only hosts where `CMAKE_SIZEOF_VOID_P != 8`.
@@ -52,8 +65,10 @@ Do not start by changing the lifted game code or by assuming that DXVK
 
 ### 3. Build-system blockers
 
-The top-level CMake currently assumes a Linux desktop build:
+The active CMake implementation currently assumes a desktop build:
 
+- The file's header advertises Android and Linux AArch64, but its active
+  target graph does not implement either platform-specific build path.
 - `find_package(PkgConfig REQUIRED)` and
   `pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2 SDL2_ttf)`
   require desktop pkg-config modules. Android should use SDL2's Android
@@ -153,8 +168,10 @@ user's private storage.
 
 ## Immediate next action
 
-The next code change should be a narrowly scoped CMake refactor that
-separates the desktop executable from reusable runtime sources while
-preserving the current Linux build. It should not yet add an APK or claim
-Android support. First inspect and test the refactor on the existing Linux
-build, then add the NDK target in a separate change.
+The next code change should first reconcile the misleading platform claim
+in the CMake header and then separate desktop-only dependencies from
+portable runtime sources. Before changing the target graph, obtain a clean
+baseline build and CTest result from the existing Linux environment.
+Without that baseline, a GitHub-only edit cannot establish that the
+working desktop build was preserved. The NDK target, SDL Android glue and
+APK packaging should remain separate, subsequent changes.
