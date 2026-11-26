@@ -6,9 +6,10 @@ files.
 
 The Android NDK build additionally compiles the repository's real portable
 host C translation units (runtime bootstrap, loader, Win32 shims, VFS,
-DirectInput, media and D3D9 host modules) as ARM64 object files. The existing
-`tm_d3d9_dxvk.cpp` bridge and the new `src/host/tm_host_android.c` SDL entry
-point are also compiled against the Android headers. The entry point calls
+DirectInput, media and D3D9 host modules), plus pcrecomp's guest-memory and PE
+loader sources, as ARM64 object files. The existing `tm_d3d9_dxvk.cpp`
+bridge and the new `src/host/tm_host_android.c` SDL entry point are also
+compiled against the Android headers. The entry point calls
 `tm_host_run()` with explicit app-private paths:
 `<SDL files>/game`, `<SDL files>/user` and `<SDL files>/system`; it expects
 the user's own `Movies.exe` and `Data/` under the game directory. These are
