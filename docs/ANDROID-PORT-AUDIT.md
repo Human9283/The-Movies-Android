@@ -226,3 +226,7 @@ The first host refactor is now present on the feature branch:
 This is an interface extraction only. It does not yet create an Android JNI bridge, Gradle project, SDL Android activity, or Android CMake target. The runtime still installs the existing POSIX crash handlers and uses the existing SDL/window path; those behaviors need explicit Android lifecycle review before an APK can be built.
 
 The existing Linux command-line options are preserved by forwarding their values through `tm_host_options`. No build or test result is claimed for this commit because the local PCRECOMP checkout, lifted C tree and DXVK prefix are not available in this environment. The next validation must be a clean Linux configure/build/CTest on the user's machine before proceeding to platform-specific changes.
+
+### Reusable CMake source group
+
+The desktop target's source list has also been collected into `TM_RUNTIME_SOURCES` and `tm_host` now consumes that list. This is a mechanical build-graph preparation for a future Android shared-library target; it does not change the current target type, dependencies, compiler flags or test graph. The Android target is intentionally not declared until SDL2/NDK/DXVK dependency handling is specified and can be validated.
