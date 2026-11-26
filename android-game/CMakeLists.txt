@@ -1,4 +1,5 @@
 # Dedicated Android target. The desktop CMakeLists.txt remains untouched.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 get_filename_component(TM_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 set(PCRECOMP_SOURCE_DIR "" CACHE PATH "Pinned pcrecomp checkout")
 set(TM_GEN "" CACHE PATH "Private output directory from run_lift.py")
@@ -112,9 +113,10 @@ target_include_directories(main PRIVATE
 set_source_files_properties(${TM_GEN_SOURCES} PROPERTIES COMPILE_DEFINITIONS RECOMP_LOCAL_REGS)
 # The dispatch unit contains the full lifted instruction stream. On an 8 GiB
 # hosted runner, Clang at -O1 can consume more than 7 GiB for this one TU.
-# Compile this generated unit at -O0 for the reproducible first Android link;
-# keep the smaller generated/runtime units at -O1.
-set_source_files_properties("${TM_GEN}/recomp_dispatch.c" PROPERTIES COMPILE_OPTIONS "-O0")
+# Compile this generated unit at -O0 and suppress its enormous debug-info payload;
+# keep the smaller generated/runtime units at -O1. The compile database is emitted
+# so CI can verify the final flag order rather than assume the override took effect.
+set_source_files_properties("${TM_GEN}/recomp_dispatch.c" PROPERTIES COMPILE_OPTIONS "-O0;-g0")
 target_compile_options(main PRIVATE -O1 -fno-strict-aliasing -fwrapv -Wno-unused-function -Wno-unused-parameter)
 target_link_libraries(main PRIVATE SDL2_TTF SDL2 DXVK_D3D9 android log dl vulkan m)
 set_target_properties(main PROPERTIES
