@@ -2,7 +2,7 @@
 
 This is a diagnostic application, not an Android build of The Movies. It contains no game executable, lifted game code, ISO, assets, saves or user files.
 
-**Validation status:** the project and CI workflow are under active bring-up. Earlier APK builds did not start successfully on the target phone. The current branch is fixing the shared C++ runtime setup and the probe's native report buffer. Do not treat a green CI build as a successful phone test; the acceptance criterion is a visible rendered triangle and a copied report showing D3D9 `CreateDevice` and `Present` succeeded.
+**Validation status:** a corrected APK build completed successfully in [workflow run 45742406462](https://github.com/Human9283/The-Movies-Android/actions/runs/45742406462). Its packaged native libraries were independently inspected: all are AArch64, use the packaged shared C++ runtime, and have 16 KB ELF load-segment alignment. Earlier APKs did not start successfully on the target phone. The corrected APK has **not yet been tested on the phone**. Do not treat a green CI build as a successful device test; acceptance requires a visible rendered triangle and a copied report showing D3D9 `CreateDevice` and `Present` succeeded.
 
 ## What it tests
 
