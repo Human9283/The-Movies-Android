@@ -8,11 +8,7 @@ host implementations.
 This is not a remake. It aims to run the original game's code and use the
 original game data. You need your own copy of the game.
 
-> **Status:** The Android application shell, game-data importer and native
-> ARM64 build target are implemented on the development branch. The
-> standalone Android D3D9 diagnostic has passed on a Samsung Galaxy S24
-> Ultra, but the complete game has not yet been verified in an APK or
-> launched on Android. The diagnostic is not the game.
+> **Status (27 November 2026):** A full ARM64 APK containing the user's Russian CD 1.1 game data has been built, installed and launched on a Samsung Galaxy S24 Ultra. The game creates its D3D9 device through Android DXVK Native and continues presenting animated intro frames, but currently remains on the Lionhead splash instead of reaching the main menu. Touch-to-mouse integration and display/lifecycle behaviour are under active validation. A successful APK build or D3D9 diagnostic is not evidence that the game is fully playable.
 
 ## How it works
 
@@ -29,9 +25,11 @@ Other executable builds require a separate analysis and lift.
 ## Project status
 
 The Linux x86-64 host reaches the game's own startup, Direct3D 9 device
-initialization, main menu and 3D studio lot. Android remains a separate
-porting target: a successful diagnostic graphics test does not establish
-that the complete game works.
+initialization, main menu and 3D studio lot. On Android, the full game APK
+has been installed and launched on a Galaxy S24 Ultra; D3D9 rendering and
+repeated frame presentation are observed, but the current on-device run
+stalls at the animated intro splash. The Android port is therefore in
+runtime-debugging, not feature-complete, status.
 
 | Area | Status |
 |---|---|
@@ -39,12 +37,15 @@ that the complete game works.
 | Linux host and game rendering | Main menu and studio lot reached |
 | Android application shell | Implemented |
 | Android SDL/Vulkan/D3D9 diagnostic | Passed on Galaxy S24 Ultra |
-| Complete Android ARM64 build | Under validation; successful full-game APK not yet confirmed |
-| Full-game Android runtime | Not yet tested |
+| Complete Android ARM64 APK | Built, installed and launched on Galaxy S24 Ultra |
+| Android D3D9 game rendering | Device creation and animated intro frames observed |
+| Android main menu / gameplay | Not reached; splash-screen stall under investigation |
+| Android touch input | Native SDL finger-to-Win32 mouse bridge under validation |
 
 See [Android feasibility](docs/ANDROID-FEASIBILITY.md) for measured device
-results and remaining work, and [Android port architecture](docs/ANDROID-PORT-AUDIT.md)
-for the implementation details.
+results and remaining work, [Android port architecture](docs/ANDROID-PORT-AUDIT.md)
+for implementation details, and [Android diagnostics](docs/ANDROID-DIAGNOSTICS.md)
+for exporting app and native logs without ADB.
 
 ## Requirements
 
