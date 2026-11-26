@@ -1,8 +1,9 @@
 # Android ARM64 port: implementation audit and next steps
 
-Status: source audit of public repository `main` at
-`a6a3ba601ef95d5922e6b66b99653d83121255e0`. This is not a device build
-or a claim that Android currently runs the game.
+Status: historical source audit of public repository `main` at
+`a6a3ba601ef95d5922e6b66b99653d83121255e0`. Later Android diagnostic work
+is recorded in the dated updates below and in [ANDROID-FEASIBILITY.md](ANDROID-FEASIBILITY.md).
+This is not a claim that Android currently runs the game.
 
 ## Executive finding
 
@@ -13,14 +14,14 @@ and the generated guest code uses 32-bit guest addresses. An AArch64 host
 is therefore a plausible target.
 
 The game runtime in this repository is still a Linux desktop executable,
-not an Android game application. A separate diagnostic-only Android app
-has since been added under `android-probe/` on the active feature branch.
-It verifies the Android Vulkan loader, surface and selected device
-capabilities, and now attempts logical-device/swapchain creation using a
-DXVK 2.4.1 baseline feature subset; it does not host the game or include DXVK. The full Android
+not an Android game application. Two separate diagnostic-only Android apps
+now exist on the active feature branch: `android-probe/` checks Vulkan
+capabilities and device/swapchain creation, while `android-d3d9-probe/`
+builds an Android-adapted DXVK Native D3D9 library and tests its SDL2/Vulkan
+path. Neither hosts the game or includes lifted game code. The full Android
 game port remains blocked by application lifecycle/window integration,
-build-system assumptions, and the compatibility of the selected DXVK
-build with the actual phone Vulkan driver.
+build-system assumptions, and the unverified compatibility of the D3D9
+backend with the actual phone.
 
 Do not start by changing the lifted game code or by assuming that DXVK
 3.1.1 will work on every Android GPU.
@@ -60,9 +61,9 @@ project's run records.
   to relative host paths such as `tm_user` and `tm_system`.
 - The game itself still has no Android Gradle target, activity/JNI runtime
   integration, Android asset/data installer, or APK packaging. A separate
-  `android-probe/` Gradle project now exists on the active feature branch;
-  it is only a standalone Vulkan hardware diagnostic and must not be
-  mistaken for game packaging.
+  `android-probe/` and `android-d3d9-probe/` Gradle projects now exist on
+  the active feature branch. Both are standalone diagnostics and must not
+  be mistaken for game packaging.
 - The runtime currently expects the game directory to be available as a
   normal filesystem path. Android must select a private app data directory
   or a user-imported directory and pass that path to the native runtime.
@@ -428,6 +429,45 @@ The updated S24 Ultra report confirms successful Vulkan device creation and swap
 - Its own GitHub Actions run `42513858066` completed successfully. This is cross-build evidence only, not an S24 runtime result.
 - New project: `android-d3d9-probe/`. Its workflow builds SDL2, builds the pinned `libdxvk_d3d9.so`, and packages an ARM64 SDLActivity app. The app uses `SDL_WINDOW_VULKAN`, loads the DXVK D3D9 export, creates a HAL device, and attempts a fixed-function draw plus `Present`.
 
-The Android candidate is separate from the Linux backend; no Linux DXVK pin is changed. The probe contains no original game executable, lifted code, ISO, assets or saves. The workflow is still in progress; no build or runtime success is claimed here.
+The Android candidate is separate from the Linux backend; no Linux DXVK pin is changed. The probe contains no original game executable, lifted code, ISO, assets or saves. The first corrected APK build has since completed successfully; the exact
+build and static artifact inspection are recorded in the status update below.
+No successful on-device D3D9 runtime result is claimed.
 
 A successful on-device triangle test will validate DXVK's Android SDL2 WSI and a minimal D3D9 path. It will not yet validate the game's full D3D9 feature/resource use, video, audio, input, lifecycle, memory mapping or simulation. Those remain later integration gates.
+
+
+## D3D9 probe build and artifact verification (2026-11-26)
+
+The first corrected Android D3D9 probe APK completed successfully in GitHub
+Actions run [45742406462](https://github.com/Human9283/The-Movies-Android/actions/runs/45742406462)
+at commit `589c13c798fc55b3c7ef533292bd35e55c13d6da`. The artifact
+`the-movies-dxvk-d3d9-probe-arm64` was downloaded and independently
+inspected.
+
+Observed in the packaged APK:
+
+- `libSDL2.so`, `libmain.so`, `libdxvk_d3d9.so` and
+  `libc++_shared.so` are all ELF64 AArch64 shared libraries.
+- The three application libraries list the same packaged
+  `libc++_shared.so` in `DT_NEEDED`; DXVK also depends on SDL2 and
+  Android's Vulkan loader.
+- Every `PT_LOAD` segment in all four libraries has `0x4000` (16 KB)
+  alignment.
+- The uncompressed native-library payloads in the APK start at offsets
+  divisible by 16 KB.
+- The APK includes the DXVK and SDL2 license notices.
+
+This establishes a successful cross-build, APK packaging, runtime dependency
+layout and 16 KB ELF/ZIP alignment. It does not establish that Android's
+runtime linker can load the libraries on the target handset, that
+`Direct3DCreate9`/device creation succeeds, or that a D3D9 frame is
+presented. The user previously reported immediate exit with an earlier APK;
+the corrected artifact still requires a fresh physical-device test.
+
+A later CI attempt failed while Gradle fetched Maven Central dependencies
+because the repository returned HTTP 429. Native SDL2 and DXVK compilation
+had already succeeded in that run. The workflow now uses Gradle dependency
+caching and retries this specific transient rate-limit failure. The latest
+workflow also adds explicit 16 KB ELF and APK alignment checks. See
+[ANDROID-FEASIBILITY.md](ANDROID-FEASIBILITY.md) for the current validation
+sequence.
