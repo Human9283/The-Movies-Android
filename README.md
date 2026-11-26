@@ -8,11 +8,7 @@ This is not a remake or a clone. The game's own code runs, translated
 instruction by instruction, with its original data. You need your own copy
 of the game.
 
-> **Status: Linux runtime works; Android port not started at device level.**
-> On Linux x86-64, the original game reaches the Lionhead logo, main menu and
-> 3D studio lot through DXVK Native. Video playback and audio remain
-> incomplete or unverified. No Android APK or Android device run exists yet;
-> see [Status](#status), [Android feasibility](docs/ANDROID-FEASIBILITY.md), and the [standalone Vulkan probe](android-probe/README.md).
+> **Status: Linux runtime works; Android game port not yet implemented.** On Linux x86-64, the original game reaches the Lionhead logo, main menu and 3D studio lot through DXVK Native. Video playback and audio remain incomplete or unverified. A separate Android ARM64 Vulkan diagnostic APK now builds successfully in CI; it reports the phone's Vulkan capabilities on-screen and can copy the report. It does not contain or run the game. See [Android status](docs/ANDROID-FEASIBILITY.md) and [the standalone Vulkan probe](android-probe/README.md).
 
 ## Contents
 
