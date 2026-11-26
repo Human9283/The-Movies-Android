@@ -34,3 +34,7 @@ local.properties
 __pycache__/
 *.pyc
 .venv/
+
+# Private CI-generated Android payload; never commit proprietary game data.
+android-game/app/src/main/assets/game-data.tar
+android-game/app/src/main/assets/game-manifest.json
