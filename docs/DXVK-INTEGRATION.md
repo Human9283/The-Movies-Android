@@ -51,13 +51,17 @@ interfaces as on Windows, for host code compiled against its headers
 - **Full screen.** DXVK's SDL2 WSI enters full screen with
   `SDL_SetWindowFullscreen` and changes the mode with
   `SDL_SetWindowDisplayMode`.
-- **Vulkan requirement.** DXVK 3.1.1 requires a Vulkan 1.3 device
-  ([dxvk_instance.h](https://github.com/doitsujin/dxvk/blob/b1a1c99ab52b687cf950d62c88bc2fa316b41663/src/dxvk/dxvk_instance.h#L12)).
-  It also requires a fixed feature list, and rejects any adapter missing one
-  of them
-  ([checkDeviceCompatibility](https://github.com/doitsujin/dxvk/blob/b1a1c99ab52b687cf950d62c88bc2fa316b41663/src/dxvk/dxvk_device_info.cpp#L746),
-  [getFeatureList](https://github.com/doitsujin/dxvk/blob/b1a1c99ab52b687cf950d62c88bc2fa316b41663/src/dxvk/dxvk_device_info.cpp#L802)).
-  This list decides Android feasibility:
+- **Vulkan requirement.** The pinned v3.1.1 source checks for Vulkan API
+  1.3 in `dxvk_instance.h` and applies additional mandatory device-feature
+  and extension checks in `dxvk_device_info.cpp`:
+  [version check](https://github.com/doitsujin/dxvk/blob/b1a1c99ab52b687cf950d62c88bc2fa316b41663/src/dxvk/dxvk_instance.h#L12),
+  [compatibility check](https://github.com/doitsujin/dxvk/blob/b1a1c99ab52b687cf950d62c88bc2fa316b41663/src/dxvk/dxvk_device_info.cpp#L746),
+  [required feature list](https://github.com/doitsujin/dxvk/blob/b1a1c99ab52b687cf950d62c88bc2fa316b41663/src/dxvk/dxvk_device_info.cpp#L802).
+  The API-version check alone does not establish driver compatibility.
+  DXVK's current driver guidance describes the 3.x feature set as Vulkan
+  1.4-class and explicitly excludes first-party Android/mobile driver
+  support: [upstream driver support](https://github.com/doitsujin/dxvk/wiki/Driver-support).
+  The Android port uses a separately pinned Android DXVK Native fork; see
   [ANDROID-FEASIBILITY.md](ANDROID-FEASIBILITY.md).
 
 ## 3. Proof of concept: `tests/dxvk/dxvk_present.cpp` [run]
@@ -118,7 +122,7 @@ The run took 2.1 s. The same program passes with windowed `X8R8G8B8`.
   picks. Section 4 keeps this decision explicit.
 - Anything about a real GPU, or about Android.
 
-## 4. Integration decisions
+## 4. Guest/host ABI and object model
 
 1. **Guest objects stay in guest memory.** The game sees only the objects
    `tm_d3d9.c` allocates with `hle_alloc`, with shim vtables. Each one maps,
@@ -173,7 +177,7 @@ before (`tests/m3_boundary.py`).
   `IDirect3D9`, on first use, and forwards the queries that describe the
   backend: `CheckDeviceFormat`, `CheckDeviceType`, `CheckDepthStencilMatch`,
   `CheckDeviceMultiSampleType`, `GetDeviceCaps` and
-  `GetAdapterIdentifier`. Mode enumeration stays as decision 5 in section 4 says.
+  `GetAdapterIdentifier`. Mode enumeration follows the display-mode mapping described in section 4.
 - **Objects.** Every DXVK object the guest holds has one guest object: 16
   bytes of guest memory, its first dword a vtable of shim VAs. The vtables
   come from `src/host/tm_d3d9_ifaces.h`, which lists all 14 interfaces in
