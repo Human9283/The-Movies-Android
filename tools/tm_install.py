@@ -248,11 +248,44 @@ def main(argv=None):
             disc.extract(real, cab_local)
             out_dir = os.path.join(work, 'cab')
             os.makedirs(out_dir, exist_ok=True)
+            # Validate the cabinet independently before trusting its extracted bytes.
+            test = subprocess.run(['cabextract', '-t', cab_local],
+                                  capture_output=True, text=True)
+            print('[cab-test] %s exit=%d stdout=%s stderr=%s'
+                  % (cab, test.returncode, test.stdout.strip(), test.stderr.strip()), flush=True)
+            if test.returncode != 0:
+                problems.append('cabextract test %s: %s' % (cab, test.stderr.strip()))
             r = subprocess.run(['cabextract', '-q', '-d', out_dir, cab_local],
                                capture_output=True, text=True)
+            print('[cab-extract] %s exit=%d stdout=%s stderr=%s'
+                  % (cab, r.returncode, r.stdout.strip(), r.stderr.strip()), flush=True)
             if r.returncode != 0:
                 problems.append('cabextract %s: %s' % (cab, r.stderr.strip()))
             got = {fn.lower(): fn for fn in os.listdir(out_dir)}
+            # If 7-Zip is installed, compare a second independent CAB decoder.
+            # This distinguishes a CAB decoder problem from stale MSI FileSize data.
+            alt_dir = os.path.join(work, 'cab-7zip')
+            if shutil.which('7zz'):
+                os.makedirs(alt_dir, exist_ok=True)
+                alt = subprocess.run(['7zz', 'x', '-y', '-bd', '-o' + alt_dir, cab_local],
+                                     capture_output=True, text=True)
+                alt_got = {}
+                for base, _dirs, names in os.walk(alt_dir):
+                    for fn in names:
+                        alt_got[fn.lower()] = os.path.join(base, fn)
+                print('[cab-7zip] %s exit=%d stdout=%s stderr=%s'
+                      % (cab, alt.returncode, alt.stdout.strip(), alt.stderr.strip()), flush=True)
+                for f in members:
+                    key = f['File'].lower()
+                    a = alt_got.get(key)
+                    c = os.path.join(out_dir, got[key]) if key in got else None
+                    if a and c:
+                        print('[cab-compare] %s %s cabextract=%d 7zip=%d MSI=%s'
+                              % (cab, key, os.path.getsize(c), os.path.getsize(a), f['FileSize']),
+                              flush=True)
+                    elif not a:
+                        print('[cab-compare] %s %s absent from 7-Zip output' % (cab, key), flush=True)
+                shutil.rmtree(alt_dir)
             for f in members:
                 key = f['File'].lower()
                 if key not in got:
