@@ -396,7 +396,7 @@ background, as Wine's dinput).
 | `SetCooperativeLevel` | implemented | exactly one of exclusive/non-exclusive and foreground/background; NULL window only for non-exclusive background (the desktop); a top-level window; `DIERR_UNSUPPORTED` for exclusive background; `DIERR_ACQUIRED` | exclusive mode has no effect (no cursor hiding or capture: no display) | yes, E_HANDLE (no window yet) | test_dinput8 |
 | `SetProperty` | implemented for `DIPROP_BUFFERSIZE` | a `DIPROPDWORD` with `DIPH_DEVICE`; `DIERR_INVALIDPARAM`, `DIERR_ACQUIRED` | any other property stops the run, naming it | yes, DI_OK | test_dinput8 |
 | `Acquire`, `Unacquire` | implemented | needs a data format; `DI_NOEFFECT` when already in that state; foreground level: `DIERR_OTHERAPPHASPRIO` unless the window is the foreground window | | Acquire yes, DI_OK; Unacquire not yet | test_dinput8 |
-| every other method (`GetDeviceState`, `GetDeviceData`, `EnumDevices`, `Poll`, ...) | unsupported | | a named stub: calling it stops the run | no | test_dinput8 checks the stubs are named |
+| `GetDeviceState`, `GetDeviceData` | implemented | keyboard and mouse state from win32hle's input state; device-specific data format and buffered-event semantics | behaviour depends on the host input state; no joystick support | yes, after `CreateDevice` | test_dinput8 |\n| other methods (`EnumDevices`, `Poll`, ...) | unsupported | | named stubs: calling one stops the run | no | test_dinput8 checks the stubs are named |
 
 **Input methods are implemented.** `GetDeviceState` and
 `GetDeviceData` read the keyboard and mouse state maintained by win32hle;
