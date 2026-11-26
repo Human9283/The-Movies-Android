@@ -79,12 +79,15 @@ extern "C" int SDL_main(int, char**) {
     setenv("DXVK_LOG_LEVEL", "info", 1);
     setenv("DXVK_STATE_CACHE", "0", 1);
 
+    reportf("STAGE SDL_main entered");
     SDL_SetMainReady();
+    reportf("STAGE SDL_Init begin");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
         reportf("FAIL SDL_Init: %s", SDL_GetError());
         return 10;
     }
     reportf("SDL_Init: PASS");
+    reportf("STAGE SDL_Vulkan_LoadLibrary begin");
     if (SDL_Vulkan_LoadLibrary(nullptr) != 0) {
         reportf("FAIL SDL_Vulkan_LoadLibrary: %s", SDL_GetError());
         SDL_Quit();
@@ -92,6 +95,7 @@ extern "C" int SDL_main(int, char**) {
     }
 
     reportf("SDL_Vulkan_LoadLibrary: PASS");
+    reportf("STAGE SDL_CreateWindow begin");
     SDL_Window* window = SDL_CreateWindow(
         "The Movies — DXVK D3D9 test",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
@@ -108,6 +112,7 @@ extern "C" int SDL_main(int, char**) {
 
     // SDL's Android video driver owns the ANativeWindow. Confirm that it is
     // present and has a usable extent before asking SDL/DXVK to create WSI.
+    reportf("STAGE SDL_GetWindowWMInfo begin");
     SDL_SysWMinfo wm_info{};
     SDL_VERSION(&wm_info.version);
     if (SDL_GetWindowWMInfo(window, &wm_info) != SDL_TRUE ||
@@ -161,6 +166,7 @@ extern "C" int SDL_main(int, char**) {
     instance_info.enabledExtensionCount = instance_extension_count;
     instance_info.ppEnabledExtensionNames = instance_extensions.data();
 
+    reportf("STAGE SDL Vulkan instance creation begin");
     VkInstance sdl_instance = VK_NULL_HANDLE;
     VkResult vk_result = vkCreateInstance(&instance_info, nullptr, &sdl_instance);
     if (vk_result != VK_SUCCESS) {
