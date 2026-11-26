@@ -48,6 +48,7 @@ jobs:
           cmake -S "$SDL_DIR" -B "$SDL_DIR/build-android" -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 \
+            -DANDROID_STL=c++_shared \
             -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST=OFF
           cmake --build "$SDL_DIR/build-android"
           SDL_LIB="$(find "$SDL_DIR/build-android" -name libSDL2.so -print -quit)"
@@ -60,6 +61,10 @@ jobs:
           DXVK_DIR="$RUNNER_TEMP/dxvk-native-android"
           git clone https://github.com/Star1xr/dxvk-native-android.git "$DXVK_DIR"
           git -C "$DXVK_DIR" checkout f2c7207b3d8bc848fe3a27cef34ee5e67aeec552
+          # Use the same shared libc++ runtime as SDL2 and the app's JNI library.
+          # The fork's default script forces a separate static libc++ into DXVK.
+          sed -i "s/'-static-libstdc++', //g" "$DXVK_DIR/android/build-android.sh"
+          ! grep -q -- "-static-libstdc++" "$DXVK_DIR/android/build-android.sh"
           echo "DXVK_ROOT=$DXVK_DIR" >> "$GITHUB_ENV"
 
       - name: Fetch pinned pcrecomp headers for host bridge compile check
@@ -78,6 +83,8 @@ jobs:
           mkdir -p android-d3d9-probe/app/src/main/jniLibs/arm64-v8a
           cp "$SDL_LIB" android-d3d9-probe/app/src/main/jniLibs/arm64-v8a/libSDL2.so
           cp "$RUNNER_TEMP/dxvk-build/arm64-v8a/lib/libdxvk_d3d9.so" android-d3d9-probe/app/src/main/jniLibs/arm64-v8a/
+          cp "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" \
+            android-d3d9-probe/app/src/main/jniLibs/arm64-v8a/
           mkdir -p android-d3d9-probe/app/src/main/assets/third_party
           cp "$DXVK_ROOT/LICENSE" android-d3d9-probe/app/src/main/assets/third_party/DXVK-LICENSE.txt
           cp "$SDL_ROOT/LICENSE.txt" android-d3d9-probe/app/src/main/assets/third_party/SDL2-LICENSE.txt
@@ -87,15 +94,22 @@ jobs:
           gradle --no-daemon -p android-d3d9-probe \
             -PsdlRoot="$SDL_ROOT" -PdxvkRoot="$DXVK_ROOT" -PpcrecompRoot="$PCRECOMP_ROOT" :app:assembleDebug
 
-      - name: Verify native libraries and APK contents
+      - name: Verify shared C++ runtime and APK contents
         run: |
-          READELF="$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          NDK_BIN="$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          READELF="$NDK_BIN/llvm-readelf"
           APK="android-d3d9-probe/app/build/outputs/apk/debug/app-debug.apk"
-          "$READELF" -h android-d3d9-probe/app/src/main/jniLibs/arm64-v8a/libdxvk_d3d9.so | grep -q AArch64
-          nm -D android-d3d9-probe/app/src/main/jniLibs/arm64-v8a/libdxvk_d3d9.so | grep -q Direct3DCreate9
+          LIBDIR="android-d3d9-probe/app/src/main/jniLibs/arm64-v8a"
+          for LIB in libSDL2.so libmain.so libdxvk_d3d9.so; do
+            echo "Checking shared runtime dependency: $LIB"
+            "$READELF" -d "$LIBDIR/$LIB" | grep -q "NEEDED.*libc++_shared.so"
+          done
+          "$READELF" -h "$LIBDIR/libdxvk_d3d9.so" | grep -q AArch64
+          "$NDK_BIN/llvm-nm" -D "$LIBDIR/libdxvk_d3d9.so" | grep -q Direct3DCreate9
           unzip -l "$APK" | grep "lib/arm64-v8a/libSDL2.so"
-          unzip -l "$APK" | grep "lib/arm64-v8a/libdxvk_d3d9.so"
           unzip -l "$APK" | grep "lib/arm64-v8a/libmain.so"
+          unzip -l "$APK" | grep "lib/arm64-v8a/libdxvk_d3d9.so"
+          unzip -l "$APK" | grep "lib/arm64-v8a/libc++_shared.so"
           unzip -l "$APK" | grep "assets/third_party/DXVK-LICENSE.txt"
           unzip -l "$APK" | grep "assets/third_party/SDL2-LICENSE.txt"
           test -n "$(find android-d3d9-probe/app/.cxx -name 'tm_d3d9_dxvk.cpp.o' -print -quit)"
