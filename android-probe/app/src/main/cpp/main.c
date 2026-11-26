@@ -90,31 +90,38 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
     bool required_features_ok = true;
 #define REQUIRED_CORE(name) do { bool ok = f2.features.name != 0; LOGI("required %-39s %s", #name, ok ? "PASS" : "FAIL"); if (!ok) required_features_ok = false; } while (0)
     REQUIRED_CORE(depthBiasClamp); REQUIRED_CORE(depthClamp); REQUIRED_CORE(dualSrcBlend); REQUIRED_CORE(fillModeNonSolid);
-    CORE(fragmentStoresAndAtomics); CORE(fullDrawIndexUint32); CORE(geometryShader);
-    CORE(imageCubeArray); CORE(independentBlend); CORE(multiDrawIndirect); CORE(multiViewport);
-    CORE(occlusionQueryPrecise); CORE(robustBufferAccess); CORE(sampleRateShading);
-    CORE(samplerAnisotropy); CORE(shaderClipDistance); CORE(shaderCullDistance);
-    CORE(shaderImageGatherExtended); CORE(shaderInt16); CORE(shaderInt64);
-    CORE(shaderSampledImageArrayDynamicIndexing); CORE(textureCompressionBC);
-#undef CORE
-#define FEAT(obj, name) LOGI("feature %-42s %s", #name, (obj).name ? "YES" : "NO")
+    REQUIRED_CORE(fragmentStoresAndAtomics); REQUIRED_CORE(fullDrawIndexUint32); REQUIRED_CORE(geometryShader);
+    REQUIRED_CORE(imageCubeArray); REQUIRED_CORE(independentBlend); REQUIRED_CORE(multiDrawIndirect); REQUIRED_CORE(multiViewport);
+    REQUIRED_CORE(occlusionQueryPrecise); REQUIRED_CORE(robustBufferAccess); REQUIRED_CORE(sampleRateShading);
+    REQUIRED_CORE(samplerAnisotropy); REQUIRED_CORE(shaderClipDistance); REQUIRED_CORE(shaderCullDistance);
+    REQUIRED_CORE(shaderImageGatherExtended); REQUIRED_CORE(shaderInt16); REQUIRED_CORE(shaderInt64);
+    REQUIRED_CORE(shaderSampledImageArrayDynamicIndexing); REQUIRED_CORE(textureCompressionBC);
+#undef REQUIRED_CORE
 #define REQUIRED_FEAT(obj, name) do { bool ok = (obj).name != 0; LOGI("required %-39s %s", #name, ok ? "PASS" : "FAIL"); if (!ok) required_features_ok = false; } while (0)
     REQUIRED_FEAT(f11, shaderDrawParameters); REQUIRED_FEAT(f11, storageBuffer16BitAccess);
-    FEAT(f12, bufferDeviceAddress); FEAT(f12, descriptorIndexing); FEAT(f12, storageBuffer8BitAccess);
-    FEAT(f12, descriptorBindingSampledImageUpdateAfterBind);
-    FEAT(f12, descriptorBindingUpdateUnusedWhilePending); FEAT(f12, descriptorBindingPartiallyBound);
-    FEAT(f12, hostQueryReset); FEAT(f12, runtimeDescriptorArray); FEAT(f12, samplerMirrorClampToEdge);
-    FEAT(f12, scalarBlockLayout); FEAT(f12, shaderInt8); FEAT(f12, timelineSemaphore);
-    FEAT(f12, uniformBufferStandardLayout); FEAT(f12, vulkanMemoryModel);
-    FEAT(f13, inlineUniformBlock); FEAT(f13, computeFullSubgroups); FEAT(f13, dynamicRendering);
-    FEAT(f13, maintenance4); FEAT(f13, shaderDemoteToHelperInvocation);
-    FEAT(f13, shaderZeroInitializeWorkgroupMemory); FEAT(f13, subgroupSizeControl); FEAT(f13, synchronization2);
-    if (has_device_extension(gpu, "VK_KHR_depth_clip_enable")) FEAT(depth, depthClipEnable);
-    if (has_device_extension(gpu, "VK_EXT_robustness2")) { FEAT(robust, robustBufferAccess2); FEAT(robust, nullDescriptor); }
-    if (has_device_extension(gpu, "VK_KHR_maintenance5")) FEAT(m5, maintenance5);
-    if (has_device_extension(gpu, "VK_KHR_maintenance6")) FEAT(m6, maintenance6);
-#undef FEAT
-
+    REQUIRED_FEAT(f12, bufferDeviceAddress); REQUIRED_FEAT(f12, descriptorIndexing); REQUIRED_FEAT(f12, storageBuffer8BitAccess);
+    REQUIRED_FEAT(f12, descriptorBindingSampledImageUpdateAfterBind);
+    REQUIRED_FEAT(f12, descriptorBindingUpdateUnusedWhilePending); REQUIRED_FEAT(f12, descriptorBindingPartiallyBound);
+    REQUIRED_FEAT(f12, hostQueryReset); REQUIRED_FEAT(f12, runtimeDescriptorArray); REQUIRED_FEAT(f12, samplerMirrorClampToEdge);
+    REQUIRED_FEAT(f12, scalarBlockLayout); REQUIRED_FEAT(f12, shaderInt8); REQUIRED_FEAT(f12, timelineSemaphore);
+    REQUIRED_FEAT(f12, uniformBufferStandardLayout); REQUIRED_FEAT(f12, vulkanMemoryModel);
+    REQUIRED_FEAT(f13, inlineUniformBlock); REQUIRED_FEAT(f13, computeFullSubgroups); REQUIRED_FEAT(f13, dynamicRendering);
+    REQUIRED_FEAT(f13, maintenance4); REQUIRED_FEAT(f13, shaderDemoteToHelperInvocation);
+    REQUIRED_FEAT(f13, shaderZeroInitializeWorkgroupMemory); REQUIRED_FEAT(f13, subgroupSizeControl); REQUIRED_FEAT(f13, synchronization2);
+    if (has_device_extension(gpu, "VK_KHR_depth_clip_enable")) REQUIRED_FEAT(depth, depthClipEnable);
+    else required_features_ok = false;
+    if (has_device_extension(gpu, "VK_EXT_robustness2")) {
+        REQUIRED_FEAT(robust, robustBufferAccess2); REQUIRED_FEAT(robust, nullDescriptor);
+    } else required_features_ok = false;
+    if (has_device_extension(gpu, "VK_KHR_maintenance5")) REQUIRED_FEAT(m5, maintenance5);
+    else required_features_ok = false;
+    if (has_device_extension(gpu, "VK_KHR_maintenance6")) REQUIRED_FEAT(m6, maintenance6);
+    else required_features_ok = false;
+#undef REQUIRED_FEAT
+    if (props.limits.maxPushConstantsSize < 256) {
+        LOGI("required maxPushConstantsSize >= 256 FAIL (reported %u)", props.limits.maxPushConstantsSize);
+        required_features_ok = false;
+    } else LOGI("required maxPushConstantsSize >= 256 PASS");
     VkSurfaceCapabilitiesKHR caps;
     VkResult cr = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &caps);
     LOGI("surface capabilities result=%d minImages=%u maxImages=%u currentExtent=%ux%u",
