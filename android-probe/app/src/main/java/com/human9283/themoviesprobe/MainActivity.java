@@ -21,7 +21,7 @@ public final class MainActivity extends Activity {
 
     private TextView reportView;
     private Button copyButton;
-    private String report = "Подготовка Vulkan-проверки...\\n\\nОжидание Android Surface.";
+    private String report = "Подготовка Vulkan-проверки...\n\nОжидание Android Surface.";
     private boolean started;
 
     private native String runProbe(Surface surface);
@@ -70,7 +70,7 @@ public final class MainActivity extends Activity {
             @Override public void surfaceCreated(SurfaceHolder holder) {
                 if (started) return;
                 started = true;
-                report = "Проверка Vulkan выполняется...\\n";
+                report = "Проверка Vulkan выполняется...\n";
                 reportView.setText(report);
                 new Thread(() -> {
                     String result;
