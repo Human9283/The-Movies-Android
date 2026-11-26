@@ -4,10 +4,12 @@ set(PCRECOMP_SOURCE_DIR "" CACHE PATH "Pinned pcrecomp checkout")
 set(TM_GEN "" CACHE PATH "Private output directory from run_lift.py")
 set(SDL2_ROOT "" CACHE PATH "SDL2 source root (headers)")
 set(SDL2_LIBRARY "" CACHE FILEPATH "Built Android libSDL2.so")
+set(SDL2_TTF_INCLUDE_DIR "" CACHE PATH "SDL2_ttf compatibility include root containing SDL2/SDL_ttf.h")
+set(SDL2_TTF_LIBRARY "" CACHE FILEPATH "Built Android static libSDL2_ttf.a")
 set(DXVK_ROOT "" CACHE PATH "Android DXVK Native source root (headers)")
 set(DXVK_D3D9_LIBRARY "" CACHE FILEPATH "Built Android libdxvk_d3d9.so")
 
-foreach(required PCRECOMP_SOURCE_DIR TM_GEN SDL2_ROOT SDL2_LIBRARY DXVK_ROOT DXVK_D3D9_LIBRARY)
+foreach(required PCRECOMP_SOURCE_DIR TM_GEN SDL2_ROOT SDL2_LIBRARY SDL2_TTF_INCLUDE_DIR SDL2_TTF_LIBRARY DXVK_ROOT DXVK_D3D9_LIBRARY)
   if("${${required}}" STREQUAL "")
     message(FATAL_ERROR "${required} must be set")
   endif()
@@ -17,6 +19,8 @@ foreach(check
     "${TM_GEN}/recomp_dispatch.c"
     "${SDL2_ROOT}/include/SDL.h"
     "${SDL2_LIBRARY}"
+    "${SDL2_TTF_INCLUDE_DIR}/SDL2/SDL_ttf.h"
+    "${SDL2_TTF_LIBRARY}"
     "${DXVK_ROOT}/include/native/directx/d3d9.h"
     "${DXVK_D3D9_LIBRARY}")
   if(NOT EXISTS "${check}")
@@ -81,6 +85,8 @@ set(TM_RUNTIME_SOURCES
 
 add_library(SDL2 SHARED IMPORTED GLOBAL)
 set_target_properties(SDL2 PROPERTIES IMPORTED_LOCATION "${SDL2_LIBRARY}")
+add_library(SDL2_TTF STATIC IMPORTED GLOBAL)
+set_target_properties(SDL2_TTF PROPERTIES IMPORTED_LOCATION "${SDL2_TTF_LIBRARY}")
 add_library(DXVK_D3D9 SHARED IMPORTED GLOBAL)
 set_target_properties(DXVK_D3D9 PROPERTIES IMPORTED_LOCATION "${DXVK_D3D9_LIBRARY}")
 
@@ -94,13 +100,14 @@ target_include_directories(main PRIVATE
     "${PCRECOMP_SOURCE_DIR}/runtime/recomp32"
     "${PCRECOMP_SOURCE_DIR}/runtime/win32hle"
     "${SDL2_ROOT}/include"
+    "${SDL2_TTF_INCLUDE_DIR}"
     "${DXVK_ROOT}/include/native/directx"
     "${DXVK_ROOT}/include/native/windows"
     "${DXVK_ROOT}/include/native/android"
     "${DXVK_ROOT}/include/native")
 set_source_files_properties(${TM_GEN_SOURCES} PROPERTIES COMPILE_DEFINITIONS RECOMP_LOCAL_REGS)
 target_compile_options(main PRIVATE -O1 -fno-strict-aliasing -fwrapv -Wno-unused-function -Wno-unused-parameter)
-target_link_libraries(main PRIVATE SDL2 DXVK_D3D9 android log dl vulkan m)
+target_link_libraries(main PRIVATE SDL2_TTF SDL2 DXVK_D3D9 android log dl vulkan m)
 set_target_properties(main PROPERTIES OUTPUT_NAME main)
 
 # The generated translation units are large; keep their optimization modest
