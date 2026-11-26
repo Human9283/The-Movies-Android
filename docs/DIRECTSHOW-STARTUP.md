@@ -103,36 +103,54 @@ writer filter that can be created, named, joined, queried and destroyed.
 Everything else stops the run, naming itself. Encoding comes later, as a
 separate capability (section 9; IMPORTS.md, task C).
 
-## 6. Threading boundary
+## 6. Threading
 
-The game references `CLSID_FilterGraph`, the threaded graph. Windows uses
-an internal worker thread for graph notifications; this implementation
-creates no graph worker, hidden window, event queue, or clock. The current
-start-up probe does not require them. win32hle serializes guest execution
-under its machine lock, and COM apartment state is handled separately by
-`tm_ole32.c`. Any future graph worker that calls guest code must enter the
-guest execution model safely; that behaviour is not implemented or tested.
+- `CLSID_FilterGraph` is the threaded graph. On Windows it creates a
+  worker thread with a hidden window for its event and clock
+  notifications. `CLSID_FilterGraphNoThread` does not; its user must pump
+  messages on the creating thread [doc.]. The game uses only the threaded
+  one (section 4).
+- win32hle runs all guest threads under one machine lock. A host-side
+  graph thread that calls back into the guest (a filter's methods, an
+  event sink) must take the lock as a guest thread does and must not hold
+  it while it waits.
+- COM apartments are not modelled: `CoInitialize` and `CoInitializeEx`
+  succeed and record nothing. The probe runs on the main thread.
 
-## 7. Diagnostics and test coverage
+## 7. Instrumentation design
 
-There is no dedicated COM JSON trace or `--com-trace` option in the current
-implementation. The start-up path is observable through the existing
-`--import-trace`, the DirectShow diagnostics written by
-`src/host/tm_dshow.c`, and the focused unit test
-`tests/c/test_dshow.c`.
+When the DirectShow work starts, every object gets a trace before any
+behaviour does, so each step is checked against what the game actually
+asks for.
 
-The implementation registers the three classes through
-`hle_com_register_class` and exposes guest-memory vtables through
-`hle_com_vtable`. Unsupported methods are named diagnostic stops; a
-`QueryInterface` request for an interface known to exist on the real object
-but absent from this implementation also stops with the interface name.
-Ordinary unsupported interfaces return `E_NOINTERFACE`.
+**Records.** One JSON line per event, written with the import trace
+(`--import-trace`) or on its own (`--com-trace FILE`, planned):
 
-The unit test exercises the game's object-creation sequence, COM identity,
-reference ownership, graph/filter association, release order, and selected
-error cases. It currently reports 63 checks. It does not establish video
-playback, ASF encoding, worker-thread event delivery, or full DirectShow
-conformance.
+| Event | Fields |
+|---|---|
+| `create` | CLSID, IID, outer, context, caller VA, `HRESULT`, object VA, class name |
+| `qi` | object, IID, result object, `HRESULT`, caller |
+| `addref` / `release` | object, count after, caller |
+| `call` | object, interface, method name and slot, arguments (raw dwords, and decoded where the type is known: GUIDs, wide strings, `AM_MEDIA_TYPE`), `HRESULT`, caller, thread |
+| `destroy` | object, interface, lifetime in calls |
+| `graph` | graph object, filter added or removed, name, the filter's CLSID |
+
+**Where.** At the COM boundary only: a class factory registered with
+`hle_com_register_class`, and a vtable of shims per interface
+(`hle_com_vtable`). Every method of every interface is listed, so a call
+to a method with no implementation stops the run and names the interface,
+the slot and the caller, as the DirectInput 8 object does. Objects and
+vtables live in guest memory (B8).
+
+**Graph relations.** The trace keeps object → interface, filter → graph
+and graph → filters maps, so a run's report can print the graph the game
+built: filters, names, pins and connections once pins exist.
+
+**Tests.** A C test per class, in the style of `tests/c/test_dinput8.c`:
+the probe's six calls in order, reference counts back to zero, `AddFilter`
+calling `JoinFilterGraph`, the release order, and the error cases
+(`E_POINTER`, `E_NOINTERFACE`, `VFW_E_DUPLICATE_NAME` for a second filter
+with the same name [doc.]).
 
 ## 8. Sources
 
@@ -142,7 +160,7 @@ conformance.
   used for behaviour only.
 - Wine's `quartz` and `qcap` (LGPL-2.1) for comparison only. No code was
   read into this repository and none may be copied: the repository is
-  MIT. See docs/REPOSITORY-AUDIT.md, "References".
+  MIT. See docs/HOST-IMPLEMENTATION.md, "References".
 
 ## 9. Implemented: start-up probe compatibility
 
