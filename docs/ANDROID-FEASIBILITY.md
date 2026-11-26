@@ -461,12 +461,12 @@ not a change to the fork's upstream repository or to the Linux DXVK build.
   buffer defect, but it has not been established as the cause of the earlier
   process exit; it is independent of the shared-runtime change.
 - **Successful APK build [run].** Workflow run
-  [45742833690](https://github.com/Human9283/The-Movies-Android/actions/runs/45742833690)
-  at commit `baabad78` completed SDL2 and DXVK builds, Gradle APK
-  packaging, shared-runtime/ELF verification and artifact upload. This run
-  also confirms the Gradle cache/retry change avoids the earlier Maven
-  Central 429 failure. Artifact:
-  `the-movies-dxvk-d3d9-probe-arm64` (artifact ID `15081957415`).
+  [45743035567](https://github.com/Human9283/The-Movies-Android/actions/runs/45743035567)
+  at commit `a246e27` completed SDL2 and DXVK builds, Gradle APK
+  packaging, shared-runtime/ELF verification, explicit 16 KB ELF and APK
+  alignment checks, and artifact upload. The Gradle cache/retry change also
+  avoided the earlier Maven Central 429 failure. Artifact:
+  `the-movies-dxvk-d3d9-probe-arm64` (artifact ID `15082003202`).
 - **Independent artifact inspection [run].** The APK was downloaded and
   inspected outside CI. All four packaged native libraries
   (`libSDL2.so`, `libmain.so`, `libdxvk_d3d9.so`,
