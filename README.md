@@ -19,6 +19,7 @@ of the game.
 - [Project layout](#project-layout)
 - [Documentation](#documentation)
 - [Android Vulkan probe](android-probe/README.md)
+- [Android DXVK D3D9 probe](android-d3d9-probe/README.md)
 - [License](#license)
 - [Credits](#credits)
 
