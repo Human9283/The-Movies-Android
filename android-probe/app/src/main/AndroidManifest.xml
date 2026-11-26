@@ -4,13 +4,11 @@
     <application
         android:allowBackup="false"
         android:label="The Movies Vulkan Probe"
-        android:hasCode="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
-            android:name="android.app.NativeActivity"
+            android:name=".MainActivity"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:exported="true">
-            <meta-data android:name="android.app.lib_name" android:value="main" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
