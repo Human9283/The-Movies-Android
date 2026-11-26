@@ -20,11 +20,13 @@ public final class MainActivity extends SDLActivity {
     private static final String TRACE = "trace";
 
     private void saveTrace(String line) {
-        android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String old = prefs.getString(TRACE, "");
-        String next = (old + line + "\n");
-        if (next.length() > 24000) next = next.substring(next.length() - 24000);
-        prefs.edit().putString(TRACE, next).commit();
+        try (java.io.FileOutputStream out = openFileOutput("dxvk_trace.txt", MODE_APPEND)) {
+            out.write((line + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            out.flush();
+            out.getFD().sync();
+        } catch (java.io.IOException error) {
+            Log.e(TAG, "Could not persist startup trace", error);
+        }
     }
     private TextView statusView;
 
