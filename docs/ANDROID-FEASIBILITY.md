@@ -589,3 +589,76 @@ Android test uses the pinned community adaptation
 `Star1xr/dxvk-native-android` commit
 `f2c7207b3d8bc848fe3a27cef34ee5e67aeec552`; this is not upstream Android
 support from DXVK.
+
+
+## Status update: full Android game target and first ARM64 link (2026-11-26)
+
+This section supersedes earlier statements in this document that the Android
+game shell, host entry point or dedicated game target did not exist.
+
+The active public branch `audit/android-arm64-next-steps` now contains:
+
+- `android-game/`: a standalone Gradle application with SDLActivity,
+  Android Storage Access Framework game-folder import, and app-private
+  game/user/system directories.
+- `src/host/tm_host_android.c`: the Android SDL entry point. It calls the
+  shared `tm_host_run()` bootstrap and validates the imported
+  `Movies.exe` and `Data/` directory.
+- An Android CMake target intended to link the host, pcrecomp/win32hle,
+  generated lifted C, SDL2 and the Android DXVK Native D3D9 library into
+  `libmain.so`.
+- A private CI workflow in
+  [the-movies-gamedata](https://github.com/Human9283/the-movies-gamedata)
+  that obtains the generated CD 1.1 C artifact without publishing it in
+  this public repository.
+
+### What is actually verified
+
+- The standalone Android SDL2 + DXVK Native 1.9.2 D3D9 probe passed on a
+  physical Galaxy S24 Ultra (Snapdragon 8 Gen 3 / Adreno 750):
+  SDL initialization, Android Vulkan surface, DXVK load,
+  `Direct3DCreate9`, `CreateDevice`, fixed-function triangle and
+  `Present`. See [probe build run 45793972336](https://github.com/Human9283/The-Movies-Android/actions/runs/45793972336)
+  and its on-device trace.
+- The Android game app's Gradle/CMake integration has been added, but
+  **the full game target has not yet produced a verified APK**.
+- The current private full-link workflow is
+  [run 45809671909](https://github.com/Human9283/the-movies-gamedata/actions/runs/45809671909).
+  At the time of this documentation update, attempt 3 is still reported
+  as `in_progress`; this is a build in progress, not a successful build.
+- The generated lift remains private. Its health report records 85,910
+  lifted entries, 215 generated C translation units, zero lift exceptions
+  and zero not-lifted stubs. It also records 559 extent walks without a
+  recognized terminator and 7 unresolved indirect-tail targets. These
+  are unresolved analysis/runtime risks, not evidence that every path is
+  semantically correct.
+
+### Remaining gates
+
+1. Complete the full Android ARM64 link and inspect the resulting APK and
+   native ELF dependencies.
+2. Install the game APK on the S24 Ultra and validate the 4 GiB guest
+   address-space reservation, PE mapping/relocations and import binding.
+3. Reach the lifted CRT and `WinMain`.
+4. Create the game's own D3D9 device and present its first actual frame.
+5. Continue through menu, studio lot, touch input, pause/resume, audio,
+   video and save/load.
+
+A successful build will prove compilation and packaging only. It will not
+prove that the game's runtime works on Android. The D3D9 probe is a
+separate diagnostic application and must not be counted as a game launch.
+
+## Public search for an existing Android port (2026-11-26)
+
+A search of public GitHub repository/code results and the Awesome Android
+Native Ports catalogue did not identify another independently verifiable
+Android port of The Movies. Searches included the game title, Android,
+Lionhead and pcrecomp terms. The known
+[sp00nznet/themovies](https://github.com/sp00nznet/themovies) project is
+the Windows x86 static-recompilation reference already credited by this
+repository; it is not an Android port.
+
+This is a limited public-source search, not proof of worldwide priority:
+private experiments, unindexed repositories, deleted projects and
+community posts may not be discoverable. The repository therefore makes
+no absolute "first in the world" claim.
