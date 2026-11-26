@@ -88,12 +88,24 @@ The standalone Android DXVK Native D3D9 diagnostic passed on a Samsung
 Galaxy S24 Ultra (Snapdragon 8 Gen 3 / Adreno 750). This verifies the
 tested SDL/Vulkan/D3D9 path, not the game runtime.
 
-The complete game's ARM64 APK and on-device launch have not yet been
-verified. Before considering the Android port functional, validate
-application startup, guest-memory reservation, PE mapping and relocation,
-import binding, entry into `WinMain`, the game's D3D9 device and first
-frame. Then test menu and studio operation, touch input, pause/resume,
-audio, video and save/load.
+A full-game ARM64 APK has been built, installed and launched on a Samsung
+Galaxy S24 Ultra. The game creates its D3D9 device through the Android DXVK
+Native library and presents repeated animated intro frames. The current
+observed run remains on the Lionhead splash and does not reach the main
+menu. This confirms that the Android application, bundled-data installer,
+native loader and at least part of the game's rendering path execute; it
+does not establish that the game is playable.
+
+The current development build adds a native SDL finger-event to Win32
+mouse bridge and bounded input/lifecycle tracing. The bridge is intended
+to translate Android touch coordinates into the mouse messages expected
+by the game's Win32 input layer. Its effect on the splash-screen stall has
+not yet been confirmed on-device.
+
+Before considering the Android port functional, validate progression to
+the main menu and studio, reliable touch input, pause/resume, audio, video,
+save/load and long-duration stability. The splash-screen stall and
+occasional surface-orientation changes remain open issues.
 
 See [Android feasibility](../docs/ANDROID-FEASIBILITY.md) and
 [Android port architecture](../docs/ANDROID-PORT-AUDIT.md) for measured
