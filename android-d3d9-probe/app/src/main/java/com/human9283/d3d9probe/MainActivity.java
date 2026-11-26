@@ -1,11 +1,78 @@
 package com.human9283.d3d9probe;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.graphics.Color;
+import android.os.Bundle;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.RelativeLayout;
+import android.widget.TextView;
+import android.widget.Toast;
+
 import org.libsdl.app.SDLActivity;
 
 public final class MainActivity extends SDLActivity {
+    private TextView statusView;
+
+    private native String nativeGetProbeReport();
+
     @Override
     protected String[] getLibraries() {
         // SDL must be loaded before DXVK; the app entry point is loaded last.
         return new String[] { "SDL2", "dxvk_d3d9", "main" };
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        if (mBrokenLibraries || mLayout == null) return;
+
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.HORIZONTAL);
+        panel.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        panel.setPadding(dp(8), dp(4), dp(8), dp(4));
+        panel.setBackgroundColor(0xD0101820);
+
+        statusView = new TextView(this);
+        statusView.setText("Starting SDL2 / DXVK D3D9 test…");
+        statusView.setTextColor(Color.WHITE);
+        statusView.setTextSize(12);
+        statusView.setMaxLines(2);
+        panel.addView(statusView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        Button copy = new Button(this);
+        copy.setText("Copy report");
+        copy.setAllCaps(false);
+        copy.setOnClickListener(v -> {
+            String report;
+            try {
+                report = nativeGetProbeReport();
+            } catch (Throwable error) {
+                report = "Could not read native report: " + error;
+            }
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(ClipData.newPlainText("DXVK D3D9 probe", report));
+                Toast.makeText(this, "Report copied", Toast.LENGTH_SHORT).show();
+            }
+        });
+        panel.addView(copy, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)));
+
+        RelativeLayout.LayoutParams layout = new RelativeLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        layout.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+        mLayout.addView(panel, layout);
+    }
+
+    public void updateProbeStatus(String status) {
+        runOnUiThread(() -> {
+            if (statusView != null) statusView.setText(status);
+        });
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 }
