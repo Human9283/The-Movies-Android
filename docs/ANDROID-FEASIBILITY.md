@@ -289,3 +289,34 @@ three separate engineering conclusions:
 
 These repositories are references only. No third-party source has been copied
 into this project by this documentation change.
+
+## 7. Adreno 750 driver compatibility warning
+
+The Adreno 750 driver database contains reports for Samsung Galaxy S24 Ultra
+devices. Its Qualcomm system-driver sample reports Vulkan 1.3.128 and 137
+extensions. The comparison with Turnip 26.3.0-R5 lists
+`VK_KHR_maintenance5`, `VK_KHR_maintenance6`, and
+`VK_KHR_load_store_op_none` among extensions present in Turnip but absent
+from that Qualcomm system-driver sample:
+https://fauxvkdb.canonspike.com/compare/5143-43051401/e145252b5018bc47/adea90efaa977350
+
+This matters because the current Linux DXVK Native 3.1.1 compatibility gate
+requires those extensions. Therefore, **do not assume DXVK 3.1.1 will run on
+the stock Adreno 750 Android driver**, even though the driver advertises
+Vulkan 1.3. The database is community-submitted and its driver sample is not
+a measurement of this exact handset/firmware combination; the on-device probe
+remains the deciding test.
+
+Practical Android backend candidates, in priority order:
+
+1. DXVK Native 2.6 with the Android patches and feature fallbacks used by
+   the GeneralsX Android ports; build a standalone D3D9 smoke test.
+2. DXVK Native 1.10.3 / 1.9.2b Android adaptation if 2.6 still requires
+   unsupported extensions or has an incompatible Android WSI.
+3. DXVK Native 3.1.1 only with a driver that actually exposes its required
+   extension/feature set (for example a tested Turnip path), not by assuming
+   the system driver is sufficient.
+
+The Android Vulkan probe should report both the strict 3.1.1 gate and the raw
+driver capability list, so a 3.1.1 failure does not get misread as "Android
+port impossible".
