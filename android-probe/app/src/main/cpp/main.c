@@ -212,16 +212,16 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
             VkResult fr = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &format_count, NULL);
             if (fr == VK_SUCCESS && format_count) { if (format_count > 32) format_count = 32; fr = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &format_count, formats); }
             VkSwapchainKHR sc = VK_NULL_HANDLE; VkResult sr = VK_ERROR_INITIALIZATION_FAILED;
-            bool can_transfer = (scaps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) != 0;
-            LOGI("surface supportedUsageFlags=0x%x transfer-dst=%s", scaps.supportedUsageFlags, can_transfer ? "YES" : "NO");
+            bool can_transfer = (caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) != 0;
+            LOGI("surface supportedUsageFlags=0x%x transfer-dst=%s", caps.supportedUsageFlags, can_transfer ? "YES" : "NO");
             if (create_sc && destroy_sc && get_sc_images && fr == VK_SUCCESS && format_count && can_transfer) {
-                VkExtent2D extent = scaps.currentExtent;
-                if (extent.width == UINT32_MAX) { extent.width = scaps.minImageExtent.width; extent.height = scaps.minImageExtent.height; }
+                VkExtent2D extent = caps.currentExtent;
+                if (extent.width == UINT32_MAX) { extent.width = caps.minImageExtent.width; extent.height = caps.minImageExtent.height; }
                 VkCompositeAlphaFlagBitsKHR alpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-                if (!(scaps.supportedCompositeAlpha & alpha)) { const VkCompositeAlphaFlagBitsKHR opts[] = { VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR }; for (unsigned k=0;k<3;k++) if (scaps.supportedCompositeAlpha & opts[k]) { alpha=opts[k]; break; } }
-                uint32_t image_count = scaps.minImageCount; if (scaps.maxImageCount && image_count > scaps.maxImageCount) image_count = scaps.maxImageCount;
+                if (!(caps.supportedCompositeAlpha & alpha)) { const VkCompositeAlphaFlagBitsKHR opts[] = { VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR }; for (unsigned k=0;k<3;k++) if (caps.supportedCompositeAlpha & opts[k]) { alpha=opts[k]; break; } }
+                uint32_t image_count = caps.minImageCount; if (caps.maxImageCount && image_count > caps.maxImageCount) image_count = caps.maxImageCount;
                 uint32_t family_indices[] = { graphics_family, present_family };
-                VkSwapchainCreateInfoKHR sci = { .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR, .surface = surface, .minImageCount = image_count, .imageFormat = formats[0].format, .imageColorSpace = formats[0].colorSpace, .imageExtent = extent, .imageArrayLayers = 1, .imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT, .imageSharingMode = graphics_family == present_family ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT, .queueFamilyIndexCount = graphics_family == present_family ? 0 : 2, .pQueueFamilyIndices = graphics_family == present_family ? NULL : family_indices, .preTransform = scaps.currentTransform, .compositeAlpha = alpha, .presentMode = VK_PRESENT_MODE_FIFO_KHR, .clipped = VK_TRUE };
+                VkSwapchainCreateInfoKHR sci = { .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR, .surface = surface, .minImageCount = image_count, .imageFormat = formats[0].format, .imageColorSpace = formats[0].colorSpace, .imageExtent = extent, .imageArrayLayers = 1, .imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT, .imageSharingMode = graphics_family == present_family ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT, .queueFamilyIndexCount = graphics_family == present_family ? 0 : 2, .pQueueFamilyIndices = graphics_family == present_family ? NULL : family_indices, .preTransform = caps.currentTransform, .compositeAlpha = alpha, .presentMode = VK_PRESENT_MODE_FIFO_KHR, .clipped = VK_TRUE };
                 sr = create_sc(device, &sci, NULL, &sc);
                 LOGI("DXVK 2.4.1 baseline vkCreateSwapchainKHR: %s (%d), extent=%ux%u", sr == VK_SUCCESS ? "PASS" : "FAIL", sr, extent.width, extent.height);
             } else {
