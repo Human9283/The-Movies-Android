@@ -276,67 +276,68 @@ int tm_host_run(const tm_host_options *options) {
     g_itrace_path = options->import_trace;
     g_seen_path = options->seen_out;
     if (options->mouse_free) hle_screen_confine(0);
-        }
-        g_seen = calloc((SEEN_HI - SEEN_LO) / 16 + 1, 1);
-        recomp_trace_extra = on_enter;
-        install_crash_handlers();
-        if (g_itrace_path) {
-            if (!tm_itrace_selfcheck()) { fprintf(stderr, "[itrace] trampoline table is wrong\n"); return 70; }
-            tm_itrace_enable();
-        }
-        g_t0 = hle_mono_ns();
-        if (watchdog > 0) { signal(SIGALRM, on_alarm); alarm((unsigned)watchdog); }
-    
-        char exe[4096];
-        snprintf(exe, sizeof exe, "%s/Movies.exe", game);
-        hle_set_drive('c', game);
-    
-        /* host.c's boot, with our resolver (recomp_host_boot_permissive takes none) */
-        recomp_host_init();
-        tm_loader_reserve();                                /* module handle ranges, before guest allocations */
-        win32hle_register(tm_helper_dll);
-        win32hle_register(tm_shell_shims);
-        win32hle_register(tm_user32_shims);
-        win32hle_register(tm_kernel32_shims);
-        win32hle_register(tm_except_overrides);
-        win32hle_register(tm_loader_overrides);
-        win32hle_register(tm_kernel32_overrides);
-        win32hle_register(tm_sysroot_overrides);
-        win32hle_register(tm_vfs_overrides);
-        win32hle_register(tm_ole32_overrides);
-        win32hle_register(tm_winmm_overrides);
-        tm_dinput8_init();
-        tm_wmvcore_init();
-        tm_dshow_init();
-        tm_d3d9_init();
-        if (d3d9_backend && !open_d3d9_backend(d3d9_backend)) return 1;
-        hle_on_exit = on_hle_exit;                          /* ExitProcess, fatal stops: keep the trace */
-        tm_shell_init(user);
-        if (!tm_sysroot_init(game, system_dir, user)) return 1;
-        pe_image img;
-        if (recomp_pe_map(exe, &img) != 0) { fprintf(stderr, "[host] cannot map %s\n", exe); return 1; }
-        char guest[1024];
-        hle_guest_path(exe, guest, sizeof guest);
-        hle_module_add(guest, img.base, img.resource_rva, img.resource_size, 1);
-        tm_loader_set_app_dir(guest);
-        int unresolved = recomp_pe_bind(&img, tm_resolve);
-        fprintf(stderr, "[bind] %d imports are stubs (stop the run if called), %d unresolved\n",
-                g_stub_count, unresolved);
-        fprintf(stderr, "[imports] %d bound: %d implemented, %d diagnostic, %d win32hle-present, %d win32hle-verified, %d unsupported\n",
-                g_nbound, g_status_count[TM_IMPLEMENTED], g_status_count[TM_DIAGNOSTIC], g_status_count[TM_WIN32HLE_PRESENT],
-                g_status_count[TM_WIN32HLE_VERIFIED], g_status_count[TM_UNSUPPORTED]);
-        if (imports_json) write_imports_json(imports_json);
-        if (img.entry != TM_ENTRY_VA)
-            fprintf(stderr, "[host] warning: entry 0x%08X, expected 0x%08X (not the 1.1 CD exe?)\n",
-                    img.entry, TM_ENTRY_VA);
-        fprintf(stderr, "[host] guest %s, boot %.1f ms, entering lifted 0x%08X (%u functions in dispatch)\n",
-                guest, ms_since_start(), img.entry, recomp_dispatch_count);
-        uint32_t args[1];
-        uint32_t rc = hle_call_guest(img.entry, 0, args);
-        fprintf(stderr, "[host] entry returned %u after %.1f ms, %u entries, %u distinct\n",
-                rc, ms_since_start(), g_entries, g_distinct);
-        itrace_flush();
-    
+
+    g_seen = calloc((SEEN_HI - SEEN_LO) / 16 + 1, 1);
+    recomp_trace_extra = on_enter;
+    install_crash_handlers();
+    if (g_itrace_path) {
+        if (!tm_itrace_selfcheck()) { fprintf(stderr, "[itrace] trampoline table is wrong\n"); return 70; }
+        tm_itrace_enable();
+    }
+    g_t0 = hle_mono_ns();
+    if (watchdog > 0) { signal(SIGALRM, on_alarm); alarm((unsigned)watchdog); }
+
+    char exe[4096];
+    snprintf(exe, sizeof exe, "%s/Movies.exe", game);
+    hle_set_drive('c', game);
+
+    /* host.c's boot, with our resolver (recomp_host_boot_permissive takes none) */
+    recomp_host_init();
+    tm_loader_reserve();
+    win32hle_register(tm_helper_dll);
+    win32hle_register(tm_shell_shims);
+    win32hle_register(tm_user32_shims);
+    win32hle_register(tm_kernel32_shims);
+    win32hle_register(tm_except_overrides);
+    win32hle_register(tm_loader_overrides);
+    win32hle_register(tm_kernel32_overrides);
+    win32hle_register(tm_sysroot_overrides);
+    win32hle_register(tm_vfs_overrides);
+    win32hle_register(tm_ole32_overrides);
+    win32hle_register(tm_winmm_overrides);
+    tm_dinput8_init();
+    tm_wmvcore_init();
+    tm_dshow_init();
+    tm_d3d9_init();
+    if (d3d9_backend && !open_d3d9_backend(d3d9_backend)) return 1;
+    hle_on_exit = on_hle_exit;
+    tm_shell_init(user);
+    if (!tm_sysroot_init(game, system_dir, user)) return 1;
+    pe_image img;
+    if (recomp_pe_map(exe, &img) != 0) { fprintf(stderr, "[host] cannot map %s\n", exe); return 1; }
+    char guest[1024];
+    hle_guest_path(exe, guest, sizeof guest);
+    hle_module_add(guest, img.base, img.resource_rva, img.resource_size, 1);
+    tm_loader_set_app_dir(guest);
+    int unresolved = recomp_pe_bind(&img, tm_resolve);
+    fprintf(stderr, "[bind] %d imports are stubs (stop the run if called), %d unresolved\n",
+            g_stub_count, unresolved);
+    fprintf(stderr, "[imports] %d bound: %d implemented, %d diagnostic, %d win32hle-present, %d win32hle-verified, %d unsupported\n",
+            g_nbound, g_status_count[TM_IMPLEMENTED], g_status_count[TM_DIAGNOSTIC], g_status_count[TM_WIN32HLE_PRESENT],
+            g_status_count[TM_WIN32HLE_VERIFIED], g_status_count[TM_UNSUPPORTED]);
+    if (imports_json) write_imports_json(imports_json);
+    if (img.entry != TM_ENTRY_VA)
+        fprintf(stderr, "[host] warning: entry 0x%08X, expected 0x%08X (not the 1.1 CD exe?)\n",
+                img.entry, TM_ENTRY_VA);
+    fprintf(stderr, "[host] guest %s, boot %.1f ms, entering lifted 0x%08X (%u functions in dispatch)\n",
+            guest, ms_since_start(), img.entry, recomp_dispatch_count);
+    uint32_t args[1];
+    uint32_t rc = hle_call_guest(img.entry, 0, args);
+    fprintf(stderr, "[host] entry returned %u after %.1f ms, %u entries, %u distinct\n",
+            rc, ms_since_start(), g_entries, g_distinct);
+    itrace_flush();
+    return (int)rc;
+}
 
 #ifndef __ANDROID__
 int main(int argc, char **argv) {
