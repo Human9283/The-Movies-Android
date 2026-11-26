@@ -8,11 +8,7 @@ This is not a remake or a clone. The game's own code runs, translated
 instruction by instruction, with its original data. You need your own copy
 of the game.
 
-> **Status: early bring-up.** The game does not run yet. On 64-bit Linux
-> the recompiled start-up code reaches `WinMain` and runs the game's own
-> start-up, past its DirectShow start-up probe, as far as its own Direct3D 9
-> `CreateDevice` call. That call is recorded, but no device exists yet; see
-> [Status](#status).
+> **Status: Linux runtime works; Android game port not yet implemented.** On Linux x86-64, the original game reaches the Lionhead logo, main menu and 3D studio lot through DXVK Native. Video playback and audio remain incomplete or unverified. A separate Android ARM64 Vulkan diagnostic APK has been built successfully in the `audit/android-arm64-next-steps` branch; it is a hardware probe only, not the game. See [Android status](docs/ANDROID-FEASIBILITY.md) and [Vulkan probe notes](docs/ANDROID-VULKAN-PROBE.md).
 
 ## Contents
 
