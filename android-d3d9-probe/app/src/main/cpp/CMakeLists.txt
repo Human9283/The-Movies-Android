@@ -40,12 +40,49 @@ target_include_directories(tm_d3d9_dxvk_compile PRIVATE
 )
 target_compile_options(tm_d3d9_dxvk_compile PRIVATE -Wall -Wno-unused-function -Wno-unused-parameter)
 
+# Compile the real portable game-host C sources with the Android NDK. This is
+# deliberately object-only: the public repository does not contain the
+# user's lifted Movies.exe C output, so this target validates Bionic/ARM64
+# source compatibility without pretending to link or run the game.
+get_filename_component(TM_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../.." ABSOLUTE)
+set(TM_ANDROID_HOST_SOURCES
+    "${TM_REPO_ROOT}/src/host/tm_host.c"
+    "${TM_REPO_ROOT}/src/host/tm_shell.c"
+    "${TM_REPO_ROOT}/src/host/tm_user32.c"
+    "${TM_REPO_ROOT}/src/host/tm_imports.c"
+    "${TM_REPO_ROOT}/src/host/tm_itrace.c"
+    "${TM_REPO_ROOT}/src/host/tm_kernel32.c"
+    "${TM_REPO_ROOT}/src/host/tm_except.c"
+    "${TM_REPO_ROOT}/src/host/tm_loader.c"
+    "${TM_REPO_ROOT}/src/host/tm_dinput8.c"
+    "${TM_REPO_ROOT}/src/host/tm_sysroot.c"
+    "${TM_REPO_ROOT}/src/host/tm_vfs.c"
+    "${TM_REPO_ROOT}/src/host/tm_wmvcore.c"
+    "${TM_REPO_ROOT}/src/host/tm_dshow.c"
+    "${TM_REPO_ROOT}/src/host/tm_d3d9.c"
+    "${TM_REPO_ROOT}/src/host/tm_ole32.c"
+    "${TM_REPO_ROOT}/src/host/tm_winmm.c"
+    "${TM_REPO_ROOT}/src/host/tm_trace.c"
+)
+add_library(tm_android_host_compile OBJECT ${TM_ANDROID_HOST_SOURCES})
+target_compile_definitions(tm_android_host_compile PRIVATE
+    _GNU_SOURCE RECOMP_RETADDR=0u TM_HAVE_DXVK=1)
+target_include_directories(tm_android_host_compile PRIVATE
+    "${TM_REPO_ROOT}/src/host"
+    "${PCRECOMP_SOURCE_DIR}/runtime/win32hle"
+    "${PCRECOMP_SOURCE_DIR}/runtime/recomp32"
+    "${SDL2_INCLUDE_DIR}"
+)
+target_compile_options(tm_android_host_compile PRIVATE
+    -Wall -Wno-unused-function -Wno-unused-parameter -fno-strict-aliasing)
+
+
 add_library(vulkanpreflight SHARED vulkan_preflight.c)
 target_link_libraries(vulkanpreflight PRIVATE ${ANDROID_LIBRARY} ${LOG_LIBRARY} ${VULKAN_LIBRARY})
 target_compile_options(vulkanpreflight PRIVATE -Wall -Wextra -Werror=return-type)
 
 add_library(main SHARED main.cpp)
-add_dependencies(main tm_d3d9_dxvk_compile)
+add_dependencies(main tm_d3d9_dxvk_compile tm_android_host_compile)
 target_compile_features(main PRIVATE cxx_std_17)
 target_compile_definitions(main PRIVATE SDL_MAIN_HANDLED NOMINMAX)
 target_include_directories(main PRIVATE
