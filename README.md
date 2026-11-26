@@ -88,6 +88,7 @@ docs/                   build instructions, architecture, implementation notes a
 - [Android feasibility and measured results](docs/ANDROID-FEASIBILITY.md)
 - [Android port architecture and validation](docs/ANDROID-PORT-AUDIT.md)
 - [Android application build](android-game/README.md)
+- [Android diagnostics and log export](docs/ANDROID-DIAGNOSTICS.md)
 - [Android Vulkan diagnostic](android-probe/README.md)
 - [Android D3D9 diagnostic](android-d3d9-probe/README.md)
 
