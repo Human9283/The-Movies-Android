@@ -38,8 +38,8 @@ extern "C" {
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_vulkan.h>
+#include <SDL.h>
+#include <SDL_vulkan.h>
 #include <d3d9.h>
 #include "tm_d3d9_backend.h"
 #include "tm_d3d9_dxvk.h"
