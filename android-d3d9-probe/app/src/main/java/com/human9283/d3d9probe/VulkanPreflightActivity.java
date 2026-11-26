@@ -25,8 +25,6 @@ public final class VulkanPreflightActivity extends Activity {
     private boolean started;
     private boolean nativeLibraryReady;
     private String loadError = "";
-    private static final String TRACE_PREFS = "dxvk_crash_trace";
-    private static final String TRACE_KEY = "trace";
 
     private native String runProbe(Surface surface);
 
@@ -70,7 +68,11 @@ public final class VulkanPreflightActivity extends Activity {
         launchButton.setText("Запустить DXVK");
         launchButton.setEnabled(false);
         launchButton.setOnClickListener(v -> {
-            getSharedPreferences(TRACE_PREFS, MODE_PRIVATE).edit().putString(TRACE_KEY, "").commit();
+            try (java.io.FileOutputStream out = openFileOutput("dxvk_trace.txt", MODE_PRIVATE)) {
+                out.flush();
+            } catch (java.io.IOException error) {
+                report += "Could not clear previous trace: " + error + "\n";
+            }
             report = report + "\n--- SDL / DXVK process launch ---\n";
             reportView.setText(report);
             launchButton.setEnabled(false);
@@ -152,7 +154,18 @@ public final class VulkanPreflightActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        String trace = getSharedPreferences(TRACE_PREFS, MODE_PRIVATE).getString(TRACE_KEY, "");
+        String trace = "";
+        try (java.io.FileInputStream in = openFileInput("dxvk_trace.txt");
+             java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream()) {
+            byte[] buffer = new byte[2048];
+            int count;
+            while ((count = in.read(buffer)) != -1) bytes.write(buffer, 0, count);
+            trace = bytes.toString("UTF-8");
+        } catch (java.io.FileNotFoundException ignored) {
+            // No SDL/DXVK launch trace yet.
+        } catch (java.io.IOException error) {
+            trace = "Could not read persisted trace: " + error;
+        }
         if (trace != null && !trace.isEmpty()) {
             report = report.split("\n--- SDL / DXVK process launch ---", 2)[0]
                     + "\n--- Persisted SDL / DXVK trace (separate process) ---\n" + trace;
