@@ -251,3 +251,41 @@ following gates:
 
 No source from the reference repository is copied by this note. Its project
 licensing must be checked at the file/component level before any code reuse.
+
+## 6. Additional DXVK-on-Android references (2026-11-26)
+
+Two further projects provide evidence that a native Android DXVK build is
+possible, including with SDL-based windowing:
+
+- [tarek369/GeneralsZH-Android](https://github.com/tarek369/GeneralsZH-Android)
+  reports a native Android ARM64 C++ game using SDL3 and DXVK (D3D8 to
+  Vulkan), with the main menu and skirmish gameplay working on a OnePlus Pad 2
+  with Snapdragon 8 Gen 3 / Adreno 830. Its Android engineering notes describe
+  NDK cross-compilation, the SDL3 WSI, Android soname handling, and DXVK build
+  changes. The repository is GPL-3.0; treat it as a reference, not code to
+  transplant into this MIT project without a separate licence review.
+
+- [MYSOREZ/GeneralsZH-Android-Port](https://github.com/MYSOREZ/GeneralsZH-Android-Port)
+  carries a DXVK Native fork/submodule and explicit Android patches. Of
+  particular relevance are its Android shared-library naming changes and its
+  adaptive Vulkan 1.1 patch: it handles promoted Vulkan 1.2/1.3 features via
+  extension fallbacks, and gates feature bits against what the physical driver
+  actually reports. It also contains separate Android/Mali fallback patches.
+  This demonstrates why a simple API-version check is insufficient: the
+  driver may advertise an API level but fail to support a feature that a
+  backend unconditionally enables. The repository reports no SPDX licence
+  identifier, so no source reuse is assumed.
+
+Together with the NFSU2 recompilation reference above, these projects support
+three separate engineering conclusions:
+
+1. Android ARM64 native game runtimes and Android Vulkan WSI are practical.
+2. A desktop DXVK build cannot simply be relinked for Android: Bionic,
+   sonames, WSI, feature negotiation, swapchain/surface lifetime and device
+   quirks need explicit treatment.
+3. The Movies' D3D9 backend should be validated with a standalone Android
+   D3D9 test before the guest runtime is connected. D3D8 success in Generals
+   is useful precedent, but does not prove D3D9 format/resource coverage.
+
+These repositories are references only. No third-party source has been copied
+into this project by this documentation change.
