@@ -86,7 +86,6 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
     PUSH_FEATURE(f13); PUSH_FEATURE(f12); PUSH_FEATURE(f11);
     VkPhysicalDeviceFeatures2 f2 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = chain };
     vkGetPhysicalDeviceFeatures2(gpu, &f2);
-#define CORE(name) LOGI("feature %-42s %s", #name, f2.features.name ? "YES" : "NO")
     bool required_features_ok = true;
 #define REQUIRED_CORE(name) do { bool ok = f2.features.name != 0; LOGI("required %-39s %s", #name, ok ? "PASS" : "FAIL"); if (!ok) required_features_ok = false; } while (0)
     REQUIRED_CORE(depthBiasClamp); REQUIRED_CORE(depthClamp); REQUIRED_CORE(dualSrcBlend); REQUIRED_CORE(fillModeNonSolid);
@@ -127,8 +126,12 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
     LOGI("surface capabilities result=%d minImages=%u maxImages=%u currentExtent=%ux%u",
          cr, cr == VK_SUCCESS ? caps.minImageCount : 0, cr == VK_SUCCESS ? caps.maxImageCount : 0,
          cr == VK_SUCCESS ? caps.currentExtent.width : 0, cr == VK_SUCCESS ? caps.currentExtent.height : 0);
-    LOGI("NOTE: required feature results above are the pinned DXVK v3.1.1 gate; full device creation is not attempted.");
-    (void)instance; (void)ext_ok; (void)graphics; (void)present;
+    bool ready = props.apiVersion >= VK_API_VERSION_1_3 && graphics && present && ext_ok &&
+                 required_features_ok && cr == VK_SUCCESS;
+    LOGI("DXVK v3.1.1 hardware gate: %s (does not prove Android linking/runtime compatibility)",
+         ready ? "PASS" : "FAIL");
+    LOGI("NOTE: no Vulkan device is created; this is capability enumeration only.");
+    (void)instance;
 }
 
 static void probe(struct android_app *app) {
@@ -180,7 +183,8 @@ static void handle_cmd(struct android_app *app, int32_t cmd) {
 }
 
 void android_main(struct android_app *app) {
-    app_dummy();\n    app->onAppCmd = handle_cmd;
+    app_dummy();
+    app->onAppCmd = handle_cmd;
     LOGI("Probe started. Waiting for Android native window.");
     while (!app->destroyRequested) {
         int events = 0; struct android_poll_source *source = NULL;
