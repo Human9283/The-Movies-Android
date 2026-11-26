@@ -98,7 +98,7 @@ set(TM_RUNTIME_SOURCES
     src/host/tm_trace.c
     $<TARGET_OBJECTS:tm_gen>
 )
-add_executable(tm_host ${TM_RUNTIME_SOURCES})
+add_executable(tm_host src/host/tm_host_main.c ${TM_RUNTIME_SOURCES})
 
 foreach(t tm_gen tm_host)
   target_include_directories(${t} PRIVATE ${CMAKE_SOURCE_DIR}/src/host ${TM_GEN} ${PCRECOMP}/runtime/recomp32 ${PCRECOMP}/runtime/win32hle)
