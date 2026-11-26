@@ -93,7 +93,7 @@ structures and pointers into host-side calls.
 | Platform | D3D9 backend | Verified result |
 |---|---|---|
 | Linux x86-64 | DXVK Native 3.1.1 | The game's device initializes; intro, main menu and studio-lot rendering have been reached |
-| Android ARM64 | Android-adapted DXVK Native 1.9.2 fork | Standalone D3D9 diagnostic passes on Galaxy S24 Ultra; full game runtime not yet verified |
+| Android ARM64 | Android-adapted DXVK Native 1.9.2 fork | Full APK launches and reaches animated intro rendering on Galaxy S24 Ultra; splash stall remains |
 
 The Android fork is pinned separately from the Linux dependency. The
 stock Adreno 750 driver does not expose all extensions required by the
@@ -127,9 +127,10 @@ The following Linux execution results are verified:
 - The game's Direct3D 9 device is created through DXVK Native.
 - The intro logo, main menu and a new 3D studio lot have been reached.
 
-Android validation is separate. The D3D9 diagnostic passed on the
-Galaxy S24 Ultra, but the complete game has not yet reached its CRT,
-WinMain, D3D9 initialization or first frame on Android.
+Android validation is separate. Both the standalone D3D9 diagnostic and
+a full-game APK have run on the Galaxy S24 Ultra. The game creates its D3D9
+device and presents animated intro frames, but has not reached the main
+menu or gameplay. Touch input and lifecycle behaviour remain under test.
 
 ## 8. Technical references
 
