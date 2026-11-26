@@ -5,9 +5,11 @@ def dxvkRoot = providers.gradleProperty("dxvkRoot").getOrElse("")
 def pcrecompRoot = providers.gradleProperty("pcrecompRoot").getOrElse("")
 def tmGen = providers.gradleProperty("tmGen").getOrElse("")
 def sdlLibrary = providers.gradleProperty("sdlLibrary").getOrElse("")
+def sdl2TtfIncludeDir = providers.gradleProperty("sdl2TtfIncludeDir").getOrElse("")
+def sdl2TtfLibrary = providers.gradleProperty("sdl2TtfLibrary").getOrElse("")
 def dxvkLibrary = providers.gradleProperty("dxvkLibrary").getOrElse("")
-if ([sdlRoot, dxvkRoot, pcrecompRoot, tmGen, sdlLibrary, dxvkLibrary].any { it.isEmpty() }) {
-    throw new GradleException("Pass sdlRoot, dxvkRoot, pcrecompRoot, tmGen, sdlLibrary and dxvkLibrary")
+if ([sdlRoot, dxvkRoot, pcrecompRoot, tmGen, sdlLibrary, sdl2TtfIncludeDir, sdl2TtfLibrary, dxvkLibrary].any { it.isEmpty() }) {
+    throw new GradleException("Pass sdlRoot, dxvkRoot, pcrecompRoot, tmGen, sdlLibrary, sdl2TtfIncludeDir, sdl2TtfLibrary and dxvkLibrary")
 }
 
 android {
@@ -28,7 +30,7 @@ android {
                     "-DPCRECOMP_SOURCE_DIR=" + pcrecompRoot,
                     "-DTM_GEN=" + tmGen,
                     "-DSDL2_ROOT=" + sdlRoot,
-                    "-DSDL2_LIBRARY=" + sdlLibrary,
+                    "-DSDL2_LIBRARY=" + sdlLibrary,\n                    "-DSDL2_TTF_INCLUDE_DIR=" + sdl2TtfIncludeDir,\n                    "-DSDL2_TTF_LIBRARY=" + sdl2TtfLibrary,
                     "-DDXVK_ROOT=" + dxvkRoot,
                     "-DDXVK_D3D9_LIBRARY=" + dxvkLibrary
             }
