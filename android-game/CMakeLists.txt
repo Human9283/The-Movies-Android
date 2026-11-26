@@ -5,11 +5,13 @@ project(the_movies_android_game C CXX)
 get_filename_component(TM_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 set(PCRECOMP_SOURCE_DIR "" CACHE PATH "Pinned pcrecomp checkout")
 set(TM_GEN "" CACHE PATH "Private output directory from run_lift.py")
-set(SDL2_ROOT "" CACHE PATH "SDL2 source/build root; must contain include/SDL.h and lib/arm64-v8a/libSDL2.so")
-set(DXVK_ROOT "" CACHE PATH "Android DXVK Native source/build root")
+set(SDL2_ROOT "" CACHE PATH "SDL2 source root (headers)")
+set(SDL2_LIBRARY "" CACHE FILEPATH "Built Android libSDL2.so")
+set(DXVK_ROOT "" CACHE PATH "Android DXVK Native source root (headers)")
+set(DXVK_D3D9_LIBRARY "" CACHE FILEPATH "Built Android libdxvk_d3d9.so")
 
-foreach(required PCRECOMP_SOURCE_DIR TM_GEN SDL2_ROOT DXVK_ROOT)
-  if(NOT ${required})
+foreach(required PCRECOMP_SOURCE_DIR TM_GEN SDL2_ROOT SDL2_LIBRARY DXVK_ROOT DXVK_D3D9_LIBRARY)
+  if("${${required}}" STREQUAL "")
     message(FATAL_ERROR "${required} must be set")
   endif()
 endforeach()
@@ -17,9 +19,9 @@ foreach(check
     "${PCRECOMP_SOURCE_DIR}/runtime/win32hle/win32hle.h"
     "${TM_GEN}/recomp_dispatch.c"
     "${SDL2_ROOT}/include/SDL.h"
-    "${SDL2_ROOT}/lib/arm64-v8a/libSDL2.so"
+    "${SDL2_LIBRARY}"
     "${DXVK_ROOT}/include/native/directx/d3d9.h"
-    "${DXVK_ROOT}/lib/arm64-v8a/libdxvk_d3d9.so")
+    "${DXVK_D3D9_LIBRARY}")
   if(NOT EXISTS "${check}")
     message(FATAL_ERROR "Required Android game-build input missing: ${check}")
   endif()
@@ -81,9 +83,9 @@ set(TM_RUNTIME_SOURCES
 )
 
 add_library(SDL2 SHARED IMPORTED GLOBAL)
-set_target_properties(SDL2 PROPERTIES IMPORTED_LOCATION "${SDL2_ROOT}/lib/arm64-v8a/libSDL2.so")
+set_target_properties(SDL2 PROPERTIES IMPORTED_LOCATION "${SDL2_LIBRARY}")
 add_library(DXVK_D3D9 SHARED IMPORTED GLOBAL)
-set_target_properties(DXVK_D3D9 PROPERTIES IMPORTED_LOCATION "${DXVK_ROOT}/lib/arm64-v8a/libdxvk_d3d9.so")
+set_target_properties(DXVK_D3D9 PROPERTIES IMPORTED_LOCATION "${DXVK_D3D9_LIBRARY}")
 
 add_library(main SHARED ${TM_RUNTIME_SOURCES} "${TM_ROOT}/src/host/tm_d3d9_dxvk.cpp")
 target_compile_features(main PRIVATE c_std_11 cxx_std_17)
@@ -99,7 +101,7 @@ target_include_directories(main PRIVATE
     "${DXVK_ROOT}/include/native/windows"
     "${DXVK_ROOT}/include/native/android"
     "${DXVK_ROOT}/include/native")
-target_compile_options(main PRIVATE -fno-strict-aliasing -fwrapv -Wno-unused-function -Wno-unused-parameter)
+target_compile_options(main PRIVATE -O1 -fno-strict-aliasing -fwrapv -Wno-unused-function -Wno-unused-parameter)
 target_link_libraries(main PRIVATE SDL2 DXVK_D3D9 android log dl vulkan m)
 set_target_properties(main PROPERTIES OUTPUT_NAME main)
 
