@@ -410,3 +410,8 @@ This is a community fork, not an upstream-supported Android release. The success
 A separate `android-d3d9-probe/` app and GitHub Actions workflow have been added on this feature branch. The workflow pins the fork above, builds SDL2 2.30.9 and `libdxvk_d3d9.so` for `arm64-v8a`, then packages a minimal SDLActivity APK. The native test will call `Direct3DCreate9`, create a D3D9 HAL device, clear the backbuffer, draw a fixed-function triangle, and call `Present`. This deliberately tests the same SDL2/Vulkan WSI shape as the game runtime without including the game or its data.
 
 **Validation state:** the workflow has been started, but its build and APK packaging are not yet verified. Even a successful CI artifact will need a physical S24 Ultra run. The acceptance result is a visible blue frame with a green/white triangle and successful D3D9 create/present logs. Only after that should the Android host be connected to the lifted game runtime.
+
+
+## Probe 0.4: actual Vulkan queue presentation (2026-11-26)
+
+The follow-up diagnostic APK now uses a visible Android SurfaceView and extends the Vulkan smoke test beyond swapchain creation. When the surface supports `VK_IMAGE_USAGE_TRANSFER_DST_BIT`, it acquires a swapchain image, records a transfer clear, transitions the image to `VK_IMAGE_LAYOUT_PRESENT_SRC_KHR`, submits it, and calls `vkQueuePresentKHR`. The APK build completed successfully in GitHub Actions run [45736487381](https://github.com/Human9283/The-Movies-Android/actions/runs/45736487381). The new APK has not yet been run on the phone, so actual present remains unmeasured. This is still a Vulkan WSI test and does not load DXVK.
