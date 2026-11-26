@@ -16,7 +16,30 @@ find_library(ANDROID_LIBRARY android REQUIRED)
 find_library(LOG_LIBRARY log REQUIRED)
 find_library(DL_LIBRARY dl REQUIRED)
 
+if(NOT DEFINED PCRECOMP_SOURCE_DIR OR NOT EXISTS "${PCRECOMP_SOURCE_DIR}/runtime/win32hle/win32hle.h")
+    message(FATAL_ERROR "PCRECOMP_SOURCE_DIR must point to the pinned pcrecomp checkout")
+endif()
+
+# Compile the project's real D3D9 host bridge against this Android DXVK fork.
+# This is an object-only ABI/header compatibility check; the probe APK does
+# not link the game host or include lifted game code.
+set(TM_D3D9_BACKEND_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../src/host/tm_d3d9_dxvk.cpp")
+add_library(tm_d3d9_dxvk_compile OBJECT "${TM_D3D9_BACKEND_SOURCE}")
+target_compile_features(tm_d3d9_dxvk_compile PRIVATE cxx_std_17)
+target_compile_definitions(tm_d3d9_dxvk_compile PRIVATE _GNU_SOURCE RECOMP_RETADDR=0u NOMINMAX)
+target_include_directories(tm_d3d9_dxvk_compile PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../src/host"
+    "${PCRECOMP_SOURCE_DIR}/runtime/win32hle"
+    "${PCRECOMP_SOURCE_DIR}/runtime/recomp32"
+    "${SDL2_INCLUDE_DIR}"
+    "${DXVK_SOURCE_DIR}/include/native/directx"
+    "${DXVK_SOURCE_DIR}/include/native/windows"
+    "${DXVK_SOURCE_DIR}/include/native"
+)
+target_compile_options(tm_d3d9_dxvk_compile PRIVATE -Wall -Wno-unused-function -Wno-unused-parameter)
+
 add_library(main SHARED main.cpp)
+add_dependencies(main tm_d3d9_dxvk_compile)
 target_compile_features(main PRIVATE cxx_std_17)
 target_compile_definitions(main PRIVATE SDL_MAIN_HANDLED NOMINMAX)
 target_include_directories(main PRIVATE
