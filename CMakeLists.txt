@@ -73,8 +73,32 @@ pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2 SDL2_ttf)
 find_package(Threads REQUIRED)
 
 add_library(tm_gen OBJECT ${GEN_SOURCES})
-add_executable(tm_host src/host/tm_host.c src/host/tm_shell.c src/host/tm_user32.c src/host/tm_imports.c src/host/tm_itrace.c src/host/tm_kernel32.c src/host/tm_except.c src/host/tm_loader.c src/host/tm_dinput8.c src/host/tm_sysroot.c src/host/tm_vfs.c src/host/tm_wmvcore.c src/host/tm_dshow.c src/host/tm_d3d9.c src/host/tm_ole32.c src/host/tm_winmm.c ${HLE_SOURCES}
-               src/host/tm_trace.c $<TARGET_OBJECTS:tm_gen>)
+
+# Shared host/runtime sources. The desktop executable adds only its CLI
+# entry point (currently tm_host.c, whose main is omitted for Android).
+# Keep this list reusable when the Android shared-library target is added.
+set(TM_RUNTIME_SOURCES
+    src/host/tm_host.c
+    src/host/tm_shell.c
+    src/host/tm_user32.c
+    src/host/tm_imports.c
+    src/host/tm_itrace.c
+    src/host/tm_kernel32.c
+    src/host/tm_except.c
+    src/host/tm_loader.c
+    src/host/tm_dinput8.c
+    src/host/tm_sysroot.c
+    src/host/tm_vfs.c
+    src/host/tm_wmvcore.c
+    src/host/tm_dshow.c
+    src/host/tm_d3d9.c
+    src/host/tm_ole32.c
+    src/host/tm_winmm.c
+    ${HLE_SOURCES}
+    src/host/tm_trace.c
+    $<TARGET_OBJECTS:tm_gen>
+)
+add_executable(tm_host ${TM_RUNTIME_SOURCES})
 
 foreach(t tm_gen tm_host)
   target_include_directories(${t} PRIVATE ${CMAKE_SOURCE_DIR}/src/host ${TM_GEN} ${PCRECOMP}/runtime/recomp32 ${PCRECOMP}/runtime/win32hle)
