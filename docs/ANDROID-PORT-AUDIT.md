@@ -272,3 +272,32 @@ API:
 The Android bridge must therefore be a one-shot launch initially, pass
 explicit paths, leave diagnostic stop/watchdog options disabled, and
 coordinate SDL lifecycle before it can be considered usable.
+
+
+## Guest-memory dependency: AArch64 gate
+
+The pinned build instructions use pcrecomp revision
+`7c07a0b42059b6dc4313d9b4ebded6f7a72db8f3`. Its `runtime/win32hle/guest_mem.c`
+describes the 64-bit "based" mode as one 4 GiB guest-address reservation
+at `g_mem_base`; guest virtual addresses are offsets into that reservation.
+The dependency also contains a compatibility definition for
+`MAP_FIXED_NOREPLACE`. This is a Linux virtual-memory implementation detail,
+not an Android guarantee.
+
+Consequences for the port:
+
+- The first AArch64 test must use the same pinned pcrecomp revision as the
+  game build, not a newer checkout with potentially different memory code.
+- Verify that the 4 GiB reservation succeeds under the target Android
+  process address-space layout and that PE image mappings/relocations still
+  work. A successful C compile does not prove this.
+- Record the actual reservation base and confirm that no guest VA is
+  accidentally truncated or converted through a 32-bit host pointer.
+- Keep the normal variable-base mode for the first experiment. Do not enable
+  a fixed host base merely as a performance optimization until the Android
+  address-space layout has been measured.
+- Run the existing PE loader and guest-memory tests on AArch64 before
+  attempting DXVK or the full game.
+
+This is now a separate explicit porting gate between "AArch64 compiles" and
+"Android graphics works". It is not yet tested on Android hardware.
