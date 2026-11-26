@@ -14,6 +14,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include "tm_host.h"
@@ -84,6 +85,17 @@ int SDL_main(int argc, char **argv) {
     fprintf(stderr, "[android] game root: %s\n", game);
     fprintf(stderr, "[android] user root: %s\n", user);
     fprintf(stderr, "[android] system root: %s\n", system_dir);
+    char frames[PATH_MAX];
+    if (snprintf(frames, sizeof(frames), "%s/logs/frames", root) < (int)sizeof(frames) &&
+        tm_mkdirs(frames)) {
+        if (setenv("TM_D3D9_SHOTS", frames, 1) == 0)
+            fprintf(stderr, "[android] D3D9 frame capture enabled: %s (frames 1, 2, 4, ... 512)\n", frames);
+        else
+            fprintf(stderr, "[android] could not enable D3D9 frame capture\n");
+    } else {
+        fprintf(stderr, "[android] could not create D3D9 frame capture directory\n");
+    }
+
     fprintf(stderr, "[android] starting shared host with Android DXVK D3D9 backend\n");
 
     const tm_host_options options = {
