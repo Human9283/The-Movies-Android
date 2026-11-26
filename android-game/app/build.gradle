@@ -27,6 +27,8 @@ android {
             cmake {
                 cppFlags "-std=c++17"
                 arguments "-DANDROID_STL=c++_shared",
+                    "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
+                    "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
                     "-DPCRECOMP_SOURCE_DIR=" + pcrecompRoot,
                     "-DTM_GEN=" + tmGen,
                     "-DSDL2_ROOT=" + sdlRoot,
