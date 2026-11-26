@@ -4,8 +4,9 @@ plugins {
 
 def sdlRoot = project.findProperty("sdlRoot") ?: ""
 def dxvkRoot = project.findProperty("dxvkRoot") ?: ""
-if (sdlRoot.toString().isEmpty() || dxvkRoot.toString().isEmpty()) {
-    throw new GradleException("Pass -PsdlRoot and -PdxvkRoot from the Android build workflow")
+def pcrecompRoot = project.findProperty("pcrecompRoot") ?: ""
+if (sdlRoot.toString().isEmpty() || dxvkRoot.toString().isEmpty() || pcrecompRoot.toString().isEmpty()) {
+    throw new GradleException("Pass -PsdlRoot, -PdxvkRoot and -PpcrecompRoot from the Android build workflow")
 }
 
 android {
@@ -26,7 +27,8 @@ android {
                 arguments "-DANDROID_STL=c++_static",
                           "-DDXVK_SOURCE_DIR=" + dxvkRoot,
                           "-DSDL2_INCLUDE_DIR=" + sdlRoot + "/include",
-                          "-DSDL2_LIB_DIR=" + projectDir + "/src/main/jniLibs/arm64-v8a"
+                          "-DSDL2_LIB_DIR=" + projectDir + "/src/main/jniLibs/arm64-v8a",
+                          "-DPCRECOMP_SOURCE_DIR=" + pcrecompRoot
             }
         }
     }
