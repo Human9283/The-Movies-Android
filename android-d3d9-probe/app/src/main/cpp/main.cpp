@@ -185,7 +185,7 @@ extern "C" int SDL_main(int, char**) {
         SDL_Delay(100);
     }
     if (surface_ready) {
-        SDL_Vulkan_DestroySurface(sdl_instance, sdl_surface);
+        vkDestroySurfaceKHR(sdl_instance, sdl_surface, nullptr);
         reportf("SDL Vulkan Android surface preflight: PASS");
     } else {
         reportf("FAIL SDL Vulkan Android surface preflight after 20 attempts");
