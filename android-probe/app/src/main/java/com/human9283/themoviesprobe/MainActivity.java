@@ -40,7 +40,7 @@ public final class MainActivity extends Activity {
         root.addView(title);
 
         TextView hint = new TextView(this);
-        hint.setText("Диагностика графического драйвера телефона. Интернет и разрешения не требуются.");
+        hint.setText("Проверка Vulkan на телефоне. После теста внизу должен появиться синий кадр; отчёт можно скопировать.");
         hint.setTextSize(14);
         hint.setPadding(0, dp(8), 0, dp(12));
         root.addView(hint);
@@ -92,7 +92,7 @@ public final class MainActivity extends Activity {
             @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {}
             @Override public void surfaceDestroyed(SurfaceHolder holder) {}
         });
-        root.addView(surfaceView, new LinearLayout.LayoutParams(1, 1));
+        root.addView(surfaceView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(120)));
 
         setContentView(root);
     }
