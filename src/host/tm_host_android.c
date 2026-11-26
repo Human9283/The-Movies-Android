@@ -38,6 +38,17 @@ static int tm_is_directory(const char *path) {
     return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
+static void tm_android_redirect_stdio(const char *root) {
+    char log_dir[PATH_MAX], log_file[PATH_MAX];
+    if (snprintf(log_dir, sizeof(log_dir), "%s/logs", root) >= (int)sizeof(log_dir) ||
+        snprintf(log_file, sizeof(log_file), "%s/native.log", log_dir) >= (int)sizeof(log_file)) {
+        return;
+    }
+    if (!tm_mkdirs(log_dir)) return;
+    if (freopen(log_file, "a", stdout)) setvbuf(stdout, NULL, _IOLBF, 0);
+    if (freopen(log_file, "a", stderr)) setvbuf(stderr, NULL, _IOLBF, 0);
+}
+
 int SDL_main(int argc, char **argv) {
     (void)argc;
     (void)argv;
@@ -48,6 +59,7 @@ int SDL_main(int argc, char **argv) {
         fprintf(stderr, "[android] SDL did not provide app-private storage\n");
         return 70;
     }
+    tm_android_redirect_stdio(root);
 
     char game[PATH_MAX], user[PATH_MAX], system_dir[PATH_MAX], exe[PATH_MAX], data[PATH_MAX];
     if (snprintf(game, sizeof(game), "%s/game", root) >= (int)sizeof(game) ||
@@ -57,11 +69,6 @@ int SDL_main(int argc, char **argv) {
         snprintf(data, sizeof(data), "%s/Data", game) >= (int)sizeof(data)) {
         fprintf(stderr, "[android] app-private path is too long\n");
         return 70;
-    }
-
-    if (!tm_mkdirs(user) || !tm_mkdirs(system_dir)) {
-        fprintf(stderr, "[android] cannot create user/system directories under %s\n", root);
-        return 73;
     }
 
     struct stat exe_stat;
