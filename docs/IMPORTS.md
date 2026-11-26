@@ -398,16 +398,17 @@ background, as Wine's dinput).
 | `Acquire`, `Unacquire` | implemented | needs a data format; `DI_NOEFFECT` when already in that state; foreground level: `DIERR_OTHERAPPHASPRIO` unless the window is the foreground window | | Acquire yes, DI_OK; Unacquire not yet | test_dinput8 |
 | every other method (`GetDeviceState`, `GetDeviceData`, `EnumDevices`, `Poll`, ...) | unsupported | | a named stub: calling it stops the run | no | test_dinput8 checks the stubs are named |
 
-**Input does not work yet.** The devices are created and acquired, but the
-host has no keyboard or mouse source, and `GetDeviceState`/`GetDeviceData`
-are not implemented. A successful DirectInput start-up means only that the
-game's initialisation sequence ran with correct results.
+**Input methods are implemented.** `GetDeviceState` and
+`GetDeviceData` read the keyboard and mouse state maintained by win32hle;
+the game-facing methods are no longer unsupported. This documents the
+emulated DirectInput contract, not proof that every host input device or
+platform event path has been validated.
 
 The HRESULTs come from the DirectInput 8 documentation. Where it is silent,
 they follow Wine's dinput: the order of the checks in `DirectInput8Create`,
 the default cooperative level, the desktop for a NULL window, and a device
-holding a reference to its DirectInput object. None of this has been
-checked on real Windows.
+holding a reference to its DirectInput object. These behaviours have not
+been checked on real Windows.
 
 ### GetTempPathA (implemented)
 
@@ -732,6 +733,10 @@ but it was closed as invalid without evidence. Here a file fails with 267,
 as the documentation says. None of this has been checked on real Windows;
 the game's own call (a directory that exists) does not depend on it.
 
-## Verified imports
+## win32hle import verification
 
-None yet.
+This section counts only imports delegated to win32hle and assigned the
+`win32hle-verified` status above. It does not count the project's own
+`implemented` host shims, which have their own tests and evidence in this
+file. No win32hle-provided import has yet met the per-call verification
+standard defined at the top of this document.
