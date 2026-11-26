@@ -55,6 +55,15 @@ int SDL_main(int argc, char **argv) {
     (void)argv;
     SDL_SetMainReady();
 
+    /* Make Android taps explicitly available to the Win32 mouse/DirectInput
+     * bridge. Keep mouse-to-touch synthesis disabled to avoid feedback loops.
+     * The game is a fixed-landscape D3D9 title; do not let SDL request portrait. */
+    SDL_SetHint("SDL_TOUCH_MOUSE_EVENTS", "1");
+    SDL_SetHint("SDL_MOUSE_TOUCH_EVENTS", "0");
+    SDL_SetHint("SDL_IOS_ORIENTATIONS", "LandscapeLeft LandscapeRight");
+    setenv("TM_DINPUT_TRACE", "1", 1);
+    fprintf(stderr, "[android] SDL touch->mouse enabled; landscape-only; DirectInput trace enabled\\n");
+
     const char *root = SDL_AndroidGetInternalStoragePath();
     if (!root || !root[0]) {
         fprintf(stderr, "[android] SDL did not provide app-private storage\n");
