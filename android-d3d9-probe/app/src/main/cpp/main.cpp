@@ -19,7 +19,7 @@
 using Direct3DCreate9Fn = IDirect3D9* (WINAPI *)(UINT);
 
 static std::mutex g_report_mutex;
-static char g_report[8192] = "The Movies Android DXVK D3D9 probe 0.2\\n";
+static char g_report[8192] = "The Movies Android DXVK D3D9 probe 0.2\n";
 
 static void update_java_status(const char* status) {
     JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
@@ -51,8 +51,8 @@ static void reportf(const char* format, ...) {
         if (used + strlen(line) + 2 < sizeof(g_report)) {
             memcpy(g_report + used, line, strlen(line));
             used += strlen(line);
-            g_report[used++] = '\\n';
-            g_report[used] = '\\0';
+            g_report[used++] = '\n';
+            g_report[used] = '\0';
         }
     }
     LOGI("%s", line);
