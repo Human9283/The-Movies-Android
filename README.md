@@ -77,13 +77,14 @@ src/host/               host runtime and platform compatibility layer
 android-probe/          standalone Android Vulkan capability probe
 android-d3d9-probe/     standalone Android D3D9 diagnostic
 android-game/            Android application and full-game native target
-docs/                   build instructions, audits and test results
+docs/                   build instructions, architecture, implementation notes and test results
 ```
 
 ## Documentation
 
 - [Build instructions](docs/BUILD.md)
-- [Project audit and roadmap](docs/AUDIT.md)
+- [Technical architecture and executable analysis](docs/AUDIT.md)
+- [Host implementation and test coverage](docs/HOST-IMPLEMENTATION.md)
 - [Android feasibility and measured results](docs/ANDROID-FEASIBILITY.md)
 - [Android port architecture and validation](docs/ANDROID-PORT-AUDIT.md)
 - [Android application build](android-game/README.md)
