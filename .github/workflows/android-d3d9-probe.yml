@@ -63,7 +63,7 @@ jobs:
           git -C "$DXVK_DIR" checkout f2c7207b3d8bc848fe3a27cef34ee5e67aeec552
           # This fork's DxvkError is a project-specific exception, not std::exception.
           # Catch it at the exported D3D9 boundary and emit the original message to logcat.
-          python3 - "$DXVK_DIR/src/d3d9/d3d9_main.cpp" "$DXVK_DIR/src/dxvk/dxvk_instance.cpp" "$DXVK_DIR/src/util/log/log.cpp" <<'PY'
+          python3 - "$DXVK_DIR/src/d3d9/d3d9_main.cpp" "$DXVK_DIR/src/dxvk/dxvk_instance.cpp" "$DXVK_DIR/src/util/log/log.cpp" "$DXVK_DIR/src/dxvk/platform/dxvk_sdl2_exts.cpp" <<'PY'
           import pathlib, sys
           nl = chr(10)
           main = pathlib.Path(sys.argv[1])
@@ -146,6 +146,40 @@ jobs:
               raise SystemExit("DXVK logger Android trace-path anchor not found")
           text = text.replace(old, new, 1)
           log.write_text(text)
+          # Android permits one SDL window per Activity. Reuse the app's
+          # existing window when querying Vulkan instance extensions instead
+          # of creating DXVK's desktop-style hidden dummy window.
+          wsi = pathlib.Path(sys.argv[4])
+          text = wsi.read_text()
+          old = nl.join([
+              '    SDL_Window* window = SDL_CreateWindow(',
+              '      "Dummy Window",',
+              '      SDL_WINDOWPOS_UNDEFINED,',
+              '      SDL_WINDOWPOS_UNDEFINED,',
+              '      1, 1,',
+              '      SDL_WINDOW_HIDDEN | SDL_WINDOW_VULKAN);'
+          ])
+          new = nl.join([
+              '#ifdef __ANDROID__',
+              '    SDL_Window* window = SDL_GetWindowFromID(1);',
+              '#else',
+              '    SDL_Window* window = SDL_CreateWindow(',
+              '      "Dummy Window",',
+              '      SDL_WINDOWPOS_UNDEFINED,',
+              '      SDL_WINDOWPOS_UNDEFINED,',
+              '      1, 1,',
+              '      SDL_WINDOW_HIDDEN | SDL_WINDOW_VULKAN);',
+              '#endif'
+          ])
+          if old not in text:
+              raise SystemExit("SDL2 WSI dummy-window creation anchor not found")
+          text = text.replace(old, new, 1)
+          old = '    SDL_DestroyWindow(window);'
+          new = nl.join(['#ifndef __ANDROID__', '    SDL_DestroyWindow(window);', '#endif'])
+          if old not in text:
+              raise SystemExit("SDL2 WSI dummy-window destruction anchor not found")
+          text = text.replace(old, new, 1)
+          wsi.write_text(text)
           PY
           # Use the same shared libc++ runtime as SDL2 and the app's JNI library.
           # The fork's default script forces a separate static libc++ into DXVK.
