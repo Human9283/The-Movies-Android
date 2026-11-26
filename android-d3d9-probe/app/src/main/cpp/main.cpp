@@ -13,6 +13,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <mutex>
 #include <vector>
 
@@ -223,8 +224,15 @@ extern "C" int SDL_main(int, char**) {
     }
 
     reportf("DXVK library load: PASS");
-    reportf("Calling Direct3DCreate9");
-    IDirect3D9* d3d = create9(D3D_SDK_VERSION);
+    reportf("Calling Direct3DCreate9 (enters DXVK D3D9InterfaceEx / DxvkInstance initialization)");
+    IDirect3D9* d3d = nullptr;
+    try {
+        d3d = create9(D3D_SDK_VERSION);
+    } catch (const std::exception& e) {
+        reportf("EXCEPTION from Direct3DCreate9: %s", e.what());
+    } catch (...) {
+        reportf("UNKNOWN C++ EXCEPTION from Direct3DCreate9");
+    }
     if (!d3d) {
         reportf("FAIL Direct3DCreate9 returned NULL");
         SDL_DestroyWindow(window);
