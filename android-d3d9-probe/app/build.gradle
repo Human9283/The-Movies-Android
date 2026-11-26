@@ -1,0 +1,45 @@
+plugins {
+    id "com.android.application"
+}
+
+def sdlRoot = project.findProperty("sdlRoot") ?: ""
+def dxvkRoot = project.findProperty("dxvkRoot") ?: ""
+if (sdlRoot.toString().isEmpty() || dxvkRoot.toString().isEmpty()) {
+    throw new GradleException("Pass -PsdlRoot and -PdxvkRoot from the Android build workflow")
+}
+
+android {
+    namespace "com.human9283.d3d9probe"
+    compileSdk 36
+    ndkVersion "28.2.13676358"
+
+    defaultConfig {
+        applicationId "com.human9283.d3d9probe"
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0"
+        ndk { abiFilters "arm64-v8a" }
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++17"
+                arguments "-DANDROID_STL=c++_static",
+                          "-DDXVK_SOURCE_DIR=" + dxvkRoot,
+                          "-DSDL2_INCLUDE_DIR=" + sdlRoot + "/include",
+                          "-DSDL2_LIB_DIR=" + projectDir + "/src/main/jniLibs/arm64-v8a"
+            }
+        }
+    }
+
+    sourceSets {
+        main {
+            java.srcDir(sdlRoot + "/android-project/app/src/main/java")
+            res.srcDir(sdlRoot + "/android-project/app/src/main/res")
+            jniLibs.srcDir "src/main/jniLibs"
+        }
+    }
+
+    externalNativeBuild {
+        cmake { path file("src/main/cpp/CMakeLists.txt"); version "3.22.1" }
+    }
+}
