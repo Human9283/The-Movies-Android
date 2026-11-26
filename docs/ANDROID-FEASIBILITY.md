@@ -117,3 +117,61 @@ None is chosen before a device report exists.
 | Packaging | APK with the native libraries; game data from user storage, never in the APK or the repository | not done |
 
 Each row gets a [run] result when it is done.
+
+
+## 5. Updated upstream check (2026-11-26)
+
+This section supersedes any older general statements above where the
+upstream toolchain has changed. The pinned project build remains DXVK
+v3.1.1 at commit `b1a1c99`; do not silently change that pin based on
+current wiki requirements.
+
+- **Android NDK [doc.].** Google's current LTS is NDK r30,
+  `30.0.16248370`. The official download page publishes a Windows x64
+  package, so development can remain on the user's Windows 11 machine or
+  WSL2. The NDK package is approximately 728 MB before extraction.
+  Source: https://developer.android.com/ndk/downloads
+- **SDL Android packaging [doc.].** Current SDL Android instructions
+  require Android SDK 36 or later and NDK r28c or later. The supported
+  application model is a Gradle Android project with SDL's Java
+  `SDLActivity`/JNI glue and a native shared library named `main`.
+  SDL's own guide explicitly recommends including SDL as a CMake
+  subproject/FetchContent dependency and changing the executable target
+  to a shared library for Android.
+  Source: https://github.com/libsdl-org/SDL/blob/main/docs/README-android.md
+- **DXVK upstream status [doc.].** The upstream driver-support page says
+  first-party support is not provided for Android or mobile graphics
+  drivers. Its current DXVK 3.x guidance describes a Vulkan 1.4-class
+  driver and required extensions/features including maintenance5/6,
+  robustness2, transform feedback, descriptor indexing, 8/16/64-bit
+  integer types and scalar block layout. This is a warning against
+  assuming that a phone which reports Vulkan 1.3 can run a current DXVK
+  3.x build. The exact pinned v3.1.1 source still needs to be checked
+  independently before altering the project's pin.
+  Source: https://github.com/doitsujin/dxvk/wiki/Driver-support
+- **Android platform Vulkan policy [doc.].** A device that *launches*
+  with Android 16 or later must support Vulkan 1.4 if it has a 64-bit ABI
+  and is not low-memory. This is not a guarantee that every older device
+  updated to Android 16 exposes Vulkan 1.4; actual feature enumeration
+  remains mandatory.
+  Source: https://source.android.com/docs/core/graphics/implement-vulkan
+
+### Consequences for this repository
+
+1. Use NDK r30 and SDK 36 as the initial reproducible toolchain baseline.
+2. Use SDL's maintained Gradle project template rather than writing an
+   Activity/JNI lifecycle from scratch. Keep only the minimal project
+   changes in this repository.
+3. Convert the existing desktop target to a platform-specific target
+   graph: Linux `tm_host` executable versus Android `main` shared
+   library. Do not link `tm_host_main.c` into Android.
+4. Do not make DXVK the first Android milestone. First produce an ARM64
+   SDL app that opens a window and runs a small Vulkan capability probe.
+   Then compile and test the guest-memory/PE-loader path on Android.
+   Only after both pass should the pinned DXVK Native port be attempted.
+5. Treat current DXVK Android usage in Winlator/Box64 as adjacent evidence,
+   not proof that a native AArch64 ELF application can link DXVK against
+   Android's Bionic and SDL WSI.
+
+No APK has been built and no Android device capability has been measured
+as part of this update.
