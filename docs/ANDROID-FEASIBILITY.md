@@ -208,3 +208,46 @@ not yet been compiled or run on a phone. Its PASS result, if obtained,
 means only that the enumerated hardware capabilities meet this subset of
 DXVK's gate; it does not prove that DXVK itself builds or links against
 Android's Bionic/WSI.
+
+## 5. External Android recompilation reference (2026-11-26)
+
+A useful, directly related reference is
+[codepdbh/nfsu2-recompiled](https://github.com/codepdbh/nfsu2-recompiled).
+It is another x86 Windows game statically recompiled to C and brought to
+Android ARM64. Its public tree contains a real Android NativeActivity app,
+a 4-GiB guest-memory implementation, an Android Vulkan WSI for DXVK Native,
+and a reproducible preparation script for a pinned DXVK Native
+`1.9.2b` source revision.
+
+The reference is architectural evidence, not a drop-in dependency:
+
+- Its Android DXVK target is a separate CMake library and supplies
+  `VK_KHR_android_surface` WSI directly, rather than relying on DXVK's
+  desktop SDL2 WSI.
+- Its DXVK fork is based on Native `1.9.2b`, not this project's Linux
+  baseline `3.1.1`. Its patch recipe makes several GPU features optional,
+  adds ARM fallbacks, handles Android surface lifetime, and includes
+  DXT fallback work. Those changes must be reviewed against this game's
+  D3D9 calls before they are considered.
+- Its Android application uses NDK `28.2.13676358`, NativeActivity,
+  a native shared library, and a separate launcher/activity layer.
+- Its README reports playable ARM64 gameplay on Snapdragon 8 Gen 3-class
+  hardware. The README's stated Samsung model identifier appears inconsistent
+  with its S24 Ultra label, so this is not treated as a verified test of the
+  exact target handset.
+
+### Consequence for The Movies
+
+Keep DXVK Native `3.1.1` as the measured Linux backend. For Android, do
+not make its strict feature list the only route. Evaluate the Android-specific
+DXVK Native `1.9.2b` approach as a second backend candidate, with the
+following gates:
+
+1. Build and run a minimal Android Vulkan 1.1 surface/present application.
+2. Build the pinned Android DXVK backend and run a standalone D3D9 device test.
+3. Compare its actual D3D9 format, depth, texture, render-target and fixed-
+   function requirements with `docs/D3D9-REQUIREMENTS.md`.
+4. Only then connect the existing guest D3D9 bridge to that backend.
+
+No source from the reference repository is copied by this note. Its project
+licensing must be checked at the file/component level before any code reuse.
