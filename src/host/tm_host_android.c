@@ -62,7 +62,8 @@ int SDL_main(int argc, char **argv) {
     SDL_SetHint("SDL_MOUSE_TOUCH_EVENTS", "0");
     SDL_SetHint("SDL_IOS_ORIENTATIONS", "LandscapeLeft LandscapeRight");
     setenv("TM_DINPUT_TRACE", "1", 1);
-    fprintf(stderr, "[android] SDL touch->mouse enabled; landscape-only; DirectInput trace enabled\\n");
+    setenv("RA2_INPUT_TRACE", "1", 1);
+    fprintf(stderr, "[android] SDL touch->mouse enabled; landscape-only; SDL/Win32 input trace enabled\\n");
 
     const char *root = SDL_AndroidGetInternalStoragePath();
     if (!root || !root[0]) {
