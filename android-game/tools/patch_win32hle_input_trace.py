@@ -42,6 +42,71 @@ if s.count(old) != 1:
     raise SystemExit(f"screen.c trace block expected once, found {s.count(old)}")
 screen.write_text(s.replace(old, new))
 
+# Android finger events are mapped directly to the game's Win32 left mouse.
+# This avoids relying on SDL's optional synthetic touch-to-mouse events.
+s = screen.read_text()
+old_global = "static int g_src_w, g_src_h;                            /* the picture last shown: what the window maps to */"
+new_global = old_global + """
+#ifdef __ANDROID__
+static SDL_FingerID g_android_finger;
+static int g_android_finger_active;
+#endif"""
+if s.count(old_global) != 1:
+    raise SystemExit(f"screen.c source-size globals expected once, found {s.count(old_global)}")
+s = s.replace(old_global, new_global)
+old_motion = "        case SDL_MOUSEMOTION: {"
+new_motion = """#ifdef __ANDROID__
+        case SDL_FINGERDOWN: {
+            if (!g_android_finger_active) {
+                int ww = 0, wh = 0, gx, gy;
+                SDL_GetWindowSize(g_win, &ww, &wh);
+                if (ww > 0 && wh > 0) {
+                    int px = (int)(e.tfinger.x * ww), py = (int)(e.tfinger.y * wh);
+                    to_game(px, py, &gx, &gy);
+                    g_android_finger = e.tfinger.fingerId;
+                    g_android_finger_active = 1;
+                    hle_input_mouse(WM_MOUSEMOVE, gx, gy);
+                    hle_input_mouse(WM_LBUTTONDOWN, gx, gy);
+                    if (getenv("RA2_INPUT_TRACE"))
+                        fprintf(stderr, "[android-touch] down at=%d,%d game=%d,%d\\n", px, py, gx, gy);
+                }
+            }
+            break;
+        }
+        case SDL_FINGERMOTION: {
+            if (g_android_finger_active && e.tfinger.fingerId == g_android_finger) {
+                int ww = 0, wh = 0, gx, gy;
+                SDL_GetWindowSize(g_win, &ww, &wh);
+                if (ww > 0 && wh > 0) {
+                    to_game((int)(e.tfinger.x * ww), (int)(e.tfinger.y * wh), &gx, &gy);
+                    hle_input_mouse(WM_MOUSEMOVE, gx, gy);
+                }
+            }
+            break;
+        }
+        case SDL_FINGERUP: {
+            if (g_android_finger_active && e.tfinger.fingerId == g_android_finger) {
+                int ww = 0, wh = 0, gx, gy;
+                SDL_GetWindowSize(g_win, &ww, &wh);
+                if (ww > 0 && wh > 0) {
+                    int px = (int)(e.tfinger.x * ww), py = (int)(e.tfinger.y * wh);
+                    to_game(px, py, &gx, &gy);
+                    hle_input_mouse(WM_MOUSEMOVE, gx, gy);
+                    hle_input_mouse(WM_LBUTTONUP, gx, gy);
+                    if (getenv("RA2_INPUT_TRACE"))
+                        fprintf(stderr, "[android-touch] up at=%d,%d game=%d,%d\\n", px, py, gx, gy);
+                }
+                g_android_finger_active = 0;
+            }
+            break;
+        }
+#endif
+        case SDL_MOUSEMOTION: {"""
+if(s.includes("case SDL_FINGERDOWN")) throw new Error("Touch bridge already exists; refusing duplicate patch");
+if(s.count(old_motion)!==1) throw new Error("mouse motion switch case expected once");
+s=s.replace(old_motion,new_motion);
+screen.write_text(s)
+
 u = user32.read_text()
 old_mouse = """    g_cursor_x = sx, g_cursor_y = sy;
     uint32_t vk = message == WM_LBUTTONDOWN"""
