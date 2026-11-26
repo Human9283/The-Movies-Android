@@ -90,7 +90,7 @@ set_target_properties(DXVK_D3D9 PROPERTIES IMPORTED_LOCATION "${DXVK_D3D9_LIBRAR
 add_library(main SHARED ${TM_RUNTIME_SOURCES} "${TM_ROOT}/src/host/tm_d3d9_dxvk.cpp")
 target_compile_features(main PRIVATE c_std_11 cxx_std_17)
 target_compile_definitions(main PRIVATE _GNU_SOURCE RECOMP_RETADDR=0u RECOMP_TRACE=1
-    RECOMP_LOCAL_REGS TM_HAVE_DXVK=1 SDL_MAIN_HANDLED NOMINMAX)
+    TM_HAVE_DXVK=1 SDL_MAIN_HANDLED NOMINMAX)
 target_include_directories(main PRIVATE
     "${TM_ROOT}/src/host"
     "${TM_GEN}"
@@ -101,6 +101,7 @@ target_include_directories(main PRIVATE
     "${DXVK_ROOT}/include/native/windows"
     "${DXVK_ROOT}/include/native/android"
     "${DXVK_ROOT}/include/native")
+set_source_files_properties(${TM_GEN_SOURCES} PROPERTIES COMPILE_DEFINITIONS RECOMP_LOCAL_REGS)
 target_compile_options(main PRIVATE -O1 -fno-strict-aliasing -fwrapv -Wno-unused-function -Wno-unused-parameter)
 target_link_libraries(main PRIVATE SDL2 DXVK_D3D9 android log dl vulkan m)
 set_target_properties(main PROPERTIES OUTPUT_NAME main)
