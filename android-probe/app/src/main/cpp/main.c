@@ -89,7 +89,17 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
     if (has_device_extension(gpu, "VK_KHR_maintenance6")) PUSH_FEATURE(m6);
     PUSH_FEATURE(f13); PUSH_FEATURE(f12); PUSH_FEATURE(f11);
     VkPhysicalDeviceFeatures2 f2 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = chain };
-    vkGetPhysicalDeviceFeatures2(gpu, &f2);
+    PFN_vkGetPhysicalDeviceFeatures2 get_features2 =
+        (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2");
+    if (!get_features2) {
+        get_features2 = (PFN_vkGetPhysicalDeviceFeatures2)
+            vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2KHR");
+    }
+    if (!get_features2) {
+        LOGE("FAIL: vkGetPhysicalDeviceFeatures2 entry point unavailable");
+        return;
+    }
+    get_features2(gpu, &f2);
     bool required_features_ok = true;
 #define REQUIRED_CORE(name) do { bool ok = f2.features.name != 0; LOGI("required %-39s %s", #name, ok ? "PASS" : "FAIL"); if (!ok) required_features_ok = false; } while (0)
     REQUIRED_CORE(depthBiasClamp); REQUIRED_CORE(depthClamp); REQUIRED_CORE(dualSrcBlend); REQUIRED_CORE(fillModeNonSolid);
@@ -187,7 +197,6 @@ static void handle_cmd(struct android_app *app, int32_t cmd) {
 }
 
 void android_main(struct android_app *app) {
-    app_dummy();
     app->onAppCmd = handle_cmd;
     LOGI("Probe started. Waiting for Android native window.");
     while (!app->destroyRequested) {
