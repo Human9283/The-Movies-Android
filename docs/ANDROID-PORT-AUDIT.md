@@ -332,3 +332,29 @@ lot. That progress must not be confused with Android support.
 
 No Android target, JNI bridge or APK has been added in this update. No
 local build/test result is claimed.
+
+
+## Android probe implementation status (2026-11-26)
+
+A separate `android-probe/` project has been added. It is intentionally
+not wired into the game CMake graph and packages no game files.
+
+- Android `NativeActivity` + NDK `android_native_app_glue`.
+- ARM64-only Gradle application, API 26 minimum, compile SDK 36.
+- Native Vulkan loader and Android-surface creation.
+- Device/driver/API identification, graphics and presentation queue checks,
+  required DXVK v3.1.1 extension checks, mandatory core 1.1/1.2/1.3
+  feature checks, selected mandatory extension feature checks, and the
+  256-byte push-constant limit.
+- Separate GitHub Actions workflow intended to compile the debug APK.
+
+The requirements are read from the project's exact DXVK pin
+(`b1a1c99ab52b687cf950d62c88bc2fa316b41663`), not from a newer DXVK
+release. The probe's `PASS` means capability enumeration passed; it does
+not prove a Bionic build of DXVK, swapchain creation, or a presented frame.
+
+**Validation status:** source files have been reviewed through the repository
+API, but neither Android Studio/Gradle nor an NDK compiler has run in this
+environment. No successful CI run is currently visible. The first hardware
+run is still required on the target phone. See
+[`android-probe/README.md`](../android-probe/README.md).
