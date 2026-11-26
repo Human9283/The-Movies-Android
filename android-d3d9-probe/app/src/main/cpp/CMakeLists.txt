@@ -47,6 +47,7 @@ target_compile_options(tm_d3d9_dxvk_compile PRIVATE -Wall -Wno-unused-function -
 get_filename_component(TM_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../.." ABSOLUTE)
 set(TM_ANDROID_HOST_SOURCES
     "${TM_REPO_ROOT}/src/host/tm_host.c"
+    "${TM_REPO_ROOT}/src/host/tm_host_android.c"
     "${TM_REPO_ROOT}/src/host/tm_shell.c"
     "${TM_REPO_ROOT}/src/host/tm_user32.c"
     "${TM_REPO_ROOT}/src/host/tm_imports.c"
