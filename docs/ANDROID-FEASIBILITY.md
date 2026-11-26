@@ -169,6 +169,11 @@ The lift input currently records:
 The last two items remain analysis risks. Zero lift exceptions does not
 prove semantic correctness or complete runtime coverage.
 
+At the status check on 2026-11-26, workflow run 45809671909 (attempt 3)
+was still at the full Android host link / APK build step. Dependency builds
+and shared-library staging had completed; APK verification and artifact
+upload were pending.
+
 A successful native link and APK package will prove compilation and
 packaging only. The resulting application still requires on-device
 validation.
