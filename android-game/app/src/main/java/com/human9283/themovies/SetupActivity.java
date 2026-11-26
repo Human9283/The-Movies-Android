@@ -55,8 +55,16 @@ public final class SetupActivity extends Activity {
             copyChildren(tree, rootId, staging);
             if (!new File(staging, "Movies.exe").isFile() || !new File(staging, "Data").isDirectory())
                 throw new Exception("В выбранной папке не найдены Movies.exe и Data/");
-            deleteRecursively(gameDir);
-            if (!staging.renameTo(gameDir)) throw new Exception("Не удалось переместить файлы игры");
+            File backup = new File(getFilesDir(), "game-previous");
+            deleteRecursively(backup);
+            boolean hadInstall = gameDir.exists();
+            if (hadInstall && !gameDir.renameTo(backup))
+                throw new Exception("Не удалось сохранить предыдущую установку");
+            if (!staging.renameTo(gameDir)) {
+                if (hadInstall) backup.renameTo(gameDir);
+                throw new Exception("Не удалось активировать импортированную установку");
+            }
+            deleteRecursively(backup);
             Toast.makeText(this, "Игра импортирована", Toast.LENGTH_LONG).show();
             launchGame();
         } catch (Exception e) {
