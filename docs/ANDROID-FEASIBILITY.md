@@ -393,3 +393,20 @@ The user ran the updated APK on a Samsung Galaxy S24 Ultra (Snapdragon 8 Gen 3 /
 This is materially stronger than capability enumeration: the stock Android driver successfully creates a Vulkan logical device and an Android-presentable swapchain using the probe's DXVK 2.4.1 baseline feature subset. It does **not** prove that the complete DXVK 2.4.1 device feature chain is identical to the probe subset, that DXVK links against Bionic, that DXVK's D3D9 backend initializes, or that a frame from The Movies renders. The probe explicitly does not link or run DXVK.
 
 **Decision:** keep the Linux DXVK 3.1.1 pin unchanged. For Android, promote DXVK 2.4.1 to the next test candidate rather than declaring it compatible. Next gate: build the actual Android ARM64 DXVK Native library (including Android WSI/lifecycle integration), then run a minimal D3D9 device-creation and present test before connecting the game's guest D3D9 bridge. Do not relax or patch DXVK feature requirements solely to make the probe pass.
+
+
+## Android D3D9 backend candidate (2026-11-26)
+
+The S24 Ultra's probe 0.3 report establishes that the stock Adreno 750 driver exposes the Vulkan 1.3 features and the VK_KHR_swapchain / VK_EXT_robustness2 extensions used by the tested DXVK 2.4.1 baseline. That is not a DXVK runtime test. A separate, Android-adapted DXVK Native candidate has now been selected for the next executable test:
+
+- Repository: [Star1xr/dxvk-native-android](https://github.com/Star1xr/dxvk-native-android)
+- Pinned commit: `f2c7207b3d8bc848fe3a27cef34ee5e67aeec552`
+- Base: DXVK Native `native-1.9.2b`, upstream base commit `c8dc91fabd00cac11d697ccf07426e798393cd40`
+- License: Zlib for DXVK; preserve the included license and third-party notices.
+- Android adaptation: Meson Android target, NDK toolchain, SDL2 Vulkan WSI, ARM-specific guards, Android logcat logging and a D3D9 mobile-feature profile. Its own Android workflow run `42513858066` completed successfully for its ARM64/ARMv7 build matrix.
+
+This is a community fork, not an upstream-supported Android release. The successful external CI build proves only that the fork can be cross-compiled; it does not prove runtime compatibility with the S24 Ultra. It is chosen over an unmodified DXVK 2.4.1 build because it already contains the Android/Bionic and SDL2 WSI adaptations needed by this project's SDL2 host. The project's Linux DXVK 3.1.1 pin remains unchanged.
+
+A separate `android-d3d9-probe/` app and GitHub Actions workflow have been added on this feature branch. The workflow pins the fork above, builds SDL2 2.30.9 and `libdxvk_d3d9.so` for `arm64-v8a`, then packages a minimal SDLActivity APK. The native test will call `Direct3DCreate9`, create a D3D9 HAL device, clear the backbuffer, draw a fixed-function triangle, and call `Present`. This deliberately tests the same SDL2/Vulkan WSI shape as the game runtime without including the game or its data.
+
+**Validation state:** the workflow has been started, but its build and APK packaging are not yet verified. Even a successful CI artifact will need a physical S24 Ultra run. The acceptance result is a visible blue frame with a green/white triangle and successful D3D9 create/present logs. Only after that should the Android host be connected to the lifted game runtime.
