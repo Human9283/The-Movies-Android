@@ -35,4 +35,3 @@ int main(int argc, char **argv) {
     }
     return tm_host_run(&options);
 }
-#endif
