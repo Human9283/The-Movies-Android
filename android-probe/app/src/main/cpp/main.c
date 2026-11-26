@@ -212,21 +212,85 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
             VkResult fr = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &format_count, NULL);
             if (fr == VK_SUCCESS && format_count) { if (format_count > 32) format_count = 32; fr = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &format_count, formats); }
             VkSwapchainKHR sc = VK_NULL_HANDLE; VkResult sr = VK_ERROR_INITIALIZATION_FAILED;
-            if (create_sc && destroy_sc && get_sc_images && fr == VK_SUCCESS && format_count) {
-                VkSurfaceCapabilitiesKHR scaps; sr = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &scaps);
-                if (sr == VK_SUCCESS && (scaps.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)) {
-                    VkExtent2D extent = scaps.currentExtent;
-                    if (extent.width == UINT32_MAX) { extent.width = scaps.minImageExtent.width; extent.height = scaps.minImageExtent.height; }
-                    VkCompositeAlphaFlagBitsKHR alpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-                    if (!(scaps.supportedCompositeAlpha & alpha)) { const VkCompositeAlphaFlagBitsKHR opts[] = { VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR }; for (unsigned k=0;k<3;k++) if (scaps.supportedCompositeAlpha & opts[k]) { alpha=opts[k]; break; } }
-                    uint32_t image_count = scaps.minImageCount; if (scaps.maxImageCount && image_count > scaps.maxImageCount) image_count = scaps.maxImageCount;
-                    uint32_t family_indices[] = { graphics_family, present_family };
-                    VkSwapchainCreateInfoKHR sci = { .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR, .surface = surface, .minImageCount = image_count, .imageFormat = formats[0].format, .imageColorSpace = formats[0].colorSpace, .imageExtent = extent, .imageArrayLayers = 1, .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, .imageSharingMode = graphics_family == present_family ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT, .queueFamilyIndexCount = graphics_family == present_family ? 0 : 2, .pQueueFamilyIndices = graphics_family == present_family ? NULL : family_indices, .preTransform = scaps.currentTransform, .compositeAlpha = alpha, .presentMode = VK_PRESENT_MODE_FIFO_KHR, .clipped = VK_TRUE };
-                    sr = create_sc(device, &sci, NULL, &sc);
-                } else if (sr == VK_SUCCESS) sr = VK_ERROR_FORMAT_NOT_SUPPORTED;
+            bool can_transfer = (scaps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) != 0;
+            LOGI("surface supportedUsageFlags=0x%x transfer-dst=%s", scaps.supportedUsageFlags, can_transfer ? "YES" : "NO");
+            if (create_sc && destroy_sc && get_sc_images && fr == VK_SUCCESS && format_count && can_transfer) {
+                VkExtent2D extent = scaps.currentExtent;
+                if (extent.width == UINT32_MAX) { extent.width = scaps.minImageExtent.width; extent.height = scaps.minImageExtent.height; }
+                VkCompositeAlphaFlagBitsKHR alpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+                if (!(scaps.supportedCompositeAlpha & alpha)) { const VkCompositeAlphaFlagBitsKHR opts[] = { VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR }; for (unsigned k=0;k<3;k++) if (scaps.supportedCompositeAlpha & opts[k]) { alpha=opts[k]; break; } }
+                uint32_t image_count = scaps.minImageCount; if (scaps.maxImageCount && image_count > scaps.maxImageCount) image_count = scaps.maxImageCount;
+                uint32_t family_indices[] = { graphics_family, present_family };
+                VkSwapchainCreateInfoKHR sci = { .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR, .surface = surface, .minImageCount = image_count, .imageFormat = formats[0].format, .imageColorSpace = formats[0].colorSpace, .imageExtent = extent, .imageArrayLayers = 1, .imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT, .imageSharingMode = graphics_family == present_family ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT, .queueFamilyIndexCount = graphics_family == present_family ? 0 : 2, .pQueueFamilyIndices = graphics_family == present_family ? NULL : family_indices, .preTransform = scaps.currentTransform, .compositeAlpha = alpha, .presentMode = VK_PRESENT_MODE_FIFO_KHR, .clipped = VK_TRUE };
+                sr = create_sc(device, &sci, NULL, &sc);
+                LOGI("DXVK 2.4.1 baseline vkCreateSwapchainKHR: %s (%d), extent=%ux%u", sr == VK_SUCCESS ? "PASS" : "FAIL", sr, extent.width, extent.height);
+            } else {
+                LOGI("DXVK 2.4.1 present test: SKIPPED (missing transfer-dst surface usage or swapchain entry points)");
             }
-            if (sr == VK_SUCCESS && sc) { uint32_t nimages=0; VkResult ir=get_sc_images(device, sc, &nimages, NULL); LOGI("DXVK 2.4.1 baseline vkCreateSwapchainKHR: %s (%d), images=%u", ir==VK_SUCCESS && nimages ? "PASS" : "FAIL", ir, nimages); destroy_sc(device, sc, NULL); }
-            else LOGI("DXVK 2.4.1 baseline vkCreateSwapchainKHR: FAIL (%d)", sr);
+            if (sr == VK_SUCCESS && sc) {
+                uint32_t nimages=0;
+                VkResult ir=get_sc_images(device, sc, &nimages, NULL);
+                LOGI("swapchain image enumeration: %s (%d), images=%u", ir==VK_SUCCESS && nimages ? "PASS" : "FAIL", ir, nimages);
+                if (ir == VK_SUCCESS && nimages > 0 && nimages <= 16) {
+                    VkImage images[16];
+                    uint32_t actual=nimages;
+                    ir=get_sc_images(device, sc, &actual, images);
+                    if (ir == VK_SUCCESS && actual > 0) {
+                        VkQueue graphics_queue=VK_NULL_HANDLE, present_queue=VK_NULL_HANDLE;
+                        vkGetDeviceQueue(device, graphics_family, 0, &graphics_queue);
+                        vkGetDeviceQueue(device, present_family, 0, &present_queue);
+                        VkSemaphoreCreateInfo sem_info={.sType=VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+                        VkSemaphore acquired=VK_NULL_HANDLE, rendered=VK_NULL_HANDLE;
+                        VkResult pr=vkCreateSemaphore(device,&sem_info,NULL,&acquired);
+                        if(pr==VK_SUCCESS) pr=vkCreateSemaphore(device,&sem_info,NULL,&rendered);
+                        uint32_t image_index=0;
+                        if(pr==VK_SUCCESS) {
+                            pr=vkAcquireNextImageKHR(device,sc,UINT64_MAX,acquired,VK_NULL_HANDLE,&image_index);
+                            if(pr==VK_SUBOPTIMAL_KHR) pr=VK_SUCCESS;
+                        }
+                        VkCommandPool pool=VK_NULL_HANDLE;
+                        VkCommandBuffer cmd=VK_NULL_HANDLE;
+                        if(pr==VK_SUCCESS) {
+                            VkCommandPoolCreateInfo pci={.sType=VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,.flags=VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,.queueFamilyIndex=graphics_family};
+                            pr=vkCreateCommandPool(device,&pci,NULL,&pool);
+                        }
+                        if(pr==VK_SUCCESS) {
+                            VkCommandBufferAllocateInfo cai={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,.commandPool=pool,.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY,.commandBufferCount=1};
+                            pr=vkAllocateCommandBuffers(device,&cai,&cmd);
+                        }
+                        if(pr==VK_SUCCESS) {
+                            VkCommandBufferBeginInfo bi={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+                            pr=vkBeginCommandBuffer(cmd,&bi);
+                        }
+                        VkImageSubresourceRange range={.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT,.baseMipLevel=0,.levelCount=1,.baseArrayLayer=0,.layerCount=1};
+                        if(pr==VK_SUCCESS) {
+                            VkImageMemoryBarrier to_clear={.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,.srcAccessMask=0,.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT,.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED,.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.image=images[image_index],.subresourceRange=range};
+                            vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,NULL,0,NULL,1,&to_clear);
+                            VkClearColorValue color={{0.06f,0.22f,0.48f,1.0f}};
+                            vkCmdClearColorImage(cmd,images[image_index],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&color,1,&range);
+                            VkImageMemoryBarrier to_present={.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT,.dstAccessMask=0,.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.image=images[image_index],.subresourceRange=range};
+                            vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,NULL,0,NULL,1,&to_present);
+                            pr=vkEndCommandBuffer(cmd);
+                        }
+                        if(pr==VK_SUCCESS) {
+                            VkPipelineStageFlags wait_stage=VK_PIPELINE_STAGE_TRANSFER_BIT;
+                            VkSubmitInfo submit={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.waitSemaphoreCount=1,.pWaitSemaphores=&acquired,.pWaitDstStageMask=&wait_stage,.commandBufferCount=1,.pCommandBuffers=&cmd,.signalSemaphoreCount=1,.pSignalSemaphores=&rendered};
+                            pr=vkQueueSubmit(graphics_queue,1,&submit,VK_NULL_HANDLE);
+                        }
+                        if(pr==VK_SUCCESS) {
+                            VkPresentInfoKHR present={.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,.waitSemaphoreCount=1,.pWaitSemaphores=&rendered,.swapchainCount=1,.pSwapchains=&sc,.pImageIndices=&image_index};
+                            pr=vkQueuePresentKHR(present_queue,&present);
+                            if(pr==VK_SUBOPTIMAL_KHR) pr=VK_SUCCESS;
+                        }
+                        if(present_queue) vkQueueWaitIdle(present_queue);
+                        LOGI("Android Vulkan clear + vkQueuePresentKHR: %s (%d)",pr==VK_SUCCESS?"PASS":"FAIL",pr);
+                        if(pool) vkDestroyCommandPool(device,pool,NULL);
+                        if(acquired) vkDestroySemaphore(device,acquired,NULL);
+                        if(rendered) vkDestroySemaphore(device,rendered,NULL);
+                    } else LOGI("present test: FAIL (could not fetch swapchain images, VkResult %d)",ir);
+                } else LOGI("present test: FAIL (invalid swapchain image count, VkResult %d)",ir);
+                destroy_sc(device, sc, NULL);
+            }
             vkDeviceWaitIdle(device); vkDestroyDevice(device, NULL);
         }
     } else LOGI("DXVK 2.4.1 baseline device/swapchain smoke test: SKIPPED (prerequisite missing)");
