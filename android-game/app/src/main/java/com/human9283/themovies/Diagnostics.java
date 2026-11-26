@@ -93,7 +93,7 @@ public final class Diagnostics {
             addFile(zip, new File(logDirectory, "app.log.1"), "logs/app.log.1");
             addFile(zip, nativeLog, "logs/native.log");
             addFile(zip, new File(logDirectory, "native.log.1"), "logs/native.log.1");
-            addFile(zip, new File(logDirectory, "logcat.txt"), "logs/logcat.txt");
+            addDirectory(zip, new File(logDirectory, "frames"), "logs/frames");
             addText(zip, "device.txt", deviceInfo(context));
         }
         log("Diagnostics archive created: " + archive.length() + " bytes");
@@ -161,6 +161,17 @@ public final class Diagnostics {
             while ((count = input.read(buffer)) != -1) zip.write(buffer, 0, count);
         }
         zip.closeEntry();
+    }
+
+    private static void addDirectory(ZipOutputStream zip, File directory, String prefix) throws Exception {
+        if (directory == null || !directory.isDirectory()) return;
+        File[] children = directory.listFiles();
+        if (children == null) return;
+        for (File child : children) {
+            String name = prefix + "/" + child.getName();
+            if (child.isDirectory()) addDirectory(zip, child, name);
+            else addFile(zip, child, name);
+        }
     }
 
     private static void addText(ZipOutputStream zip, String name, String value) throws Exception {
