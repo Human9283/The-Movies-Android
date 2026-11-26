@@ -14,15 +14,21 @@ target. It is separate from the Linux desktop target and the standalone
 - CMake: 3.22.1
 - Activity: `GameActivity`, based on `SDLActivity`
 
-`SetupActivity` imports an existing game installation through the
-Android Storage Access Framework. The selected directory must contain
-`Movies.exe` and `Data/`. Files are copied into app-private
-`files/game/`; writable game files and the synthetic Windows system root
-use `files/user/` and `files/system/`.
+The private CI build produces a self-contained ARM64 APK. It extracts the
+user-owned Russian CD 1.1 installation from the private game-data release,
+packages the 705 installed files as an uncompressed USTAR asset, and embeds
+that asset only in the private APK artifact. No game files are committed to
+this public source repository.
 
-The importer stages and validates the copy before activating it. It does
-not install from disc images, download game data or include copyrighted
-game files in the APK.
+On first launch, `SetupActivity` streams the bundled archive into
+app-private `files/game/`, verifies every file against the bundled
+SHA-256 manifest, checks `Movies.exe` and `Data/`, then starts the game.
+The installation is performed once and reused on later launches. At least
+about 2.2 GB of free internal storage is required for the extracted game
+data, in addition to the space occupied by the installed APK.
+
+A manual Storage Access Framework import remains available as a fallback
+when a build has no bundled payload or the automatic installation fails.
 
 ## Native libraries
 
