@@ -75,19 +75,31 @@ The Android CMake entry point is
 top-level CMake configuration. The generated lift is supplied by private
 CI and is not stored in this public repository.
 
+For the first ARM64 full-link experiment, private CI splits generated C
+translation units at function boundaries into chunks no larger than 3 MiB
+and checks that functions and symbols are preserved. The large dispatch
+table is emitted as AArch64 assembly rather than compiled from C; a C
+static-assert file checks the 64-bit pointer ABI and the 16-byte dispatch
+entry layout. Generated C chunks are compiled with `-O0 -g0`, and Ninja
+compilation is limited to one job to reduce peak memory. These are temporary
+build-memory measures pending a reproducible full APK build.
+
 ## Validation status
 
 The standalone Android DXVK Native D3D9 diagnostic passed on a Samsung
 Galaxy S24 Ultra (Snapdragon 8 Gen 3 / Adreno 750). It validates the tested
 SDL/Vulkan/D3D9 backend path, not the game runtime.
 
-The full-game ARM64 build runs in private CI:
-[workflow run 45809671909](https://github.com/Human9283/the-movies-gamedata/actions/runs/45809671909).
-At the status check on 2026-11-26, private workflow run 45809671909
-(attempt 3) was still linking the full Android host and building the APK.
-Dependency builds and shared-library staging had completed; APK
-verification and artifact upload were pending. A successful full-game APK
-has not yet been verified.
+The full-game ARM64 build runs in private CI so generated game code and
+assets are not published:
+[latest experiment](https://github.com/Human9283/the-movies-gamedata/actions/runs/45887244868),
+[preceding experiment](https://github.com/Human9283/the-movies-gamedata/actions/runs/45885363769).
+At the documentation update on 2026-11-26, both runs had been observed in
+progress. The newer run had completed assembly dispatch generation, source
+splitting and dependency/toolchain setup; successful native linking, APK
+verification and artifact upload were not yet confirmed. A successful
+full-game APK has not yet been verified. See the workflow pages for live
+status.
 
 After the APK build, runtime validation must cover guest-memory reservation,
 PE mapping and relocation, import binding, CRT initialization, `WinMain`,
