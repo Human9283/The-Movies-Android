@@ -6,7 +6,7 @@ def sdlRoot = project.findProperty("sdlRoot") ?: ""
 def dxvkRoot = project.findProperty("dxvkRoot") ?: ""
 def pcrecompRoot = project.findProperty("pcrecompRoot") ?: ""
 if (sdlRoot.toString().isEmpty() || dxvkRoot.toString().isEmpty() || pcrecompRoot.toString().isEmpty()) {
-    throw new GradleException("Pass -PsdlRoot, -PdxvkRoot and -PpcrecompRoot from the Android build workflow")
+    throw new GradleException("Pass -PsdlRoot, -PdxvkRoot and -PcrecompRoot from the Android build workflow")
 }
 
 android {
@@ -18,13 +18,15 @@ android {
         applicationId "com.human9283.d3d9probe"
         minSdk 24
         targetSdk 35
-        versionCode 1
-        versionName "0.1.0"
+        versionCode 2
+        versionName "0.2.0"
         ndk { abiFilters "arm64-v8a" }
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17"
-                arguments "-DANDROID_STL=c++_static",
+                // SDL2, this JNI library and the lazily loaded DXVK library
+                // must all use the same shared libc++ runtime.
+                arguments "-DANDROID_STL=c++_shared",
                           "-DDXVK_SOURCE_DIR=" + dxvkRoot,
                           "-DSDL2_INCLUDE_DIR=" + sdlRoot + "/include",
                           "-DSDL2_LIB_DIR=" + projectDir + "/src/main/jniLibs/arm64-v8a",
