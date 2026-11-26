@@ -1,14 +1,9 @@
-# External references
+# External implementation references
 
-Research from other projects that bears on this port, and how far each
-finding holds for our target: `Movies.exe` 1.1 from the Russian CD
-(«Фабрика грёз»). A claim from another project is treated as evidence about
-that project's binary. It applies here only after it has been checked
-against ours, and the check is recorded below.
-
-No code from these projects is in this repository. Where an idea from one of
-them is used, the code here is written independently from our own analysis,
-and the source of the idea is named.
+This document records external implementations relevant to the executable,
+media interfaces and Android ARM64 runtime. Findings about another game
+binary do not transfer to Movies.exe 1.1 without independent verification.
+No source code from the projects listed below is included in this repository.
 
 ## lifesupport-TheMovies (KPC LifeSupport)
 
@@ -112,3 +107,47 @@ classes exist in ours at other addresses, found from our own RTTI:
 the Steam 1.2 executable that this project's toolchain approach follows
 (docs/AUDIT.md). Its executable is also not ours; its function addresses are
 not reused, and our catalog and lift are made from our own binary.
+
+
+## Android ARM64 static-recompilation references
+
+These repositories are architectural references. Their executable versions,
+host APIs and rendering requirements differ from the supported CD 1.1
+build; their code and binary addresses are not used by this project.
+
+### codepdbh/nfsu2-recompiled
+
+Repository: https://github.com/codepdbh/nfsu2-recompiled
+
+The repository documents an Android ARM64 static recompilation of a
+32-bit Windows game. Its Android implementation includes a native
+application entry point, guest-memory mapping, Android Vulkan WSI and an
+Android-specific DXVK Native build. These components provide a comparison
+for the 64-bit host / 32-bit guest boundary and Android surface integration.
+
+The project uses its own DXVK Native revision and Android patches. Those
+patches are not treated as compatible with The Movies' D3D9 workload.
+
+### tarek369/GeneralsZH-Android
+
+Repository: https://github.com/tarek369/GeneralsZH-Android
+
+This project documents an Android ARM64 native game application using SDL3
+and DXVK. It is relevant as an example of SDL-based Android window-system
+integration and Vulkan-backed legacy Direct3D rendering.
+
+Its graphics API path and SDL major version differ from this project.
+Successful D3D8 rendering there does not establish D3D9 compatibility here.
+
+### MYSOREZ/GeneralsZH-Android-Port
+
+Repository: https://github.com/MYSOREZ/GeneralsZH-Android-Port
+
+This repository contains Android-specific DXVK Native integration and
+driver-feature handling. It is a reference for Android shared-library
+integration, Vulkan extension promotion and device-feature negotiation.
+Its patches require independent review and are not dependencies of this
+project.
+
+No source reuse from these Android reference projects is implied. Any
+future code reuse requires a file-level licence and compatibility review.
