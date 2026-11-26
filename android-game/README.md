@@ -1,31 +1,50 @@
-# Android game host (ARM64)
+# The Movies for Android — ARM64 application target
 
-This is the first full-link target for the Android host. It is deliberately
-separate from `android-d3d9-probe/`: the probe remains a diagnostic APK and
-the Linux desktop build remains unchanged.
+This is a separate Android application project. It does not alter the desktop CMake target or the diagnostic android-d3d9-probe APK.
 
-## Inputs
+## What is implemented
 
-- `PCRECOMP_SOURCE_DIR`: the pinned pcrecomp checkout used to generate the lift.
-- `TM_GEN`: private `run_lift.py` output containing `recomp_*.c`,
-  `recomp_dispatch.c` and `recomp_funcs.h`.
-- `SDL2_ROOT`: Android SDL2 build with `include/SDL.h` and
-  `lib/arm64-v8a/libSDL2.so`.
-- `DXVK_ROOT`: Android DXVK Native build with headers and
-  `lib/arm64-v8a/libdxvk_d3d9.so`.
+- SDL2 Android activity integration.
+- A first-run Storage Access Framework folder picker.
+- Recursive copy of the user's installed game folder into app-private storage.
+- Validation of Movies.exe and Data/ before launch.
+- A dedicated NDK CMake target that links the real host, pcrecomp/win32hle, generated lifted C, SDL2 and Android DXVK Native D3D9 into libmain.so.
 
-Configure with the Android NDK CMake toolchain, `ANDROID_ABI=arm64-v8a`,
-and `ANDROID_STL=c++_shared`. The resulting shared library is
-`libmain.so`, loaded by SDL's Android activity glue. The app must package
-SDL's Java activity sources/resources and the matching SDL2, DXVK and
-libc++ shared libraries.
+The importer expects an already installed game directory, not the three-disc ISO archive. It copies the directory selected by the user; it does not download, extract, or package copyrighted game files.
 
-This is a build-system milestone, not a claim that the target already links
-or runs. The first build will likely expose unresolved Bionic/NDK assumptions
-or lifted-code compiler issues. After a successful link, validate guest
-memory reservation and PE mapping on-device before attempting game startup.
+## Build inputs
 
-The host entry point expects the user's own installed game files under
-`<SDL internal files>/game/Movies.exe` and `Data/`; saves and the synthetic
-Windows system directory are kept in sibling app-private folders. No
-copyrighted game data or generated proprietary lift is stored in this repo.
+| Property | Meaning |
+|---|---|
+| sdlRoot | SDL2 source tree (Android Java sources and headers) |
+| dxvkRoot | Android DXVK Native source tree (headers) |
+| pcrecompRoot | Pinned pcrecomp source tree |
+| tmGen | Private generated lift directory |
+| sdlLibrary | Built Android libSDL2.so |
+| dxvkLibrary | Built Android libdxvk_d3d9.so |
+
+The matching libSDL2.so, libdxvk_d3d9.so and NDK libc++_shared.so must be copied to app/src/main/jniLibs/arm64-v8a/ before Gradle packaging.
+
+Example (paths are illustrative):
+
+```sh
+gradle --no-daemon -p android-game \
+  -PsdlRoot="$SDL_ROOT" \
+  -PdxvkRoot="$DXVK_ROOT" \
+  -PpcrecompRoot="$PCRECOMP_ROOT" \
+  -PtmGen="$TM_GEN" \
+  -PsdlLibrary="$SDL_LIB" \
+  -PdxvkLibrary="$DXVK_LIB" \
+  :app:assembleDebug
+```
+
+## Current status and validation gates
+
+The Android application shell and full-link CMake target are present, but the target has not yet been built against the generated lift. The first successful configure/build is the next gate. The APK must then be tested on the Galaxy S24 Ultra for:
+
+1. 4 GiB guest-memory reservation and PE mapping;
+2. entry into the lifted CRT and WinMain;
+3. first actual game frame through the tested DXVK Native D3D9 path;
+4. touch input, pause/resume, sound/video and save/load.
+
+Do not treat the D3D9 probe result as evidence that the original game runs.
