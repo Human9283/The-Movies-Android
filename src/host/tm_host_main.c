@@ -5,8 +5,6 @@
 #include "recomp_trace.h"
 #include "tm_host.h"
 
-
-#ifndef __ANDROID__
 int main(int argc, char **argv) {
     tm_host_options options = {
         .game_dir = NULL,
