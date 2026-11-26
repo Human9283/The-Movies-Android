@@ -460,9 +460,26 @@ not a change to the fork's upstream repository or to the Linux DXVK build.
   termination were not being written as intended. This was a real report-
   buffer defect, but it has not been established as the cause of the earlier
   process exit; it is independent of the shared-runtime change.
-- The corrected workflow and source changes are being rebuilt in GitHub
-  Actions. A green build will prove compilation, packaging and static ELF
-  checks only. It will not prove the app starts on the phone.
+- **Successful APK build [run].** Workflow run
+  [45742406462](https://github.com/Human9283/The-Movies-Android/actions/runs/45742406462)
+  at commit `589c13c` completed all build, packaging and then-current ELF
+  verification steps. Artifact: `the-movies-dxvk-d3d9-probe-arm64`
+  (artifact ID `15082067133`).
+- **Independent artifact inspection [run].** The APK was downloaded and
+  inspected outside CI. All four packaged native libraries
+  (`libSDL2.so`, `libmain.so`, `libdxvk_d3d9.so`,
+  `libc++_shared.so`) are AArch64 ELF files. All have
+  `libc++_shared.so` in `DT_NEEDED`; every `PT_LOAD` segment is aligned
+  to `0x4000` (16 KB), and each uncompressed native library starts at a
+  16 KB-aligned offset in the APK.
+- A later build attempt failed during Gradle dependency resolution because
+  Maven Central returned HTTP 429. It did not fail in DXVK or native
+  compilation. The workflow now caches Gradle dependencies, retries that
+  transient error, and adds explicit 16 KB ELF/APK alignment checks.
+- **Phone runtime remains unverified.** The successful CI run proves
+  compilation, packaging and static ELF checks only. It does not prove
+  that the app starts on the Galaxy S24 Ultra or that D3D9 creates a
+  device and presents a frame.
 
 ### Acceptance gate
 
