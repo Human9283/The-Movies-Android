@@ -31,7 +31,7 @@ static void append_report(const char *level, const char *fmt, ...) {
     }
     if (g_report_len < sizeof(g_report) - 1) {
         g_report[g_report_len++] = '\n';
-        g_report[g_report_len] = '\\0';
+        g_report[g_report_len] = '\0';
     }
 }
 #define LOGI(...) do { __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__); append_report("INFO: ", __VA_ARGS__); } while (0)
@@ -75,12 +75,13 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
     VkQueueFamilyProperties q[32];
     if (qn > 32) qn = 32;
     vkGetPhysicalDeviceQueueFamilyProperties(gpu, &qn, q);
-    bool graphics = false, present = false;\n    uint32_t graphics_family = UINT32_MAX, present_family = UINT32_MAX;
+    bool graphics = false, present = false;
+    uint32_t graphics_family = UINT32_MAX, present_family = UINT32_MAX;
     for (uint32_t i = 0; i < qn; i++) {
         VkBool32 supports_present = VK_FALSE;
         vkGetPhysicalDeviceSurfaceSupportKHR(gpu, i, surface, &supports_present);
-        if ((q[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && q[i].queueCount) graphics = true;
-        if (supports_present && q[i].queueCount) present = true;
+        if ((q[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && q[i].queueCount) { graphics = true; if (graphics_family == UINT32_MAX) graphics_family = i; }
+        if (supports_present && q[i].queueCount) { present = true; if (present_family == UINT32_MAX) present_family = i; }
         LOGI("queue[%u]: flags=0x%x count=%u present=%u", i, q[i].queueFlags, q[i].queueCount, supports_present);
     }
     LOGI("queue graphics=%d present=%d", graphics, present);
