@@ -39,6 +39,10 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
          VK_VERSION_MAJOR(props.apiVersion), VK_VERSION_MINOR(props.apiVersion),
          VK_VERSION_PATCH(props.apiVersion), props.driverVersion, props.vendorID, props.deviceID);
     LOGI("maxPushConstantsSize=%u", props.limits.maxPushConstantsSize);
+    if (props.apiVersion < VK_API_VERSION_1_3) {
+        LOGE("DXVK v3.1.1 hardware gate: FAIL (physical device API below Vulkan 1.3)");
+        return;
+    }
 
     uint32_t qn = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(gpu, &qn, NULL);
