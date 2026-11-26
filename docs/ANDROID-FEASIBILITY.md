@@ -117,3 +117,36 @@ None is chosen before a device report exists.
 | Packaging | APK with the native libraries; game data from user storage, never in the APK or the repository | not done |
 
 Each row gets a [run] result when it is done.
+
+
+## 5. Android device probe: first APK build (2026-11-26)
+
+A separate diagnostic application has been implemented on the
+`audit/android-arm64-next-steps` branch. The main branch does not yet
+contain that application code. This is a hardware probe, not an Android
+build of The Movies.
+
+- **CI build [run].** GitHub Actions successfully built an Android debug
+  APK for `arm64-v8a` using Android SDK 36, NDK 28.2.13676358, and CMake
+  3.22.1. Build run:
+  https://github.com/Human9283/The-Movies-Android/actions/runs/45734393656
+- **Application [build].** The APK uses a Java Activity and JNI bridge to
+  pass an Android Surface to the native Vulkan probe. It checks the
+  Vulkan loader and physical device, device/API/driver properties,
+  graphics and presentation queues, selected extensions and features,
+  and Android surface capabilities. The report is displayed on-screen
+  and can be copied to the clipboard.
+- **Not yet measured.** The successful CI run proves compilation and APK
+  packaging only. It does not prove that the APK has been run on a
+  physical phone, that a phone passes the DXVK 3.1.1 requirements, or
+  that DXVK or the game runs on Android. No phone report has been
+  collected at this point.
+- **Collection.** On the phone, install and open the APK, wait for the
+  report, tap “Скопировать отчёт”, and paste the text into the project
+  discussion. The probe requires no internet connection or runtime
+  Android permissions.
+
+The artifact is named
+`the-movies-vulkan-probe-arm64-debug` and is attached to the successful
+workflow run above. It is a temporary debug diagnostic APK, not a game
+APK; GitHub Actions artifact retention applies.
