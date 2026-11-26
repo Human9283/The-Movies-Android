@@ -5,7 +5,7 @@ set(TM_GEN "" CACHE PATH "Private output directory from run_lift.py")
 set(SDL2_ROOT "" CACHE PATH "SDL2 source root (headers)")
 set(SDL2_LIBRARY "" CACHE FILEPATH "Built Android libSDL2.so")
 set(SDL2_TTF_INCLUDE_DIR "" CACHE PATH "SDL2_ttf compatibility include root containing SDL2/SDL_ttf.h")
-set(SDL2_TTF_LIBRARY "" CACHE FILEPATH "Built Android static libSDL2_ttf.a")
+set(SDL2_TTF_LIBRARY "" CACHE FILEPATH "Built Android libSDL2_ttf.so")
 set(DXVK_ROOT "" CACHE PATH "Android DXVK Native source root (headers)")
 set(DXVK_D3D9_LIBRARY "" CACHE FILEPATH "Built Android libdxvk_d3d9.so")
 
