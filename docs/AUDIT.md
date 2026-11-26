@@ -133,6 +133,7 @@ WinMain, D3D9 initialization or first frame on Android.
 
 ## 8. Technical references
 
+- HOST-IMPLEMENTATION.md — host subsystems, compatibility limits and regression-test coverage
 - BUILD.md — build and run
 - M2.md — startup result
 - M3.md — graphics initialization
