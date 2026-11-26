@@ -1,0 +1,47 @@
+plugins { id "com.android.application" }
+
+def sdlRoot = providers.gradleProperty("sdlRoot").getOrElse("")
+def dxvkRoot = providers.gradleProperty("dxvkRoot").getOrElse("")
+def pcrecompRoot = providers.gradleProperty("pcrecompRoot").getOrElse("")
+def tmGen = providers.gradleProperty("tmGen").getOrElse("")
+def sdlLibrary = providers.gradleProperty("sdlLibrary").getOrElse("")
+def dxvkLibrary = providers.gradleProperty("dxvkLibrary").getOrElse("")
+if ([sdlRoot, dxvkRoot, pcrecompRoot, tmGen, sdlLibrary, dxvkLibrary].any { it.isEmpty() }) {
+    throw new GradleException("Pass sdlRoot, dxvkRoot, pcrecompRoot, tmGen, sdlLibrary and dxvkLibrary")
+}
+
+android {
+    namespace "com.human9283.themovies"
+    compileSdk 36
+    ndkVersion "28.2.13676358"
+    defaultConfig {
+        applicationId "com.human9283.themovies"
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0"
+        ndk { abiFilters "arm64-v8a" }
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++17"
+                arguments "-DANDROID_STL=c++_shared",
+                    "-DPCRECOMP_SOURCE_DIR=" + pcrecompRoot,
+                    "-DTM_GEN=" + tmGen,
+                    "-DSDL2_ROOT=" + sdlRoot,
+                    "-DSDL2_LIBRARY=" + sdlLibrary,
+                    "-DDXVK_ROOT=" + dxvkRoot,
+                    "-DDXVK_D3D9_LIBRARY=" + dxvkLibrary
+            }
+        }
+    }
+    sourceSets {
+        main {
+            java.srcDir(sdlRoot + "/android-project/app/src/main/java")
+            res.srcDir(sdlRoot + "/android-project/app/src/main/res")
+            jniLibs.srcDir "src/main/jniLibs"
+        }
+    }
+    externalNativeBuild {
+        cmake { path file("src/main/cpp/CMakeLists.txt"); version "3.22.1" }
+    }
+}
