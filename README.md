@@ -1,187 +1,107 @@
 # The Movies for Android
 
-A native Android ARM64 port of Lionhead Studios' **The Movies** (2005), built
-by statically recompiling the original Windows executable to C and replacing
-its Windows and DirectX dependencies with portable implementations.
+A native Android ARM64 port of Lionhead Studios' **The Movies** (2005).
+The project statically recompiles the supported Windows executable to C
+and replaces platform-specific Windows and DirectX services with native
+host implementations.
 
-This is not a remake or a clone. The game's own code runs, translated
-instruction by instruction, with its original data. You need your own copy
-of the game.
+This is not a remake. It aims to run the original game's code and use the
+original game data. You need your own copy of the game.
 
-> **Status: the Android game application shell and full-link target now exist; the first complete ARM64 game build is being validated.** On Linux x86-64, the original game reaches the Lionhead logo, main menu and 3D studio lot through DXVK Native. On a Samsung Galaxy S24 Ultra (Snapdragon 8 Gen 3 / Adreno 750), the separate Android SDL2 + DXVK Native 1.9.2 diagnostic app successfully creates a D3D9 device, draws a fixed-function triangle and presents a frame ([probe run 45793972336](https://github.com/Human9283/The-Movies-Android/actions/runs/45793972336)). The active feature branch now includes `android-game/`, an SDLActivity-based app shell, a SAF game-folder importer, an Android SDL entry point and a CMake target intended to link the full lifted runtime. Private CI is testing the first complete Android ARM64 link using the private CD 1.1 lift. The current experiment reduces compiler memory by splitting generated C files at function boundaries, emitting the 85,910-entry dispatch table as AArch64 assembly, compiling generated C with `-O0 -g0`, and serializing native compilation. **The original game has not yet been linked into a successful APK or launched on Android.** The standalone D3D9 probe is not the game. See [Android feasibility and measured results](docs/ANDROID-FEASIBILITY.md), [the Android port audit](docs/ANDROID-PORT-AUDIT.md), [the Vulkan probe](android-probe/README.md), and [the D3D9 probe](android-d3d9-probe/README.md).
-
-## Contents
-
-- [How it works](#how-it-works)
-- [Status](#status)
-- [Requirements](#requirements)
-- [Getting started](#getting-started)
-- [Project layout](#project-layout)
-- [Documentation](#documentation)
-- [Android Vulkan probe](android-probe/README.md)
-- [Android game application](android-game/README.md)
-- [Android DXVK D3D9 diagnostic](android-d3d9-probe/README.md)
-- [License](#license)
-- [Credits](#credits)
+> **Status:** The Android application shell, game-data importer and native
+> ARM64 build target are implemented on the development branch. The
+> standalone Android D3D9 diagnostic has passed on a Samsung Galaxy S24
+> Ultra, but the complete game has not yet been verified in an APK or
+> launched on Android. The diagnostic is not the game.
 
 ## How it works
 
-1. **Install** the game data from the original discs without Windows
-   (`tools/tm_install.py` reads the Windows Installer database and its
-   cabinets).
-2. **Analyse and lift** `Movies.exe` with the
-   [pcrecomp](https://github.com/sp00nznet/pcrecomp) toolchain: function
-   catalog, C++ RTTI, and a lift of every function to C.
-3. **Host** the lifted code on pcrecomp's `win32hle`, a Win32 implementation
-   on POSIX and SDL2, in a 64-bit process with the game's 32-bit address space
-   mapped as one block.
-4. **Replace** what the game loads at run time (Direct3D 9, DirectInput 8,
-   DirectShow video, DirectSound/OpenAL) with portable backends, then package
-   the result as an Android app.
+1. Install the game from the original CD images using the repository tools.
+2. Analyse and statically recompile the supported executable with
+   [pcrecomp](https://github.com/sp00nznet/pcrecomp).
+3. Run the lifted code in the host compatibility layer.
+4. Replace the game's platform APIs and graphics backend with native
+   implementations.
 
-The supported game build is the Russian CD edition, version 1.1
-(`Movies.exe`, FileVersion 1.1, 11,477,288 bytes). Other builds need their
-own lift.
+The current supported executable is the Russian CD edition, version 1.1.
+Other executable builds require a separate analysis and lift.
 
-## Status
+## Project status
 
-```
-Progress  ██████████░░░░░░░░░░  4 of 8 milestones (50%)
-```
+The Linux x86-64 host reaches the game's own startup, Direct3D 9 device
+initialization, main menu and 3D studio lot. Android remains a separate
+porting target: a successful diagnostic graphics test does not establish
+that the complete game works.
 
-The bar counts finished milestones, M0 to M7 ([docs/AUDIT.md](docs/AUDIT.md) 6),
-equally. They are not equal in work: Direct3D 9 (M4) and video, audio and
-input (M5) are the largest. M4 is done on Linux, not yet on Android, and is not counted.
-
-| Milestone | State |
+| Area | Status |
 |---|---|
-| M0: install game data from the discs on Linux | done: 705/705 files |
-| M1: function catalog and lift of `Movies.exe` 1.1 | done: 85,910 functions, 0 lift errors, 7 unresolvable ITAIL labels |
-| M2: lifted start-up code reaches `WinMain` | done on Linux x86-64; arm64 and Android not yet run |
-| M3: run to the game's own Direct3D 9 device initialisation | done on Linux x86-64: the game's `CreateDevice` succeeds on DXVK Native, and its resources and rendering calls are traced ([docs/M3.md](docs/M3.md), [docs/D3D9-REQUIREMENTS.md](docs/D3D9-REQUIREMENTS.md), [docs/DXVK-INTEGRATION.md](docs/DXVK-INTEGRATION.md)) |
-| M4: the first genuine frame from the game's rendering code | on Linux (software Vulkan): the intro logo and the main menu, drawn by the game's own code. Not yet on Android |
-| Android shell and game target | implemented on `ci/android-arm64-asm-dispatch`; full ARM64 link is in private CI, not yet verified |
-| Later: video, audio, input | started on Linux: the menus answer the mouse, and a new game reaches the studio lot in 3D; no video, sound not checked |
+| CD data extraction and executable lift | Completed for the supported CD 1.1 build |
+| Linux host and game rendering | Main menu and studio lot reached |
+| Android application shell | Implemented |
+| Android SDL/Vulkan/D3D9 diagnostic | Passed on Galaxy S24 Ultra |
+| Complete Android ARM64 build | Under validation; successful full-game APK not yet confirmed |
+| Full-game Android runtime | Not yet tested |
 
-Measured results and open problems: [docs/M2.md](docs/M2.md),
-[docs/AUDIT.md](docs/AUDIT.md) and
-[docs/REPOSITORY-AUDIT.md](docs/REPOSITORY-AUDIT.md).
+See [Android feasibility](docs/ANDROID-FEASIBILITY.md) for measured device
+results and remaining work, and [Android port architecture](docs/ANDROID-PORT-AUDIT.md)
+for the implementation details.
 
 ## Requirements
 
-- Linux x86-64 (tested); Linux AArch64 is an unverified porting target
-- Python 3.10+ with `pefile`, `capstone`, `unicorn`, `pycdlib`
-- `msitools`, `cabextract`
-- CMake 3.20+, Ninja, Clang or GCC, SDL2 and SDL2_ttf development packages
-- Optional, for the Direct3D 9 backend: DXVK Native v3.1.1 built with meson, and a Vulkan 1.3 driver ([docs/BUILD.md](docs/BUILD.md) 5.1)
-- A checkout of [pcrecomp](https://github.com/sp00nznet/pcrecomp) and of
-  [themovies](https://github.com/sp00nznet/themovies) (for its lift driver)
-- The three disc images of The Movies (CD edition)
+For the Linux development build:
+
+- Linux x86-64
+- Python 3.10+ and the packages listed in the build documentation
+- CMake, Ninja, Clang or GCC, SDL2 and SDL2_ttf
+- The pcrecomp toolchain
+- The original The Movies CD images
+
+See [docs/BUILD.md](docs/BUILD.md) for installation and build instructions.
 
 ## Getting started
 
-Install the game data from your discs:
+Install game data from the original discs:
 
 ```bash
 python3 tools/tm_install.py --iso ~/iso --out ~/tm/game
 ```
 
-Then follow [docs/BUILD.md](docs/BUILD.md) to build the function catalog,
-lift the executable and build the host. Run it with:
-
-```bash
-build/tm_host ~/tm/game --stop-at-winmain --watchdog 120
-```
-
-With DXVK Native built ([docs/BUILD.md](docs/BUILD.md) 5.1), the game opens
-its window and renders through Vulkan:
-
-```bash
-cd ~/tm/game && ~/tm/build/tm_host . --d3d9 dxvk
-```
-
-Run the tests:
-
-```bash
-python3 -m unittest tools/test_tm_install.py
-```
-
-```bash
-python3 tests/m2_winmain.py --host ~/tm/build/tm_host --game ~/tm/game
-```
-
-```bash
-python3 tests/m3_boundary.py --host ~/tm/build/tm_host --game ~/tm/game
-```
-
-```bash
-ctest --test-dir build --output-on-failure
-```
+Then follow [docs/BUILD.md](docs/BUILD.md) to build and run the Linux host.
 
 ## Project layout
 
 ```
-tools/tm_install.py     install the game from the disc images
-tools/lift_health.py    lift statistics and unresolvable jump targets
-tools/crt_init_seeds.py seed the catalog with the CRT initializer tables
-tools/eh_scan.py        exception-handling structures in Movies.exe, and what a run reached
-tools/test_*.py         unit tests
-tests/                  regression tests against the real game (M2, M3 boundary)
-tests/c/                shim tests in C (no game files)
-tests/dxvk/             DXVK Native proof of concept (no game files)
-src/host/               the host: boot, import binding, game-specific shims
-CMakeLists.txt          shared runtime source list; active target is Linux desktop
-android-probe/          standalone Android Vulkan capability/surface probe
-android-d3d9-probe/     standalone Android SDL2 + DXVK Native D3D9 diagnostic
-android-game/           Android ARM64 application and full-game native target
-docs/                   audit, build steps, milestone reports
+tools/                  installation, analysis and validation tools
+tests/                  regression and runtime-boundary tests
+src/host/               host runtime and platform compatibility layer
+android-probe/          standalone Android Vulkan capability probe
+android-d3d9-probe/     standalone Android D3D9 diagnostic
+android-game/            Android application and full-game native target
+docs/                   build instructions, audits and test results
 ```
 
 ## Documentation
 
-- [docs/AUDIT.md](docs/AUDIT.md): audit of the reference project and of the
-  CD edition, blockers, architecture and roadmap
-- [docs/BUILD.md](docs/BUILD.md): reproducible build and run steps
-- [docs/M2.md](docs/M2.md): first-boot results
-- [docs/M3.md](docs/M3.md): from WinMain to the Direct3D 9 device, and on to the first frames, the menus and the lot
-- [docs/IMPORTS.md](docs/IMPORTS.md): the imports the game calls, their status and what is verified
-- [docs/DIRECTSHOW-STARTUP.md](docs/DIRECTSHOW-STARTUP.md): the DirectShow start-up probe and what is implemented for it (not playback or export)
-- [docs/D3D9-REQUIREMENTS.md](docs/D3D9-REQUIREMENTS.md): the Direct3D 9 calls the game makes and the device it asks for
-- [docs/DXVK-INTEGRATION.md](docs/DXVK-INTEGRATION.md): DXVK Native (pinned v3.1.1) as the Direct3D 9 backend; the proof of concept and the integration decisions, and the backend in the host: its design, what the game does with it, its limits
-- [docs/ANDROID-FEASIBILITY.md](docs/ANDROID-FEASIBILITY.md): Android GPU requirements, DXVK risks, measured S24 Ultra results and current porting status
-- [docs/ANDROID-PORT-AUDIT.md](docs/ANDROID-PORT-AUDIT.md): source audit, Android host architecture, remaining integration blockers
-- [android-game/README.md](android-game/README.md): Android game application target, build inputs and validation gates
-- [docs/ANDROID-VULKAN-PROBE.md](docs/ANDROID-VULKAN-PROBE.md): standalone Vulkan probe and report workflow
-- [docs/EXCEPTIONS.md](docs/EXCEPTIONS.md): C++ EH and SEH in the executable, and what a run reaches (B4)
-- [docs/REPOSITORY-AUDIT.md](docs/REPOSITORY-AUDIT.md): correctness audit of the host, its tests and its limits
-- [docs/EXTERNAL-REFERENCES.md](docs/EXTERNAL-REFERENCES.md): other projects' findings, checked against this executable
+- [Build instructions](docs/BUILD.md)
+- [Project audit and roadmap](docs/AUDIT.md)
+- [Android feasibility and measured results](docs/ANDROID-FEASIBILITY.md)
+- [Android port architecture and validation](docs/ANDROID-PORT-AUDIT.md)
+- [Android application build](android-game/README.md)
+- [Android Vulkan diagnostic](android-probe/README.md)
+- [Android D3D9 diagnostic](android-d3d9-probe/README.md)
 
 ## Legal
 
-- This is an unofficial project. It is not affiliated with, endorsed by or
-  connected to Lionhead Studios, Activision, Microsoft or any other rights
-  holder. The Movies is © 2005 Lionhead Studios / Activision; names and
-  trademarks belong to their owners and are used here only to say which
-  game this project works with.
-- The repository contains no part of the game: no executable, no game data
-  or assets, no disc images, no keys, and no code generated from the
-  executable. The tools run on a copy the user owns, on the user's own
-  machine, and what they produce stays there.
-- Documents describe the executable's behaviour as measured (addresses,
-  calls, formats), and quote at most short interface labels.
+This is an unofficial project and is not affiliated with or endorsed by
+Lionhead Studios, Activision or Microsoft. The Movies and related marks
+belong to their respective owners.
+
+The public repository does not contain the game's executable, game data,
+disc images, assets or generated code derived from the executable. Users
+must supply their own game copy. Third-party components and their licences
+are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ## License
 
-This project's code and documentation are released under the
-[MIT License](LICENSE). Material derived from other projects is listed in
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-
-## Credits
-
-- [sp00nznet/themovies](https://github.com/sp00nznet/themovies): the Steam 1.2
-  recompilation this work builds on (MIT)
-- [sp00nznet/pcrecomp](https://github.com/sp00nznet/pcrecomp): the
-  recompilation toolchain and the `win32hle` runtime (MIT)
-- [Capstone](https://www.capstone-engine.org/), [pefile](https://github.com/erocarrera/pefile),
-  [pycdlib](https://github.com/clalancette/pycdlib), [msitools](https://wiki.gnome.org/msitools),
-  [cabextract](https://www.cabextract.org.uk/), [SDL](https://www.libsdl.org/)
+Project code and documentation are released under the
+[MIT License](LICENSE).
