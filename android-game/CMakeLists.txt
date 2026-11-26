@@ -116,7 +116,11 @@ target_include_directories(main PRIVATE
     "${DXVK_ROOT}/include/native")
 set_source_files_properties(${TM_GEN_C_SOURCES} PROPERTIES
     COMPILE_DEFINITIONS RECOMP_LOCAL_REGS
-    COMPILE_OPTIONS "-g0")
+    # Lifted functions are emitted in very large translation units (up to ~42 MiB).
+    # Disable optimization and debug info for these generated files to reduce
+    # Clang peak memory on the 8 GiB CI runner.
+    COMPILE_OPTIONS "-O0;-g0"
+)
 target_compile_options(main PRIVATE -O1 -fno-strict-aliasing -fwrapv -Wno-unused-function -Wno-unused-parameter)
 target_link_libraries(main PRIVATE SDL2_TTF SDL2 DXVK_D3D9 android log dl vulkan m)
 set_target_properties(main PROPERTIES
