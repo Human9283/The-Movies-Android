@@ -2,6 +2,7 @@ package com.human9283.themovies;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.ProgressDialog;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
@@ -12,6 +13,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Locale;
 
 public final class SetupActivity extends Activity {
     private static final int PICK_GAME_FOLDER = 4101;
@@ -25,9 +27,53 @@ public final class SetupActivity extends Activity {
         gameDir = new File(getFilesDir(), "game");
         if (validInstall()) {
             showInstalledMenu();
+        } else if (BundledGameInstaller.hasBundledGame(this)) {
+            installBundledGame();
         } else {
             showImportPrompt();
         }
+    }
+
+    private void installBundledGame() {
+        ProgressDialog progress = new ProgressDialog(this);
+        progress.setTitle("Установка The Movies");
+        progress.setMessage("Подготовка игровых данных...");
+        progress.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
+        progress.setMax(1000);
+        progress.setProgress(0);
+        progress.setCancelable(false);
+        progress.show();
+
+        new Thread(() -> {
+            try {
+                BundledGameInstaller.install(this, gameDir, (done, total, filesDone, totalFiles) ->
+                    runOnUiThread(() -> {
+                        int percent = total > 0 ? (int) Math.min(1000, done * 1000L / total) : 0;
+                        progress.setProgress(percent);
+                        progress.setMessage(String.format(Locale.US,
+                            "Распаковка игровых данных: %d%% (%d/%d файлов)",
+                            percent / 10, filesDone, totalFiles));
+                    }));
+                runOnUiThread(() -> {
+                    progress.dismiss();
+                    Diagnostics.log("Bundled game data installed and SHA-256 verified");
+                    launchGame();
+                });
+            } catch (Exception error) {
+                Diagnostics.log("Bundled game installation failed: " + error);
+                runOnUiThread(() -> {
+                    progress.dismiss();
+                    new AlertDialog.Builder(this)
+                        .setTitle("Не удалось установить игру")
+                        .setMessage(error.getMessage() == null ? error.toString() : error.getMessage())
+                        .setPositiveButton("Повторить", (d, w) -> installBundledGame())
+                        .setNeutralButton("Импортировать вручную", (d, w) -> pickFolder())
+                        .setNegativeButton("Выход", (d, w) -> finish())
+                        .setCancelable(false)
+                        .show();
+                });
+            }
+        }, "bundled-game-installer").start();
     }
 
     private boolean validInstall() {
