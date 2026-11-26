@@ -471,3 +471,41 @@ caching and retries this specific transient rate-limit failure. The latest
 workflow also adds explicit 16 KB ELF and APK alignment checks. See
 [ANDROID-FEASIBILITY.md](ANDROID-FEASIBILITY.md) for the current validation
 sequence.
+
+
+## Current status update: D3D9 backend proven on the target phone (2026-11-26)
+
+The historical audit above predates the successful physical-device D3D9
+smoke test. The separate `android-d3d9-probe/` app has now been run on a
+Samsung Galaxy S24 Ultra (Adreno 750) and reports successful SDL2
+initialization, SDL Vulkan surface creation, DXVK Native 1.9.2 loading,
+`Direct3DCreate9`, D3D9 `CreateDevice`, fixed-function triangle rendering
+and `Present`. The corresponding ARM64 APK 0.8.0 was built in
+[workflow run 45793972336](https://github.com/Human9283/The-Movies-Android/actions/runs/45793972336).
+
+This proves the standalone Android DXVK D3D9 backend path on this device.
+It does not prove the lifted game host, guest-memory mapping, PE loader,
+game-specific D3D9 bridge or original game workload on Android. The
+diagnostic workflow's compile of `src/host/tm_d3d9_dxvk.cpp` is
+object-only and is not an Android link of the game runtime.
+
+### Updated implementation order
+
+1. Preserve the Linux desktop build and its regression tests; no Linux
+   DXVK pin or runtime change is required for this Android result.
+2. Add an Android-specific CMake shared-library target and JNI/SDLActivity
+   entry point around the existing `tm_host_run()` API.
+3. Cross-compile the full lifted translation units and pinned
+   pcrecomp/win32hle runtime with the Android NDK.
+4. Validate the 4 GiB guest-memory reservation, PE mapping/relocation and
+   import binding on the phone.
+5. Supply explicit app-private game/user/system paths and connect the
+   existing guest D3D9 bridge to the tested Android DXVK library.
+6. Exercise the actual game's D3D9 workload, then implement and validate
+   lifecycle, touch input, audio/video and save/load.
+
+The top-level `CMakeLists.txt` remains Linux-desktop-only today: it
+requires desktop pkg-config SDL2/SDL2_ttf and defines the `tm_host`
+executable. The diagnostic Android Gradle projects are not a substitute
+for that missing game target. Do not mark the Android port complete until
+the original game itself launches and renders on-device.
