@@ -301,3 +301,35 @@ Consequences for the port:
 
 This is now a separate explicit porting gate between "AArch64 compiles" and
 "Android graphics works". It is not yet tested on Android hardware.
+
+
+## Update after the runtime/CLI split and external research (2026-11-26)
+
+The implementation branch now has a concrete source split:
+
+- `src/host/tm_host.c` exports `tm_host_run(const tm_host_options *)`
+  and no longer defines the process `main()`.
+- `src/host/tm_host_main.c` owns the Linux CLI parser and calls
+  `tm_host_run()`.
+- `CMakeLists.txt` builds the Linux executable from
+  `tm_host_main.c` plus the reusable `TM_RUNTIME_SOURCES` list.
+- The source-list comment was corrected to describe this actual state.
+
+This is only the first boundary. The runtime still has process-global
+state, POSIX signal/watchdog setup and an `_exit()` diagnostic path; an
+Android entry point must use explicit app-private paths and must not
+pretend that runtime pause/resume or repeated starts are implemented.
+
+External research was added to `docs/ANDROID-FEASIBILITY.md`:
+NDK r30 / SDK 36 are the proposed toolchain baseline; SDL's current Android
+template uses Gradle, `SDLActivity`, JNI and a native shared library;
+upstream DXVK explicitly does not provide first-party Android/mobile-driver
+support. The DXVK Android feasibility gate must be measured on the actual
+phone, not inferred from Vulkan API version alone.
+
+The repository README's opening status was also corrected: the Linux
+runtime has progressed beyond WinMain to the logo, main menu and 3D studio
+lot. That progress must not be confused with Android support.
+
+No Android target, JNI bridge or APK has been added in this update. No
+local build/test result is claimed.
