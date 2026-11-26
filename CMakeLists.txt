@@ -74,9 +74,9 @@ find_package(Threads REQUIRED)
 
 add_library(tm_gen OBJECT ${GEN_SOURCES})
 
-# Shared host/runtime sources. The desktop executable adds only its CLI
-# entry point (currently tm_host.c, whose main is omitted for Android).
-# Keep this list reusable when the Android shared-library target is added.
+# Shared host/runtime sources. The Linux executable adds tm_host_main.c;
+# Android will add a separate shared-library/JNI entry point. Keep the
+# runtime list free of platform-specific process entry points.
 set(TM_RUNTIME_SOURCES
     src/host/tm_host.c
     src/host/tm_shell.c
