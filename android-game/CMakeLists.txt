@@ -1,6 +1,3 @@
-cmake_minimum_required(VERSION 3.22.1)
-project(the_movies_android_game C CXX)
-
 # Dedicated Android target. The desktop CMakeLists.txt remains untouched.
 get_filename_component(TM_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 set(PCRECOMP_SOURCE_DIR "" CACHE PATH "Pinned pcrecomp checkout")
