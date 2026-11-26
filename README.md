@@ -12,10 +12,7 @@ Native ARM64 port of *The Movies* (2005), based on static recompilation of the s
 | Executable analysis and lift | 85,910 lifted entries; 0 lift exceptions; 7 unresolved indirect-tail targets remain |
 | Linux x86-64 runtime | Reaches WinMain, Direct3D 9 initialization, intro, main menu and 3D studio lot |
 | Linux graphics | DXVK Native 3.1.1; tested with software Vulkan and host GPU configurations |
-| Android ARM64 APK | Built, installed and launched on Samsung Galaxy S24 Ultra |
-| Android game rendering | D3D9 device creation and repeated animated intro frames observed |
-| Android main menu / gameplay | Not reached; runtime currently remains on the Lionhead splash |
-| Android touch input | SDL finger-to-Win32 mouse bridge added; on-device effectiveness not yet confirmed |
+| Android ARM64 | APK launches on Galaxy S24 Ultra; game startup is still being fixed |
 | Video, audio, input, exceptions | Incomplete or not fully verified; see subsystem documents |
 
 The Android game currently reaches its animated intro rendering loop but does not reach the main menu. A successful lift, native build, APK build or standalone graphics diagnostic is not evidence that the complete game is playable.
