@@ -4,6 +4,16 @@ This is a deliberately separate diagnostic APK. It does **not** include the
 lifted game, game data, DXVK, or the main runtime. It checks the actual
 Android device before the project attempts a DXVK port.
 
+## Current CI build
+
+The Android ARM64 debug APK builds successfully in GitHub Actions:
+https://github.com/Human9283/The-Movies-Android/actions/runs/45734393656
+
+Download the artifact named `the-movies-vulkan-probe-arm64-debug` from that
+run. This is a debug diagnostic APK, not a release or a game APK. CI confirms
+compilation and packaging; it does not substitute for a run on a physical
+phone.
+
 ## What it checks
 
 The game currently uses DXVK Native 3.1.1. The pinned upstream source
