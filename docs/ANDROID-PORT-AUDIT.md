@@ -353,8 +353,17 @@ The requirements are read from the project's exact DXVK pin
 release. The probe's `PASS` means capability enumeration passed; it does
 not prove a Bionic build of DXVK, swapchain creation, or a presented frame.
 
-**Validation status:** source files have been reviewed through the repository
-API, but neither Android Studio/Gradle nor an NDK compiler has run in this
-environment. No successful CI run is currently visible. The first hardware
-run is still required on the target phone. See
+**Validation status:** the standalone probe has now completed a real
+Android ARM64 CI build with Gradle 8.11.1, Android SDK 36, NDK
+28.2.13676358 and CMake 3.22.1. GitHub Actions run
+[45733757467](https://github.com/Human9283/The-Movies-Android/actions/runs/45733757467)
+completed successfully and uploaded the
+`the-movies-vulkan-probe-arm64-debug` artifact. The APK archive was
+downloaded and inspected: it contains `lib/arm64-v8a/libmain.so`, which
+is an AArch64 Android shared object targeting API 26.
+
+This verifies that the NativeActivity/NDK Vulkan probe compiles and packages.
+It does **not** verify Vulkan capability results, a rendered frame, DXVK
+Bionic compatibility, or the game runtime. The first hardware run is still
+required on the target phone. See
 [`android-probe/README.md`](../android-probe/README.md).
