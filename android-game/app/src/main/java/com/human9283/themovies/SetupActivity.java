@@ -7,31 +7,69 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
-import android.provider.OpenableColumns;
 import android.widget.Toast;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 
 public final class SetupActivity extends Activity {
     private static final int PICK_GAME_FOLDER = 4101;
+    private static final int CREATE_DIAGNOSTICS = 4102;
     private File gameDir;
+    private File pendingDiagnostics;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        Diagnostics.init(this);
         gameDir = new File(getFilesDir(), "game");
-        if (validInstall()) { launchGame(); return; }
+        if (validInstall()) {
+            showInstalledMenu();
+        } else {
+            showImportPrompt();
+        }
+    }
+
+    private boolean validInstall() {
+        return new File(gameDir, "Movies.exe").isFile() && new File(gameDir, "Data").isDirectory();
+    }
+
+    private void showInstalledMenu() {
+        new AlertDialog.Builder(this)
+            .setTitle("The Movies")
+            .setMessage("Файлы игры найдены. Можно запустить игру или экспортировать диагностические данные.")
+            .setCancelable(false)
+            .setPositiveButton("Запустить игру", (d, w) -> launchGame())
+            .setNeutralButton("Экспорт диагностики", (d, w) -> exportDiagnostics())
+            .setNegativeButton("Выход", (d, w) -> finish())
+            .show();
+    }
+
+    private void showImportPrompt() {
         new AlertDialog.Builder(this)
             .setTitle("Импорт The Movies")
             .setMessage("Выберите папку установленной игры The Movies (внутри должны находиться Movies.exe и Data/). Файлы будут скопированы в закрытое хранилище приложения.")
             .setCancelable(false)
             .setPositiveButton("Выбрать папку", (d, w) -> pickFolder())
+            .setNeutralButton("Экспорт диагностики", (d, w) -> exportDiagnostics())
             .setNegativeButton("Выход", (d, w) -> finish())
             .show();
     }
 
-    private boolean validInstall() {
-        return new File(gameDir, "Movies.exe").isFile() && new File(gameDir, "Data").isDirectory();
+    private void exportDiagnostics() {
+        try {
+            pendingDiagnostics = Diagnostics.createArchive(this);
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("application/zip");
+            intent.putExtra(Intent.EXTRA_TITLE, "the-movies-diagnostics.zip");
+            startActivityForResult(intent, CREATE_DIAGNOSTICS);
+        } catch (Exception error) {
+            Diagnostics.log("Diagnostics export failed: " + error);
+            new AlertDialog.Builder(this).setTitle("Ошибка экспорта")
+                .setMessage(error.toString())
+                .setPositiveButton("OK", null).show();
+        }
     }
 
     private void pickFolder() {
@@ -42,8 +80,28 @@ public final class SetupActivity extends Activity {
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == CREATE_DIAGNOSTICS) {
+            if (result == RESULT_OK && data != null && data.getData() != null && pendingDiagnostics != null) {
+                try (InputStream input = new java.io.FileInputStream(pendingDiagnostics);
+                     OutputStream output = getContentResolver().openOutputStream(data.getData())) {
+                    if (output == null) throw new Exception("Could not open destination");
+                    byte[] buffer = new byte[8192];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                    Toast.makeText(this, "Диагностика сохранена", Toast.LENGTH_LONG).show();
+                    Diagnostics.log("Diagnostics archive exported");
+                } catch (Exception error) {
+                    Diagnostics.log("Diagnostics archive copy failed: " + error);
+                    Toast.makeText(this, "Не удалось сохранить архив: " + error, Toast.LENGTH_LONG).show();
+                }
+            }
+            if (pendingDiagnostics != null) pendingDiagnostics.delete();
+            pendingDiagnostics = null;
+            return;
+        }
         if (request != PICK_GAME_FOLDER || result != RESULT_OK || data == null || data.getData() == null) {
-            finish(); return;
+            if (request == PICK_GAME_FOLDER) finish();
+            return;
         }
         Uri tree = data.getData();
         try {
@@ -66,12 +124,14 @@ public final class SetupActivity extends Activity {
             }
             deleteRecursively(backup);
             Toast.makeText(this, "Игра импортирована", Toast.LENGTH_LONG).show();
+            Diagnostics.log("Game data import completed");
             launchGame();
         } catch (Exception e) {
             deleteRecursively(new File(getFilesDir(), "game-import"));
+            Diagnostics.log("Game data import failed: " + e);
             new AlertDialog.Builder(this).setTitle("Ошибка импорта").setMessage(e.getMessage())
                 .setPositiveButton("Повторить", (d, w) -> pickFolder())
-                .setNegativeButton("Выход", (d, w) -> finish()).show();
+                .setNegativeButton("Экспорт диагностики", (d, w) -> exportDiagnostics()).show();
         }
     }
 
@@ -103,6 +163,7 @@ public final class SetupActivity extends Activity {
     }
 
     private void launchGame() {
+        Diagnostics.log("Launching game activity");
         startActivity(new Intent(this, GameActivity.class));
         finish();
     }
