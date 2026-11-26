@@ -2,7 +2,7 @@
 
 This document separates what was read or measured from what is assumed,
 for running the port on Android ARM64 with DXVK Native as the Direct3D 9
-backend ([DXVK-INTEGRATION.md](DXVK-INTEGRATION.md)). The game runtime has not run on Android. A separate diagnostic APK builds in CI, and an initial physical-device report has now been collected from a Samsung Galaxy S24 Ultra (Adreno 750).
+backend ([DXVK-INTEGRATION.md](DXVK-INTEGRATION.md)). The game runtime has not run on Android. The repository now has two separate diagnostic apps: a Vulkan capability/WSI probe tested on a Samsung Galaxy S24 Ultra (Adreno 750), and an SDL2 + Android DXVK Native D3D9 probe whose APK and physical-device execution are being validated.
 
 Tags: [src] read from source at a stated revision; [static] read from
 `Movies.exe` 1.1; [run] measured here;
@@ -83,31 +83,32 @@ holds however complete the rest of the port is.
 
 ## 3. How a device answers
 
-There is no phone capability table yet, and no claim about a named GPU.
-A standalone Android Vulkan probe now collects the initial hardware
-capability report; it is not DXVK itself and does not create a Vulkan device.
-See [android-probe/README.md](../android-probe/README.md) for the APK and
-report workflow. The next validation stages are:
+A first physical-device capability report is recorded in section 7.
+The standalone Vulkan probe is separate from DXVK; its successful device
+and swapchain creation do not establish that DXVK itself works. See
+[android-probe/README.md](../android-probe/README.md). The next validation
+stages are:
 
-1. Run the probe on physical Android devices and record model, OS, GPU,
-   driver, extension and feature results as [run] entries.
-2. Build the selected DXVK revision for Android ARM64 and test D3D9 device
-   creation and presentation on devices whose capability reports justify
-   proceeding.
-3. Record actual DXVK logs and a presented frame; a probe PASS alone is
-   not evidence that DXVK or The Movies runs.
+1. Preserve the Galaxy S24 Ultra report as the baseline hardware result.
+2. Complete the Android ARM64 DXVK Native D3D9 build and inspect the APK's
+   packaged ELF dependencies.
+3. Run that D3D9 probe on the S24 Ultra and require a visible frame plus
+   successful `CreateDevice` and `Present` evidence.
+4. Only then connect the tested backend to the game's D3D9 host bridge.
 
-If the drivers to be supported lack required features, the options are,
-all [hyp.]:
+If a target driver lacks features required by a candidate backend, possible
+fallbacks are, all [hyp.]:
 - a driver that has them, such as Mesa's Turnip for Adreno, measured the
   same way;
 - an older pinned DXVK with fewer requirements, re-evaluated under the
   same rules;
 - a different Direct3D 9 backend.
 
-None is chosen before a device report exists.
+The Android-specific DXVK Native fork documented in section 8 is the current
+D3D9 test candidate; no fallback is considered validated until it passes on
+the target phone.
 
-## 4. The build for Android ARM64 (not done yet)
+## 4. Initial Android build plan (historical snapshot; superseded below)
 
 | Part | Plan | State |
 |---|---|---|
@@ -121,7 +122,7 @@ None is chosen before a device report exists.
 Each row gets a [run] result when it is done.
 
 
-## 5. Updated upstream check (2026-11-26)
+## 5. Upstream/toolchain research (2026-11-26; planning snapshot)
 
 This section supersedes any older general statements above where the
 upstream toolchain has changed. The pinned project build remains DXVK
@@ -175,8 +176,9 @@ current wiki requirements.
    not proof that a native AArch64 ELF application can link DXVK against
    Android's Bionic and SDL WSI.
 
-No APK has been built and no Android device capability has been measured
-as part of this update.
+This paragraph records the state at the time this research section was
+written. It is superseded by the Vulkan probe build and S24 Ultra device
+measurements in sections 6–8, and by the D3D9 probe bring-up below.
 
 
 ## 6. Standalone Android Vulkan probe
@@ -415,3 +417,57 @@ A separate `android-d3d9-probe/` app and GitHub Actions workflow have been added
 ## Probe 0.4: actual Vulkan queue presentation (2026-11-26)
 
 The follow-up diagnostic APK now uses a visible Android SurfaceView and extends the Vulkan smoke test beyond swapchain creation. When the surface supports `VK_IMAGE_USAGE_TRANSFER_DST_BIT`, it acquires a swapchain image, records a transfer clear, transitions the image to `VK_IMAGE_LAYOUT_PRESENT_SRC_KHR`, submits it, and calls `vkQueuePresentKHR`. The APK build completed successfully in GitHub Actions run [45736487381](https://github.com/Human9283/The-Movies-Android/actions/runs/45736487381). The new APK has not yet been run on the phone, so actual present remains unmeasured. This is still a Vulkan WSI test and does not load DXVK.
+
+
+## 9. Current Android D3D9 bring-up status (2026-11-26)
+
+The project has progressed beyond the earlier Vulkan-only diagnostic stage.
+The separate `android-d3d9-probe/` application now builds SDL2 2.30.9 and
+the pinned Android DXVK Native fork for `arm64-v8a`, packages them in an
+SDLActivity APK, and compiles the repository's D3D9 bridge as an object-only
+compatibility check. This is still a diagnostic app: it does not include
+the lifted game, the game host, or proprietary game data.
+
+### Runtime consistency
+
+Android's NDK guidance recommends using one shared C++ runtime when an
+application contains multiple shared libraries that use the C++ standard
+library. The probe therefore configures SDL2, the JNI `main` library and
+DXVK to use the same NDK `libc++_shared.so`, packages that runtime once,
+and checks the packaged ELF `DT_NEEDED` entries. The DXVK fork's build
+script originally added `-static-libstdc++`; the workflow removes that
+flag for this application build. This is a project-specific adaptation,
+not a change to the fork's upstream repository or to the Linux DXVK build.
+
+### Known validation history
+
+- Earlier APK builds compiled successfully but the user reported that the
+  app closed immediately on the Galaxy S24 Ultra. No successful D3D9
+  initialization or rendered frame has been observed yet.
+- The first shared-runtime CI attempt failed in the verification step
+  because it looked for Gradle's `libmain.so` in the SDL/DXVK source
+  directory instead of extracting the packaged native libraries from the
+  APK. This was a CI verification-path defect, not evidence of a linker
+  or device-runtime failure.
+- The verification step was changed to extract the APK's
+  `lib/arm64-v8a/*.so` files and inspect those exact packaged binaries.
+- A separate source review found incorrectly escaped newline and NUL
+  character literals in the native probe report buffer. These were fixed:
+  the original multi-character constants could corrupt report termination
+  and cause out-of-bounds string reads. This was a real source defect,
+  independent of the shared-runtime change.
+- The corrected workflow and source changes are being rebuilt in GitHub
+  Actions. A green build will prove compilation, packaging and static ELF
+  checks only. It will not prove the app starts on the phone.
+
+### Acceptance gate
+
+Do not treat the Android D3D9 backend as validated until the S24 Ultra
+shows the expected rendered frame and the copied report confirms all of:
+SDL initialization, Vulkan loading, SDL Vulkan window creation, DXVK
+library loading, `Direct3DCreate9`, D3D9 `CreateDevice`, fixed-function
+draw and `Present`. If the app still exits before the report appears,
+capture the Android crash log and identify the exact failing library or
+symbol before changing the backend or lowering DXVK requirements.
+
+The Linux DXVK 3.1.1 build and the Linux game runtime remain unchanged.
