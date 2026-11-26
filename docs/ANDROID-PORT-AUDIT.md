@@ -175,3 +175,41 @@ baseline build and CTest result from the existing Linux environment.
 Without that baseline, a GitHub-only edit cannot establish that the
 working desktop build was preserved. The NDK target, SDL Android glue and
 APK packaging should remain separate, subsequent changes.
+
+## Follow-up source inspection: concrete host-side Android work
+
+The source-level inspection narrows the first refactor. The immediate problem is not the lifted game code; it is that desktop process setup, diagnostics and window ownership are concentrated in the host entry point.
+
+### 6. src/host/tm_host.c is both runtime bootstrap and desktop process
+
+The file currently combines:
+- CLI parsing (main, argv, relative defaults for user/system paths);
+- process-level signal handlers (sigaction, sigaltstack, alarm);
+- POSIX termination and diagnostics (_exit, unistd.h, stderr);
+- SDL window creation through hle_screen_open();
+- registration of all game-specific Win32 shims;
+- guest image mapping, import binding and the call into the lifted entry point.
+
+This is a strong reason not to make Android call main(). The useful extraction boundary is a parameterised runtime-start function that accepts explicit game, user and system paths plus runtime options, while leaving argument parsing and desktop signal/watchdog policy in the Linux executable. An Android JNI entry point can then call the same bootstrap with app-owned paths. This is a design recommendation, not a completed refactor.
+
+### 7. Thread ID calls are a portability check, not yet a proven blocker
+
+src/host/tm_itrace.c and src/host/tm_dinput8.c include sys/syscall.h and unistd.h, then use syscall(SYS_gettid) for diagnostic thread IDs. Android's Bionic exposes Linux system-call interfaces, but this exact source must still be compiled with the selected NDK/API level. If it fails or is undesirable for app code, replace only the diagnostic ID provider with a small platform abstraction (or SDL's thread ID API); do not change guest thread semantics as part of a logging cleanup.
+
+### 8. Filesystem paths need an Android-owned root
+
+src/host/tm_shell.c uses mkdir() and host paths to create the guest D: folders; tm_host.c passes those roots into win32hle. This is already reasonably isolated behind tm_shell_init() and tm_sysroot_init(). The Android shell should supply paths under the app's private files directory and must not rely on the process working directory. The current CLI defaults are unsuitable as Android defaults, but the folder mapping does not need to be redesigned from scratch.
+
+### 9. Input is already routed through SDL, but touch behavior is unproven
+
+ tm_dinput8.c consumes win32hle's shared keyboard/mouse state and does not itself read Linux input devices. This is a useful separation: SDL's Android backend can be the source of input events. However, the current game requests exclusive foreground mouse input, and the implementation uses relative mouse deltas. Touch-to-pointer mapping, virtual cursor behavior, gestures, keyboard visibility and lifecycle focus changes remain unimplemented/unverified product work. Do not count SDL compiling for Android as proof that the game is playable by touch.
+
+### Resulting order of work
+
+1. Establish and record the Linux baseline from the exact current branch.
+2. Extract a runtime bootstrap API from tm_host.c without changing its Linux CLI behavior; keep signal/watchdog handling in the desktop wrapper.
+3. Add host-side regression coverage for the extracted bootstrap and verify the existing CTest and game boundary tests.
+4. Cross-compile the shared runtime for Linux AArch64.
+5. Only then add the Android JNI/SDL activity wrapper and app-private path handling.
+
+No C/CMake refactor was committed in this follow-up: without a local build, the GitHub-only environment cannot validate the changes against the 10-million-line lifted translation unit or the existing DXVK integration.
