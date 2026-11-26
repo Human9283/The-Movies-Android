@@ -22,7 +22,7 @@ stores the window at `0x00FA7128` (the handle is `0x00010010`, the window
 | 1 | `Direct3DCreate9(32)` (`D3D_SDK_VERSION`), delay-loaded from `d3d9.dll` (thunk `0x00A5A95E`) | `0x0093D816`; the object is stored at `0x00FA7CB8` | an `IDirect3D9` |
 | 2 | `IDirect3D9::GetAdapterDisplayMode(D3DADAPTER_DEFAULT, 0x00FA7CC0)` (vtable `+0x20`) | `0x0093D831`; a failure ends the start-up | `640x480`, refresh 0, `X8R8G8B8` |
 | 3 | `sub_0093D700`: two passes of `sub_0093D600` over lists of formats, each `GetAdapterModeCount(0, format)` (`+0x18`) then `EnumAdapterModes(0, format, i)` (`+0x1C`) for every mode, filtered by `sub_0093B050` | `0x0093D651`, `0x0093D673` | see 2 |
-| 4 | `IDirect3D9::CreateDevice` (`+0x40`) | from `sub_0093D780` | stops the run: no device (section 3) |
+| 4 | `IDirect3D9::CreateDevice` (`+0x40`) | from `sub_0093D780` | succeeds with the DXVK backend; the headless/no-backend regression records the request and stops at this boundary |
 
 No `GetDeviceCaps`, `GetAdapterIdentifier`, `CheckDeviceType` or
 `CheckDeviceFormat` comes before `CreateDevice` on this path.
@@ -76,9 +76,9 @@ PresentationInterval       0 (D3DPRESENT_INTERVAL_DEFAULT)
 ```
 
 What this implies for a backend:
-- **Hardware vertex processing** is requested, so the game will use vertex
-  buffers and the fixed-function or shader pipeline through the device.
-  Which one is not known yet.
+- **Hardware vertex processing** is requested. The measured intro, menu
+  and studio-lot runs use the fixed-function pipeline: shader setters are
+  called only with NULL, and no vertex or pixel shader is created.
 - **`D3DCREATE_MULTITHREADED`**: the game expects to call the device from
   more than one thread. Under win32hle's machine lock only one guest
   thread runs at a time, so the backend must not depend on the calling
@@ -133,13 +133,15 @@ Counts are calls of the guest methods.
 - **Not reached yet:** a lost device and `Reset`; the video path, which the
   menu's backdrop needs; a full year on the lot.
 
-## 5. What tm_d3d9.c answers, and why
+## 5. What tm_d3d9.c answers without a backend, and why
 
-`IDirect3D9` answers only what needs no device. It reports one adapter,
-the desktop mode as `GetSystemMetrics` reports it, and the DirectDraw
-mode list. `CreateDevice` records its arguments and stops the run. Every
-other method is a stub that stops the run, naming itself. Nothing claims
-a capability that no backend provides.
+Without the DXVK backend, `IDirect3D9` answers only what needs no device.
+It reports one adapter, the desktop mode as `GetSystemMetrics` reports
+it, and the DirectDraw mode list. `CreateDevice` records its arguments
+and stops the headless boundary run. With `--d3d9 dxvk`, the separate
+backend creates the device and forwards the measured workload (section 6
+and [DXVK-INTEGRATION.md](DXVK-INTEGRATION.md)). Nothing claims a capability
+that the selected backend does not provide.
 
 ## 6. Method status in the DXVK backend
 
