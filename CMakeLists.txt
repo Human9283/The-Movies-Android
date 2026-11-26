@@ -2,8 +2,9 @@
 # The Movies (Movies.exe 1.1, Russian CD) on pcrecomp's win32hle.
 #
 # 64-bit host, guest memory "based" (the guest's 4 GB in one mapping).
-# The same file builds for Linux x86-64, Linux arm64 and Android arm64-v8a
-# (NDK toolchain file); see docs/BUILD.md.
+# The active target graph below is currently a Linux desktop build only.
+# Linux AArch64 and Android arm64-v8a remain porting targets, not verified
+# build configurations; see docs/ANDROID-PORT-AUDIT.md.
 #
 #   cmake -S . -B build -G Ninja -DPCRECOMP=/path/to/pcrecomp -DTM_GEN=/path/to/gen
 #   cmake --build build
