@@ -1,5 +1,7 @@
 #include <android/log.h>
-#include <android_native_app_glue.h>
+#include <android/native_window_jni.h>
+#include <jni.h>
+#include <stdarg.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_android.h>
 #include <stdbool.h>
@@ -8,8 +10,32 @@
 #include <string.h>
 
 #define TAG "TM-VK-PROBE"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+static char g_report[49152];
+static size_t g_report_len;
+
+static void append_report(const char *level, const char *fmt, ...) {
+    if (g_report_len >= sizeof(g_report) - 1) return;
+    int n = snprintf(g_report + g_report_len, sizeof(g_report) - g_report_len,
+                     "%s", level);
+    if (n < 0) return;
+    g_report_len += (size_t)n;
+    if (g_report_len >= sizeof(g_report) - 1) return;
+    va_list args;
+    va_start(args, fmt);
+    n = vsnprintf(g_report + g_report_len, sizeof(g_report) - g_report_len, fmt, args);
+    va_end(args);
+    if (n > 0) {
+        size_t added = (size_t)n;
+        g_report_len += added < sizeof(g_report) - g_report_len
+            ? added : sizeof(g_report) - g_report_len - 1;
+    }
+    if (g_report_len < sizeof(g_report) - 1) {
+        g_report[g_report_len++] = '\\n';
+        g_report[g_report_len] = '\\0';
+    }
+}
+#define LOGI(...) do { __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__); append_report("INFO: ", __VA_ARGS__); } while (0)
+#define LOGE(...) do { __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__); append_report("ERROR: ", __VA_ARGS__); } while (0)
 
 static bool has_instance_extension(const char *name) {
     uint32_t n = 0;
@@ -148,7 +174,7 @@ static void report_gpu(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevi
     (void)instance;
 }
 
-static void probe(struct android_app *app) {
+static void probe(ANativeWindow *window) {
     uint32_t loader_version = VK_API_VERSION_1_0;
     PFN_vkEnumerateInstanceVersion enum_version =
         (PFN_vkEnumerateInstanceVersion)vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion");
@@ -175,7 +201,7 @@ static void probe(struct android_app *app) {
     PFN_vkCreateAndroidSurfaceKHR create_surface =
         (PFN_vkCreateAndroidSurfaceKHR)vkGetInstanceProcAddr(instance, "vkCreateAndroidSurfaceKHR");
     VkAndroidSurfaceCreateInfoKHR sci = { .sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR,
-        .window = app->window };
+        .window = window };
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     vr = create_surface ? create_surface(instance, &sci, NULL, &surface) : VK_ERROR_EXTENSION_NOT_PRESENT;
     if (vr != VK_SUCCESS) { LOGE("vkCreateAndroidSurfaceKHR failed: %d", vr); vkDestroyInstance(instance, NULL); return; }
@@ -192,17 +218,19 @@ static void probe(struct android_app *app) {
     vkDestroyInstance(instance, NULL);
 }
 
-static void handle_cmd(struct android_app *app, int32_t cmd) {
-    if (cmd == APP_CMD_INIT_WINDOW && app->window) probe(app);
-}
 
-void android_main(struct android_app *app) {
-    app->onAppCmd = handle_cmd;
-    LOGI("Probe started. Waiting for Android native window.");
-    while (!app->destroyRequested) {
-        int events = 0; struct android_poll_source *source = NULL;
-        int ident = ALooper_pollOnce(-1, NULL, &events, (void **)&source);
-        if (ident >= 0 && source) source->process(app, source);
+JNIEXPORT jstring JNICALL
+Java_com_human9283_themoviesprobe_MainActivity_runProbe(JNIEnv *env, jobject thiz, jobject surface) {
+    (void)thiz;
+    g_report_len = 0;
+    g_report[0] = '\\0';
+    LOGI("The Movies Vulkan Probe 0.2");
+    ANativeWindow *window = ANativeWindow_fromSurface(env, surface);
+    if (!window) {
+        LOGE("Could not obtain Android surface window.");
+        return (*env)->NewStringUTF(env, g_report);
     }
-    LOGI("Probe stopped.");
+    probe(window);
+    ANativeWindow_release(window);
+    return (*env)->NewStringUTF(env, g_report);
 }
