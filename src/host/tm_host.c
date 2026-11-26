@@ -45,6 +45,7 @@
 #endif
 #include "tm_imports.h"
 #include "tm_itrace.h"
+#include "tm_host.h"
 
 /* Movies.exe 1.1, Russian CD: CRT WinMainCRTStartup at 0x00A31571
  * calls WinMain at 0x00A316F0 (docs/AUDIT.md). */
@@ -260,88 +261,110 @@ static int open_d3d9_backend(const char *name) {
 #endif
 }
 
+int tm_host_run(const tm_host_options *options) {
+    if (!options || !options->game_dir || !options->game_dir[0]) {
+        fprintf(stderr, "[host] tm_host_run requires a game directory\n");
+        return 64;
+    }
+    const char *game = options->game_dir;
+    const char *user = options->user_dir ? options->user_dir : "tm_user";
+    const char *system_dir = options->system_dir ? options->system_dir : "tm_system";
+    const char *imports_json = options->imports_json;
+    const char *d3d9_backend = options->d3d9_backend;
+    int watchdog = options->watchdog_seconds;
+    g_stop_at_winmain = options->stop_at_winmain;
+    g_itrace_path = options->import_trace;
+    g_seen_path = options->seen_out;
+    if (options->mouse_free) hle_screen_confine(0);
+        }
+        g_seen = calloc((SEEN_HI - SEEN_LO) / 16 + 1, 1);
+        recomp_trace_extra = on_enter;
+        install_crash_handlers();
+        if (g_itrace_path) {
+            if (!tm_itrace_selfcheck()) { fprintf(stderr, "[itrace] trampoline table is wrong\n"); return 70; }
+            tm_itrace_enable();
+        }
+        g_t0 = hle_mono_ns();
+        if (watchdog > 0) { signal(SIGALRM, on_alarm); alarm((unsigned)watchdog); }
+    
+        char exe[4096];
+        snprintf(exe, sizeof exe, "%s/Movies.exe", game);
+        hle_set_drive('c', game);
+    
+        /* host.c's boot, with our resolver (recomp_host_boot_permissive takes none) */
+        recomp_host_init();
+        tm_loader_reserve();                                /* module handle ranges, before guest allocations */
+        win32hle_register(tm_helper_dll);
+        win32hle_register(tm_shell_shims);
+        win32hle_register(tm_user32_shims);
+        win32hle_register(tm_kernel32_shims);
+        win32hle_register(tm_except_overrides);
+        win32hle_register(tm_loader_overrides);
+        win32hle_register(tm_kernel32_overrides);
+        win32hle_register(tm_sysroot_overrides);
+        win32hle_register(tm_vfs_overrides);
+        win32hle_register(tm_ole32_overrides);
+        win32hle_register(tm_winmm_overrides);
+        tm_dinput8_init();
+        tm_wmvcore_init();
+        tm_dshow_init();
+        tm_d3d9_init();
+        if (d3d9_backend && !open_d3d9_backend(d3d9_backend)) return 1;
+        hle_on_exit = on_hle_exit;                          /* ExitProcess, fatal stops: keep the trace */
+        tm_shell_init(user);
+        if (!tm_sysroot_init(game, system_dir, user)) return 1;
+        pe_image img;
+        if (recomp_pe_map(exe, &img) != 0) { fprintf(stderr, "[host] cannot map %s\n", exe); return 1; }
+        char guest[1024];
+        hle_guest_path(exe, guest, sizeof guest);
+        hle_module_add(guest, img.base, img.resource_rva, img.resource_size, 1);
+        tm_loader_set_app_dir(guest);
+        int unresolved = recomp_pe_bind(&img, tm_resolve);
+        fprintf(stderr, "[bind] %d imports are stubs (stop the run if called), %d unresolved\n",
+                g_stub_count, unresolved);
+        fprintf(stderr, "[imports] %d bound: %d implemented, %d diagnostic, %d win32hle-present, %d win32hle-verified, %d unsupported\n",
+                g_nbound, g_status_count[TM_IMPLEMENTED], g_status_count[TM_DIAGNOSTIC], g_status_count[TM_WIN32HLE_PRESENT],
+                g_status_count[TM_WIN32HLE_VERIFIED], g_status_count[TM_UNSUPPORTED]);
+        if (imports_json) write_imports_json(imports_json);
+        if (img.entry != TM_ENTRY_VA)
+            fprintf(stderr, "[host] warning: entry 0x%08X, expected 0x%08X (not the 1.1 CD exe?)\n",
+                    img.entry, TM_ENTRY_VA);
+        fprintf(stderr, "[host] guest %s, boot %.1f ms, entering lifted 0x%08X (%u functions in dispatch)\n",
+                guest, ms_since_start(), img.entry, recomp_dispatch_count);
+        uint32_t args[1];
+        uint32_t rc = hle_call_guest(img.entry, 0, args);
+        fprintf(stderr, "[host] entry returned %u after %.1f ms, %u entries, %u distinct\n",
+                rc, ms_since_start(), g_entries, g_distinct);
+        itrace_flush();
+    
+
+#ifndef __ANDROID__
 int main(int argc, char **argv) {
-    const char *game = NULL, *user = "tm_user", *system_dir = "tm_system", *imports_json = NULL;
-    int watchdog = 0;
-    const char *d3d9_backend = NULL;
+    tm_host_options options = {
+        .game_dir = NULL,
+        .user_dir = "tm_user",
+        .system_dir = "tm_system"
+    };
     for (int i = 1; i < argc; i++) {
         int n = recomp_trace_arg(argc, argv, i);
         if (n) { i += n - 1; continue; }
-        if (!strcmp(argv[i], "--stop-at-winmain")) g_stop_at_winmain = 1;
-        else if (!strcmp(argv[i], "--watchdog") && i + 1 < argc) watchdog = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "--user") && i + 1 < argc) user = argv[++i];
-        else if (!strcmp(argv[i], "--system") && i + 1 < argc) system_dir = argv[++i];
-        else if (!strcmp(argv[i], "--imports-json") && i + 1 < argc) imports_json = argv[++i];
-        else if (!strcmp(argv[i], "--import-trace") && i + 1 < argc) g_itrace_path = argv[++i];
-        else if (!strcmp(argv[i], "--seen-out") && i + 1 < argc) g_seen_path = argv[++i];
-        else if (!strcmp(argv[i], "--d3d9") && i + 1 < argc) d3d9_backend = argv[++i];
-        else if (!strcmp(argv[i], "--mouse") && i + 1 < argc && !strcmp(argv[i + 1], "free")) hle_screen_confine(0), i++;
-        else if (argv[i][0] != '-' && !game) game = argv[i];
+        if (!strcmp(argv[i], "--stop-at-winmain")) options.stop_at_winmain = 1;
+        else if (!strcmp(argv[i], "--watchdog") && i + 1 < argc) options.watchdog_seconds = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--user") && i + 1 < argc) options.user_dir = argv[++i];
+        else if (!strcmp(argv[i], "--system") && i + 1 < argc) options.system_dir = argv[++i];
+        else if (!strcmp(argv[i], "--imports-json") && i + 1 < argc) options.imports_json = argv[++i];
+        else if (!strcmp(argv[i], "--import-trace") && i + 1 < argc) options.import_trace = argv[++i];
+        else if (!strcmp(argv[i], "--seen-out") && i + 1 < argc) options.seen_out = argv[++i];
+        else if (!strcmp(argv[i], "--d3d9") && i + 1 < argc) options.d3d9_backend = argv[++i];
+        else if (!strcmp(argv[i], "--mouse") && i + 1 < argc && !strcmp(argv[i + 1], "free")) options.mouse_free = 1, i++;
+        else if (argv[i][0] != '-' && !options.game_dir) options.game_dir = argv[i];
         else { fprintf(stderr, "unknown option %s\n", argv[i]); return 64; }
     }
-    if (!game) {
+    if (!options.game_dir) {
         fprintf(stderr, "usage: %s <game dir> [--stop-at-winmain] [--watchdog S] [--user DIR] [--system DIR] [--imports-json FILE] [--import-trace FILE] [--seen-out FILE] [--d3d9 dxvk]\n", argv[0]);
         recomp_trace_help();
         return 64;
     }
-    g_seen = calloc((SEEN_HI - SEEN_LO) / 16 + 1, 1);
-    recomp_trace_extra = on_enter;
-    install_crash_handlers();
-    if (g_itrace_path) {
-        if (!tm_itrace_selfcheck()) { fprintf(stderr, "[itrace] trampoline table is wrong\n"); return 70; }
-        tm_itrace_enable();
-    }
-    g_t0 = hle_mono_ns();
-    if (watchdog > 0) { signal(SIGALRM, on_alarm); alarm((unsigned)watchdog); }
-
-    char exe[4096];
-    snprintf(exe, sizeof exe, "%s/Movies.exe", game);
-    hle_set_drive('c', game);
-
-    /* host.c's boot, with our resolver (recomp_host_boot_permissive takes none) */
-    recomp_host_init();
-    tm_loader_reserve();                                /* module handle ranges, before guest allocations */
-    win32hle_register(tm_helper_dll);
-    win32hle_register(tm_shell_shims);
-    win32hle_register(tm_user32_shims);
-    win32hle_register(tm_kernel32_shims);
-    win32hle_register(tm_except_overrides);
-    win32hle_register(tm_loader_overrides);
-    win32hle_register(tm_kernel32_overrides);
-    win32hle_register(tm_sysroot_overrides);
-    win32hle_register(tm_vfs_overrides);
-    win32hle_register(tm_ole32_overrides);
-    win32hle_register(tm_winmm_overrides);
-    tm_dinput8_init();
-    tm_wmvcore_init();
-    tm_dshow_init();
-    tm_d3d9_init();
-    if (d3d9_backend && !open_d3d9_backend(d3d9_backend)) return 1;
-    hle_on_exit = on_hle_exit;                          /* ExitProcess, fatal stops: keep the trace */
-    tm_shell_init(user);
-    if (!tm_sysroot_init(game, system_dir, user)) return 1;
-    pe_image img;
-    if (recomp_pe_map(exe, &img) != 0) { fprintf(stderr, "[host] cannot map %s\n", exe); return 1; }
-    char guest[1024];
-    hle_guest_path(exe, guest, sizeof guest);
-    hle_module_add(guest, img.base, img.resource_rva, img.resource_size, 1);
-    tm_loader_set_app_dir(guest);
-    int unresolved = recomp_pe_bind(&img, tm_resolve);
-    fprintf(stderr, "[bind] %d imports are stubs (stop the run if called), %d unresolved\n",
-            g_stub_count, unresolved);
-    fprintf(stderr, "[imports] %d bound: %d implemented, %d diagnostic, %d win32hle-present, %d win32hle-verified, %d unsupported\n",
-            g_nbound, g_status_count[TM_IMPLEMENTED], g_status_count[TM_DIAGNOSTIC], g_status_count[TM_WIN32HLE_PRESENT],
-            g_status_count[TM_WIN32HLE_VERIFIED], g_status_count[TM_UNSUPPORTED]);
-    if (imports_json) write_imports_json(imports_json);
-    if (img.entry != TM_ENTRY_VA)
-        fprintf(stderr, "[host] warning: entry 0x%08X, expected 0x%08X (not the 1.1 CD exe?)\n",
-                img.entry, TM_ENTRY_VA);
-    fprintf(stderr, "[host] guest %s, boot %.1f ms, entering lifted 0x%08X (%u functions in dispatch)\n",
-            guest, ms_since_start(), img.entry, recomp_dispatch_count);
-    uint32_t args[1];
-    uint32_t rc = hle_call_guest(img.entry, 0, args);
-    fprintf(stderr, "[host] entry returned %u after %.1f ms, %u entries, %u distinct\n",
-            rc, ms_since_start(), g_entries, g_distinct);
-    itrace_flush();
-    return (int)rc;
+    return tm_host_run(&options);
 }
+#endif
