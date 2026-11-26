@@ -65,42 +65,65 @@ jobs:
           # Catch it at the exported D3D9 boundary and emit the original message to logcat.
           python3 - "$DXVK_DIR/src/d3d9/d3d9_main.cpp" "$DXVK_DIR/src/dxvk/dxvk_instance.cpp" <<'PY'
           import pathlib, sys
+          nl = chr(10)
           main = pathlib.Path(sys.argv[1])
           text = main.read_text()
           text = text.replace('#include "d3d9_shader_validator.h"',
-                              '#include "d3d9_shader_validator.h"\\n#include "../util/util_error.h"\\n#include <exception>')
-          old = '''    IDirect3D9Ex* pDirect3D = nullptr;
-              dxvk::CreateD3D9(false, &pDirect3D);
-          
-              return pDirect3D;'''
-          new = '''    IDirect3D9Ex* pDirect3D = nullptr;
-              try {
-                dxvk::CreateD3D9(false, &pDirect3D);
-              } catch (const dxvk::DxvkError& e) {
-                dxvk::Logger::err(std::string("Direct3DCreate9 DxvkError: ") + e.message());
-              } catch (const std::exception& e) {
-                dxvk::Logger::err(std::string("Direct3DCreate9 std::exception: ") + e.what());
-              } catch (...) {
-                dxvk::Logger::err("Direct3DCreate9 unknown exception");
-              }
-              return pDirect3D;'''
+                              '#include "d3d9_shader_validator.h"' + nl + '#include "../util/util_error.h"' + nl + '#include <exception>')
+          old = nl.join([
+              '    IDirect3D9Ex* pDirect3D = nullptr;',
+              '    dxvk::CreateD3D9(false, &pDirect3D);',
+              '',
+              '    return pDirect3D;'
+          ])
+          new = nl.join([
+              '    IDirect3D9Ex* pDirect3D = nullptr;',
+              '    try {',
+              '      dxvk::CreateD3D9(false, &pDirect3D);',
+              '    } catch (const dxvk::DxvkError& e) {',
+              '      dxvk::Logger::err(std::string("Direct3DCreate9 DxvkError: ") + e.message());',
+              '    } catch (const std::exception& e) {',
+              '      dxvk::Logger::err(std::string("Direct3DCreate9 std::exception: ") + e.what());',
+              '    } catch (...) {',
+              '      dxvk::Logger::err("Direct3DCreate9 unknown exception");',
+              '    }',
+              '    return pDirect3D;'
+          ])
           if old not in text:
               raise SystemExit("Direct3DCreate9 patch anchor not found")
           main.write_text(text.replace(old, new))
           inst = pathlib.Path(sys.argv[2])
           text = inst.read_text()
-          replacements = [
-            ('    m_config = Config::getUserConfig();', '    Logger::info("STAGE DxvkInstance: read user config");\\n    m_config = Config::getUserConfig();'),
-            ('    m_options = DxvkOptions(m_config);', '    m_options = DxvkOptions(m_config);\\n    Logger::info("STAGE DxvkInstance: config ready");'),
-            ('    for (const auto& provider : m_extProviders)\\n      provider->initInstanceExtensions();', '    Logger::info("STAGE DxvkInstance: init instance extension providers");\\n    for (const auto& provider : m_extProviders)\\n      provider->initInstanceExtensions();\\n    Logger::info("STAGE DxvkInstance: providers ready");'),
-            ('    m_vki = new vk::InstanceFn(true, this->createInstance());', '    Logger::info("STAGE DxvkInstance: create Vulkan instance");\\n    m_vki = new vk::InstanceFn(true, this->createInstance());\\n    Logger::info("STAGE DxvkInstance: Vulkan instance ready");'),
-            ('    m_adapters = this->queryAdapters();', '    Logger::info("STAGE DxvkInstance: enumerate physical adapters");\\n    m_adapters = this->queryAdapters();\\n    Logger::info(str::format("STAGE DxvkInstance: adapters found: ", m_adapters.size()));'),
-            ('    for (const auto& provider : m_extProviders)\\n      provider->initDeviceExtensions(this);', '    Logger::info("STAGE DxvkInstance: init device extension providers");\\n    for (const auto& provider : m_extProviders)\\n      provider->initDeviceExtensions(this);\\n    Logger::info("STAGE DxvkInstance: device providers ready");')
-          ]
-          for old, new in replacements:
+          def replace_once(old_lines, new_lines):
+              global text
+              old = nl.join(old_lines)
               if old not in text:
-                  raise SystemExit("DxvkInstance patch anchor not found: " + old[:70])
-              text = text.replace(old, new)
+                  raise SystemExit("DxvkInstance patch anchor not found: " + old_lines[0])
+              text = text.replace(old, nl.join(new_lines), 1)
+          replace_once(['    m_config = Config::getUserConfig();'], [
+              '    Logger::info("STAGE DxvkInstance: read user config");',
+              '    m_config = Config::getUserConfig();'])
+          replace_once(['    m_options = DxvkOptions(m_config);'], [
+              '    m_options = DxvkOptions(m_config);',
+              '    Logger::info("STAGE DxvkInstance: config ready");'])
+          replace_once(['    for (const auto& provider : m_extProviders)', '      provider->initInstanceExtensions();'], [
+              '    Logger::info("STAGE DxvkInstance: init instance extension providers");',
+              '    for (const auto& provider : m_extProviders)',
+              '      provider->initInstanceExtensions();',
+              '    Logger::info("STAGE DxvkInstance: providers ready");'])
+          replace_once(['    m_vki = new vk::InstanceFn(true, this->createInstance());'], [
+              '    Logger::info("STAGE DxvkInstance: create Vulkan instance");',
+              '    m_vki = new vk::InstanceFn(true, this->createInstance());',
+              '    Logger::info("STAGE DxvkInstance: Vulkan instance ready");'])
+          replace_once(['    m_adapters = this->queryAdapters();'], [
+              '    Logger::info("STAGE DxvkInstance: enumerate physical adapters");',
+              '    m_adapters = this->queryAdapters();',
+              '    Logger::info(str::format("STAGE DxvkInstance: adapters found: ", m_adapters.size()));'])
+          replace_once(['    for (const auto& provider : m_extProviders)', '      provider->initDeviceExtensions(this);'], [
+              '    Logger::info("STAGE DxvkInstance: init device extension providers");',
+              '    for (const auto& provider : m_extProviders)',
+              '      provider->initDeviceExtensions(this);',
+              '    Logger::info("STAGE DxvkInstance: device providers ready");'])
           inst.write_text(text)
           PY
           # Use the same shared libc++ runtime as SDL2 and the app's JNI library.
