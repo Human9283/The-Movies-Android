@@ -527,3 +527,34 @@ requires desktop pkg-config SDL2/SDL2_ttf and defines the `tm_host`
 executable. The diagnostic Android Gradle projects are not a substitute
 for that missing game target. Do not mark the Android port complete until
 the original game itself launches and renders on-device.
+
+
+## Full-lift and Android application shell (26 November 2026)
+
+The private CD 1.1 pipeline completed a full lift from the Russian 1.1
+Movies.exe. The generated artifact is retained only in the private
+`the-movies-gamedata` repository; generated proprietary C is not committed
+here.
+
+- 85,910 functions/entries lifted into 215 C translation units.
+- 0 lift exceptions and 0 not-lifted stubs.
+- The catalog reports 85.64% coverage of the PE .text section (7,580,053
+  of 8,851,456 bytes).
+- 559 extent walks did not reach a recognized terminator. In pcrecomp's
+  `true_extent` metric this is a control-flow cleanliness warning, not a
+  code-generation exception; it can include non-returning loops.
+- 7 unresolved indirect-tail targets remain. Six are outside the PE .text
+  range; one, 0x0086AAC6, is inside .text but absent from the dispatch table.
+  These need targeted inspection and must be monitored in runtime traces.
+
+A separate `android-game/` Gradle project and Android-specific CMake target
+now exist on the active feature branch. The app shell imports an already
+installed game folder through Android's Storage Access Framework and copies
+it to app-private storage. The CMake target is designed to link the full
+lift, pcrecomp/win32hle runtime, SDL2 and the tested Android DXVK Native
+D3D9 backend into `libmain.so`.
+
+**Status boundary:** the CMake/Gradle integration is new and has not yet
+passed a full Android link. The D3D9 probe remains the only physical-device
+runtime proof. The next gate is the private ARM64 APK build, followed by
+guest-memory reservation and PE mapping tests on the S24 Ultra.
