@@ -70,7 +70,7 @@ set(TM_ANDROID_HOST_SOURCES
 )
 add_library(tm_android_host_compile OBJECT ${TM_ANDROID_HOST_SOURCES})
 target_compile_definitions(tm_android_host_compile PRIVATE
-    _GNU_SOURCE RECOMP_RETADDR=0u TM_HAVE_DXVK=1)
+    _GNU_SOURCE RECOMP_RETADDR=0u RECOMP_TRACE=1 TM_HAVE_DXVK=1)
 target_include_directories(tm_android_host_compile PRIVATE
     "${TM_REPO_ROOT}/src/host"
     "${PCRECOMP_SOURCE_DIR}/runtime/win32hle"
