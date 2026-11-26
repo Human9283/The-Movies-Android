@@ -79,6 +79,11 @@ extern "C" int SDL_main(int, char**) {
     setenv("DXVK_WSI_DRIVER", "SDL2", 1);
     setenv("DXVK_LOG_LEVEL", "info", 1);
     setenv("DXVK_STATE_CACHE", "0", 1);
+    // DXVK Logger opens after dlopen(); point it at the same app-private trace
+    // file that MainActivity appends to and exposes through Copy report.
+    const char* internal_storage_path = SDL_AndroidGetInternalStoragePath();
+    if (internal_storage_path && internal_storage_path[0])
+        setenv("DXVK_LOG_PATH", internal_storage_path, 1);
 
     reportf("STAGE SDL_main entered");
     SDL_SetMainReady();
