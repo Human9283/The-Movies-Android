@@ -227,13 +227,31 @@ def main(argv=None):
                 rel = '_outside/%s/%s' % (outside, rel)
             dest = os.path.join(args.out, rel)
             os.makedirs(os.path.dirname(dest), exist_ok=True)
-            shutil.move(src_path, dest)
-            size = os.path.getsize(dest)
             want = int(f['FileSize'])
-            ent = {'path': rel, 'size': size, 'msi_size': want, 'size_ok': size == want,
-                   'origin': origin, 'msi_version': f.get('Version') or None}
-            if not args.no_hash:
-                ent['sha256'] = sha256_file(dest)
+            # Never silently overwrite two MSI rows that resolve to one target.
+            # The three source CDs repeat a handful of setup-only files; accept
+            # those only after byte-for-byte SHA-256 equality is established.
+            if os.path.exists(dest):
+                previous = next((e for e in manifest if e['path'] == rel), None)
+                old_hash = sha256_file(dest)
+                new_hash = sha256_file(src_path)
+                if previous is not None:
+                    previous['sha256'] = old_hash
+                if old_hash != new_hash:
+                    problems.append('destination collision with different content: %s (%s)' % (rel, origin))
+                    return
+                os.remove(src_path)
+                size = os.path.getsize(dest)
+                ent = {'path': rel, 'size': size, 'msi_size': want, 'size_ok': size == want,
+                       'origin': origin, 'msi_version': f.get('Version') or None,
+                       'sha256': new_hash, 'identical_duplicate': True}
+            else:
+                shutil.move(src_path, dest)
+                size = os.path.getsize(dest)
+                ent = {'path': rel, 'size': size, 'msi_size': want, 'size_ok': size == want,
+                       'origin': origin, 'msi_version': f.get('Version') or None}
+                if not args.no_hash:
+                    ent['sha256'] = sha256_file(dest)
             manifest.append(ent)
             if size != want:
                 problems.append('%s: %d bytes on disc, File table says %d' % (rel, size, want))
