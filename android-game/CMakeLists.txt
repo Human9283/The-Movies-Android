@@ -17,7 +17,7 @@ foreach(required PCRECOMP_SOURCE_DIR TM_GEN SDL2_ROOT SDL2_LIBRARY SDL2_TTF_INCL
 endforeach()
 foreach(check
     "${PCRECOMP_SOURCE_DIR}/runtime/win32hle/win32hle.h"
-    "${TM_GEN}/recomp_dispatch.c"
+    "${TM_GEN}/recomp_dispatch.S"
     "${SDL2_ROOT}/include/SDL.h"
     "${SDL2_LIBRARY}"
     "${SDL2_TTF_INCLUDE_DIR}/SDL2/SDL_ttf.h"
@@ -56,10 +56,13 @@ list(FILTER HLE_SOURCES EXCLUDE REGEX "_selftest\\.c$")
 list(FILTER HLE_SOURCES EXCLUDE REGEX "/(hle_path|screen)\\.c$")
 list(APPEND HLE_SOURCES "${HLE_PATCHED}/hle_path.c" "${HLE_PATCHED}/screen.c")
 
-file(GLOB TM_GEN_SOURCES CONFIGURE_DEPENDS "${TM_GEN}/recomp_*.c")
-if(NOT TM_GEN_SOURCES)
-  message(FATAL_ERROR "No recomp_*.c files found in TM_GEN")
+file(GLOB TM_GEN_C_SOURCES CONFIGURE_DEPENDS "${TM_GEN}/recomp_*.c")
+list(FILTER TM_GEN_C_SOURCES EXCLUDE REGEX "/recomp_dispatch\\.c$")
+set(TM_GEN_ASM "${TM_GEN}/recomp_dispatch.S")
+if(NOT TM_GEN_C_SOURCES OR NOT EXISTS "${TM_GEN_ASM}")
+  message(FATAL_ERROR "Expected lifted C files and generated ARM64 recomp_dispatch.S in TM_GEN")
 endif()
+set(TM_GEN_SOURCES ${TM_GEN_C_SOURCES} "${TM_GEN_ASM}")
 
 set(TM_RUNTIME_SOURCES
     "${TM_ROOT}/src/host/tm_host.c"
@@ -80,6 +83,7 @@ set(TM_RUNTIME_SOURCES
     "${TM_ROOT}/src/host/tm_ole32.c"
     "${TM_ROOT}/src/host/tm_winmm.c"
     "${TM_ROOT}/src/host/tm_trace.c"
+    "${TM_ROOT}/src/host/tm_dispatch_layout_check.c"
     ${HLE_SOURCES}
     ${TM_GEN_SOURCES}
 )
@@ -110,13 +114,7 @@ target_include_directories(main PRIVATE
     "${DXVK_ROOT}/include/native/windows"
     "${DXVK_ROOT}/include/native/android"
     "${DXVK_ROOT}/include/native")
-set_source_files_properties(${TM_GEN_SOURCES} PROPERTIES COMPILE_DEFINITIONS RECOMP_LOCAL_REGS)
-# The dispatch unit contains the full lifted instruction stream. On an 8 GiB
-# hosted runner, Clang at -O1 can consume more than 7 GiB for this one TU.
-# Compile this generated unit at -O0 and suppress its enormous debug-info payload;
-# keep the smaller generated/runtime units at -O1. The compile database is emitted
-# so CI can verify the final flag order rather than assume the override took effect.
-set_source_files_properties("${TM_GEN}/recomp_dispatch.c" PROPERTIES COMPILE_OPTIONS "-O0;-g0")
+set_source_files_properties(${TM_GEN_C_SOURCES} PROPERTIES COMPILE_DEFINITIONS RECOMP_LOCAL_REGS)
 target_compile_options(main PRIVATE -O1 -fno-strict-aliasing -fwrapv -Wno-unused-function -Wno-unused-parameter)
 target_link_libraries(main PRIVATE SDL2_TTF SDL2 DXVK_D3D9 android log dl vulkan m)
 set_target_properties(main PROPERTIES
