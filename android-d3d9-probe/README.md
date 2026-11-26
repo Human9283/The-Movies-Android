@@ -7,11 +7,15 @@ files.
 The Android NDK build additionally compiles the repository's real portable
 host C translation units (runtime bootstrap, loader, Win32 shims, VFS,
 DirectInput, media and D3D9 host modules) as ARM64 object files. The existing
-`tm_d3d9_dxvk.cpp` bridge is also compiled against the Android DXVK headers.
-These are compile-only checks: the objects are not linked into the probe APK,
-and the user's generated lifted game C is not present in the public
-repository. A successful APK build validates source/ABI compatibility, not a
-runnable game host.
+`tm_d3d9_dxvk.cpp` bridge and the new `src/host/tm_host_android.c` SDL entry
+point are also compiled against the Android headers. The entry point calls
+`tm_host_run()` with explicit app-private paths:
+`<SDL files>/game`, `<SDL files>/user` and `<SDL files>/system`; it expects
+the user's own `Movies.exe` and `Data/` under the game directory. These are
+compile-only checks: none of these objects are linked into the probe APK, and
+the user's generated lifted game C is not present in the public repository.
+A successful APK build validates source/ABI compatibility, not a runnable
+game host.
 
 ## Current result: passed on Galaxy S24 Ultra
 
@@ -100,13 +104,16 @@ select a successful run, and download artifact
 
 ## Next integration stages
 
-1. Add an Android-specific shared-library/JNI entry point around the existing
-   `tm_host_run()` bootstrap; do not call the Linux CLI `main()`.
+1. Add a dedicated Android Gradle/CMake app target and link the new
+   `tm_host_android.c` entry point with the complete runtime; the current
+   probe APK still does not link it.
 2. Build the real lifted runtime and pcrecomp/win32hle dependencies for
    `arm64-v8a`, then validate the 4 GiB guest-address reservation and PE
    image mapping on Android.
-3. Pass explicit app-private game, user and system paths into the host.
-4. Connect the tested D3D9 backend to the game's existing guest D3D9 bridge.
+3. Connect the tested DXVK backend to the game's guest D3D9 bridge in the
+   linked Android host.
+4. Add a supported game-data import flow into the app-private `game/`
+   directory (the entry point currently only validates that directory).
 5. Handle Android surface lifecycle, pause/resume, touch-to-mouse mapping,
    audio/video and save/load.
 6. Run the original game and capture its first genuine frame.
