@@ -40,6 +40,11 @@ android {
             }
         }
     }
+    androidResources {
+        // The game archive is already composed mostly of compressed assets.
+        // Store it verbatim in the APK and stream it during first-run install.
+        noCompress += "tar"
+    }
     sourceSets {
         main {
             java.srcDir(sdlRoot + "/android-project/app/src/main/java")
