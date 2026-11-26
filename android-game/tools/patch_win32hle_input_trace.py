@@ -102,8 +102,10 @@ new_motion = """#ifdef __ANDROID__
         }
 #endif
         case SDL_MOUSEMOTION: {"""
-if(s.includes("case SDL_FINGERDOWN")) throw new Error("Touch bridge already exists; refusing duplicate patch");
-if(s.count(old_motion)!==1) throw new Error("mouse motion switch case expected once");
+if "case SDL_FINGERDOWN" in s:
+    raise SystemExit("Touch bridge already exists; refusing duplicate patch")
+if s.count(old_motion) != 1:
+    raise SystemExit("mouse motion switch case expected once")
 s=s.replace(old_motion,new_motion);
 screen.write_text(s)
 
