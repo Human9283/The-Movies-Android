@@ -2,6 +2,8 @@
 
 This is a diagnostic application, not an Android build of The Movies. It contains no game executable, lifted game code, ISO, assets, saves or user files.
 
+**Validation status:** the project and CI workflow are under active bring-up. Earlier APK builds did not start successfully on the target phone. The current branch is fixing the shared C++ runtime setup and the probe's native report buffer. Do not treat a green CI build as a successful phone test; the acceptance criterion is a visible rendered triangle and a copied report showing D3D9 `CreateDevice` and `Present` succeeded.
+
 ## What it tests
 
 The APK starts SDL2's Android Activity and creates an SDL Vulkan window. It then loads the pinned Android DXVK Native D3D9 library and attempts:
