@@ -89,10 +89,33 @@ jobs:
           cp "$DXVK_ROOT/LICENSE" android-d3d9-probe/app/src/main/assets/third_party/DXVK-LICENSE.txt
           cp "$SDL_ROOT/LICENSE.txt" android-d3d9-probe/app/src/main/assets/third_party/SDL2-LICENSE.txt
 
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
       - name: Build Android D3D9 test APK
         run: |
-          gradle --no-daemon -p android-d3d9-probe \
-            -PsdlRoot="$SDL_ROOT" -PdxvkRoot="$DXVK_ROOT" -PpcrecompRoot="$PCRECOMP_ROOT" :app:assembleDebug
+          # Maven Central can rate-limit GitHub-hosted runners (HTTP 429).
+          # Gradle's cache is persisted by setup-gradle; retry only that transient failure.
+          for attempt in 1 2 3; do
+            set +e
+            gradle --no-daemon --max-workers=2 -p android-d3d9-probe \
+              -PsdlRoot="$SDL_ROOT" -PdxvkRoot="$DXVK_ROOT" -PpcrecompRoot="$PCRECOMP_ROOT" \
+              :app:assembleDebug 2>&1 | tee "$RUNNER_TEMP/gradle-build.log"
+            status=${PIPESTATUS[0]}
+            set -e
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+            if ! grep -qE 'status code 429|HTTP 429|Too Many Requests' "$RUNNER_TEMP/gradle-build.log"; then
+              exit "$status"
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Maven Central rate limit; retrying in $((attempt * 20)) seconds"
+              sleep $((attempt * 20))
+            fi
+          done
+          exit 1
 
       - name: Verify shared C++ runtime and APK contents
         run: |
