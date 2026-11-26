@@ -63,7 +63,7 @@ jobs:
           git -C "$DXVK_DIR" checkout f2c7207b3d8bc848fe3a27cef34ee5e67aeec552
           # This fork's DxvkError is a project-specific exception, not std::exception.
           # Catch it at the exported D3D9 boundary and emit the original message to logcat.
-          python3 - "$DXVK_DIR/src/d3d9/d3d9_main.cpp" "$DXVK_DIR/src/dxvk/dxvk_instance.cpp" <<'PY'
+          python3 - "$DXVK_DIR/src/d3d9/d3d9_main.cpp" "$DXVK_DIR/src/dxvk/dxvk_instance.cpp" "$DXVK_DIR/src/util/log/log.cpp" <<'PY'
           import pathlib, sys
           nl = chr(10)
           main = pathlib.Path(sys.argv[1])
@@ -124,6 +124,28 @@ jobs:
               '      provider->initDeviceExtensions(this);',
               '    Logger::info("STAGE DxvkInstance: device providers ready");'])
           inst.write_text(text)
+          # Persist DXVK's own Logger output in the same app-private file that
+          # the Java activity already displays/copies. The app sets
+          # DXVK_LOG_PATH to SDL's internal files directory before dlopen().
+          log = pathlib.Path(sys.argv[3])
+          text = log.read_text()
+          old = '        m_fileStream = std::ofstream(path.c_str());'
+          new = '        m_fileStream = std::ofstream(path.c_str(), std::ios::out | std::ios::app);'
+          if old not in text:
+              raise SystemExit("DXVK logger append-mode anchor not found")
+          text = text.replace(old, new, 1)
+          old = '    std::string exeName = env::getExeBaseName();'
+          new = nl.join([
+              '#ifdef __ANDROID__',
+              '    if (!path.empty())',
+              '      return path + "dxvk_trace.txt";',
+              '#endif',
+              '    std::string exeName = env::getExeBaseName();'
+          ])
+          if old not in text:
+              raise SystemExit("DXVK logger Android trace-path anchor not found")
+          text = text.replace(old, new, 1)
+          log.write_text(text)
           PY
           # Use the same shared libc++ runtime as SDL2 and the app's JNI library.
           # The fork's default script forces a separate static libc++ into DXVK.
