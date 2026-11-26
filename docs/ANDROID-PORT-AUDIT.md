@@ -213,3 +213,16 @@ src/host/tm_shell.c uses mkdir() and host paths to create the guest D: folders; 
 5. Only then add the Android JNI/SDL activity wrapper and app-private path handling.
 
 No C/CMake refactor was committed in this follow-up: without a local build, the GitHub-only environment cannot validate the changes against the 10-million-line lifted translation unit or the existing DXVK integration.
+
+## Runtime entry-point extraction (first code step)
+
+The first host refactor is now present on the feature branch:
+
+- `src/host/tm_host.h` defines `tm_host_options` and declares `tm_host_run()`.
+- `src/host/tm_host.c` now owns the shared bootstrap in `tm_host_run(options)`.
+- The existing desktop `main()` remains the CLI adapter: it parses the same options and forwards them to `tm_host_run()`.
+- `main()` is excluded when `__ANDROID__` is defined, so an eventual Android native entry point can link the shared bootstrap without a duplicate process entry point.
+
+This is an interface extraction only. It does not yet create an Android JNI bridge, Gradle project, SDL Android activity, or Android CMake target. The runtime still installs the existing POSIX crash handlers and uses the existing SDL/window path; those behaviors need explicit Android lifecycle review before an APK can be built.
+
+The existing Linux command-line options are preserved by forwarding their values through `tm_host_options`. No build or test result is claimed for this commit because the local PCRECOMP checkout, lifted C tree and DXVK prefix are not available in this environment. The next validation must be a clean Linux configure/build/CTest on the user's machine before proceeding to platform-specific changes.
