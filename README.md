@@ -8,7 +8,7 @@ This is not a remake or a clone. The game's own code runs, translated
 instruction by instruction, with its original data. You need your own copy
 of the game.
 
-> **Status: Linux runtime works; Android game port not yet implemented.** On Linux x86-64, the original game reaches the Lionhead logo, main menu and 3D studio lot through DXVK Native. Video playback and audio remain incomplete or unverified. Android work currently consists of two diagnostic apps: a Vulkan device/surface probe that has been run on a Galaxy S24 Ultra, and a separate SDL2 + Android DXVK Native D3D9 probe whose APK has built and passed static ELF checks; physical-device execution remains unverified. Neither app contains or runs the game. The staged D3D9 probe APK 0.3.0 (Vulkan/Surface preflight followed by SDL/DXVK) passed CI build, packaged-library and 16 KB alignment checks ([run 45786134694](https://github.com/Human9283/The-Movies-Android/actions/runs/45786134694)); it has not yet been tested on the phone. A successful diagnostic build or Vulkan probe is not evidence that The Movies runs on Android. See [Android status](docs/ANDROID-FEASIBILITY.md), [the Vulkan probe](android-probe/README.md), and [the D3D9 probe](android-d3d9-probe/README.md).
+> **Status: Linux game runtime works; Android D3D9 backend smoke test passes; Android game port is not yet implemented.** On Linux x86-64, the original game reaches the Lionhead logo, main menu and 3D studio lot through DXVK Native. Video playback and audio remain incomplete or unverified. On a Samsung Galaxy S24 Ultra (Snapdragon 8 Gen 3 / Adreno 750), the separate Android SDL2 + DXVK Native 1.9.2 diagnostic app successfully created a D3D9 device, drew a fixed-function triangle and presented a frame. The successful ARM64 APK build and packaging checks are recorded in [workflow run 45793972336](https://github.com/Human9283/The-Movies-Android/actions/runs/45793972336). This proves the tested D3D9 backend path, not that The Movies or its lifted runtime runs on Android: the diagnostic app contains no game host, lifted game code or game data. The next stage is Android host/JNI integration, guest-memory validation and the original game's first frame. See [Android feasibility and measured results](docs/ANDROID-FEASIBILITY.md), [the Vulkan probe](android-probe/README.md), and [the D3D9 probe](android-d3d9-probe/README.md).
 
 ## Contents
 
@@ -19,6 +19,7 @@ of the game.
 - [Project layout](#project-layout)
 - [Documentation](#documentation)
 - [Android Vulkan probe](android-probe/README.md)
+- [Android DXVK D3D9 probe](android-d3d9-probe/README.md)
 - [Android DXVK D3D9 probe](android-d3d9-probe/README.md)
 - [License](#license)
 - [Credits](#credits)
@@ -129,6 +130,8 @@ tests/c/                shim tests in C (no game files)
 tests/dxvk/             DXVK Native proof of concept (no game files)
 src/host/               the host: boot, import binding, game-specific shims
 CMakeLists.txt          shared runtime source list; active target is Linux desktop
+android-probe/          standalone Android Vulkan capability/surface probe
+android-d3d9-probe/     standalone Android SDL2 + DXVK Native D3D9 probe
 docs/                   audit, build steps, milestone reports
 ```
 
@@ -143,7 +146,9 @@ docs/                   audit, build steps, milestone reports
 - [docs/DIRECTSHOW-STARTUP.md](docs/DIRECTSHOW-STARTUP.md): the DirectShow start-up probe and what is implemented for it (not playback or export)
 - [docs/D3D9-REQUIREMENTS.md](docs/D3D9-REQUIREMENTS.md): the Direct3D 9 calls the game makes and the device it asks for
 - [docs/DXVK-INTEGRATION.md](docs/DXVK-INTEGRATION.md): DXVK Native (pinned v3.1.1) as the Direct3D 9 backend; the proof of concept and the integration decisions, and the backend in the host: its design, what the game does with it, its limits
-- [docs/ANDROID-FEASIBILITY.md](docs/ANDROID-FEASIBILITY.md): what DXVK requires of an Android GPU, the risks, and how a device is measured
+- [docs/ANDROID-FEASIBILITY.md](docs/ANDROID-FEASIBILITY.md): Android GPU requirements, DXVK risks, measured S24 Ultra results and current porting status
+- [docs/ANDROID-PORT-AUDIT.md](docs/ANDROID-PORT-AUDIT.md): source audit, Android host architecture, remaining integration blockers
+- [docs/ANDROID-VULKAN-PROBE.md](docs/ANDROID-VULKAN-PROBE.md): standalone Vulkan probe and report workflow
 - [docs/EXCEPTIONS.md](docs/EXCEPTIONS.md): C++ EH and SEH in the executable, and what a run reaches (B4)
 - [docs/REPOSITORY-AUDIT.md](docs/REPOSITORY-AUDIT.md): correctness audit of the host, its tests and its limits
 - [docs/EXTERNAL-REFERENCES.md](docs/EXTERNAL-REFERENCES.md): other projects' findings, checked against this executable
