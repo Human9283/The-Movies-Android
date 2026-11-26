@@ -8,7 +8,7 @@ This is not a remake or a clone. The game's own code runs, translated
 instruction by instruction, with its original data. You need your own copy
 of the game.
 
-> **Status: Linux runtime works; Android game port not yet implemented.** On Linux x86-64, the original game reaches the Lionhead logo, main menu and 3D studio lot through DXVK Native. Video playback and audio remain incomplete or unverified. A separate Android ARM64 Vulkan diagnostic APK now builds successfully in CI; it reports the phone's Vulkan capabilities on-screen and can copy the report. It does not contain or run the game. See [Android status](docs/ANDROID-FEASIBILITY.md) and [the standalone Vulkan probe](android-probe/README.md).
+> **Status: Linux runtime works; Android game port not yet implemented.** On Linux x86-64, the original game reaches the Lionhead logo, main menu and 3D studio lot through DXVK Native. Video playback and audio remain incomplete or unverified. Android work currently consists of two diagnostic apps: a Vulkan device/surface probe that has been run on a Galaxy S24 Ultra, and a separate SDL2 + Android DXVK Native D3D9 probe whose APK build and physical-device execution are still being validated. Neither app contains or runs the game. A successful diagnostic build or Vulkan probe is not evidence that The Movies runs on Android. See [Android status](docs/ANDROID-FEASIBILITY.md), [the Vulkan probe](android-probe/README.md), and [the D3D9 probe](android-d3d9-probe/README.md).
 
 ## Contents
 
