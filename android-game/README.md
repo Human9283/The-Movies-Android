@@ -83,8 +83,11 @@ SDL/Vulkan/D3D9 backend path, not the game runtime.
 
 The full-game ARM64 build runs in private CI:
 [workflow run 45809671909](https://github.com/Human9283/the-movies-gamedata/actions/runs/45809671909).
-At the latest status check on 2026-11-26, attempt 3 was still running.
-A successful full-game APK has not yet been verified.
+At the status check on 2026-11-26, private workflow run 45809671909
+(attempt 3) was still linking the full Android host and building the APK.
+Dependency builds and shared-library staging had completed; APK
+verification and artifact upload were pending. A successful full-game APK
+has not yet been verified.
 
 After the APK build, runtime validation must cover guest-memory reservation,
 PE mapping and relocation, import binding, CRT initialization, `WinMain`,
