@@ -90,6 +90,10 @@ set_target_properties(SDL2_TTF PROPERTIES IMPORTED_LOCATION "${SDL2_TTF_LIBRARY}
 add_library(DXVK_D3D9 SHARED IMPORTED GLOBAL)
 set_target_properties(DXVK_D3D9 PROPERTIES IMPORTED_LOCATION "${DXVK_D3D9_LIBRARY}")
 
+# The lifted translation units are unusually large. Limit Ninja compile concurrency
+# to one TU to keep peak RAM predictable on GitHub-hosted runners.
+set_property(GLOBAL PROPERTY JOB_POOLS tm_compile_pool=1)
+
 add_library(main SHARED ${TM_RUNTIME_SOURCES} "${TM_ROOT}/src/host/tm_d3d9_dxvk.cpp")
 target_compile_features(main PRIVATE c_std_11 cxx_std_17)
 target_compile_definitions(main PRIVATE _GNU_SOURCE RECOMP_RETADDR=0u RECOMP_TRACE=1
@@ -108,7 +112,10 @@ target_include_directories(main PRIVATE
 set_source_files_properties(${TM_GEN_SOURCES} PROPERTIES COMPILE_DEFINITIONS RECOMP_LOCAL_REGS)
 target_compile_options(main PRIVATE -O1 -fno-strict-aliasing -fwrapv -Wno-unused-function -Wno-unused-parameter)
 target_link_libraries(main PRIVATE SDL2_TTF SDL2 DXVK_D3D9 android log dl vulkan m)
-set_target_properties(main PROPERTIES OUTPUT_NAME main)
+set_target_properties(main PROPERTIES
+    OUTPUT_NAME main
+    JOB_POOL_COMPILE tm_compile_pool
+)
 
 # The generated translation units are large; keep their optimization modest
 # for the first ARM64 link. Raise only after the initial APK is reproducible.
