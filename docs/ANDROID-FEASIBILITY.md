@@ -2,8 +2,7 @@
 
 This document separates what was read or measured from what is assumed,
 for running the port on Android ARM64 with DXVK Native as the Direct3D 9
-backend ([DXVK-INTEGRATION.md](DXVK-INTEGRATION.md)). Nothing here has run
-on an Android device yet.
+backend ([DXVK-INTEGRATION.md](DXVK-INTEGRATION.md)). The game runtime has not run on Android. A separate diagnostic APK now builds in CI, but no physical-device report has been collected yet.
 
 Tags: [src] read from source at a stated revision; [static] read from
 `Movies.exe` 1.1; [run] measured here;
@@ -84,16 +83,19 @@ holds however complete the rest of the port is.
 
 ## 3. How a device answers
 
-There is no feature table here to copy, and no claim about a named GPU.
-The test on a device is DXVK itself.
+There is no phone capability table yet, and no claim about a named GPU.
+A standalone Android Vulkan probe now collects the initial hardware
+capability report; it is not DXVK itself and does not create a Vulkan device.
+See [android-probe/README.md](../android-probe/README.md) for the APK and
+report workflow. The next validation stages are:
 
-1. Build the proof of concept (`dxvk_present`) for Android ARM64 (section 4)
-   and run it on the device with `DXVK_LOG_LEVEL=info`.
-2. DXVK logs every adapter it finds. For an adapter it rejects, it logs
-   the first missing requirement, from the same code that decides it.
-3. That log, the device model, and the driver name and version DXVK prints,
-   go into this document as a [run] entry. A capability claim is made only
-   for a device with such an entry.
+1. Run the probe on physical Android devices and record model, OS, GPU,
+   driver, extension and feature results as [run] entries.
+2. Build the selected DXVK revision for Android ARM64 and test D3D9 device
+   creation and presentation on devices whose capability reports justify
+   proceeding.
+3. Record actual DXVK logs and a presented frame; a probe PASS alone is
+   not evidence that DXVK or The Movies runs.
 
 If the drivers to be supported lack required features, the options are,
 all [hyp.]:
