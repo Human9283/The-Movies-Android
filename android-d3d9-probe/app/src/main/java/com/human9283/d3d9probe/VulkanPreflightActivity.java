@@ -71,13 +71,13 @@ public final class VulkanPreflightActivity extends Activity {
         launchButton.setEnabled(false);
         launchButton.setOnClickListener(v -> {
             getSharedPreferences(TRACE_PREFS, MODE_PRIVATE).edit().putString(TRACE_KEY, "").commit();
-            report = report + "\\n--- SDL / DXVK process launch ---\\n";
+            report = report + "\n--- SDL / DXVK process launch ---\n";
             reportView.setText(report);
             launchButton.setEnabled(false);
             try {
                 startActivity(new Intent(this, MainActivity.class));
             } catch (Throwable error) {
-                report += "JAVA FAIL startActivity: " + error + "\\n";
+                report += "JAVA FAIL startActivity: " + error + "\n";
                 reportView.setText(report);
                 launchButton.setEnabled(true);
                 copyButton.setEnabled(true);
@@ -154,8 +154,8 @@ public final class VulkanPreflightActivity extends Activity {
         super.onResume();
         String trace = getSharedPreferences(TRACE_PREFS, MODE_PRIVATE).getString(TRACE_KEY, "");
         if (trace != null && !trace.isEmpty()) {
-            report = report.split("\\n--- SDL / DXVK process launch ---", 2)[0]
-                    + "\\n--- Persisted SDL / DXVK trace (separate process) ---\\n" + trace;
+            report = report.split("\n--- SDL / DXVK process launch ---", 2)[0]
+                    + "\n--- Persisted SDL / DXVK trace (separate process) ---\n" + trace;
             if (reportView != null) reportView.setText(report);
             if (copyButton != null) copyButton.setEnabled(true);
             if (launchButton != null) launchButton.setEnabled(true);
