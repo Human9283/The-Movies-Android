@@ -12,7 +12,7 @@ of the game.
 > On Linux x86-64, the original game reaches the Lionhead logo, main menu and
 > 3D studio lot through DXVK Native. Video playback and audio remain
 > incomplete or unverified. No Android APK or Android device run exists yet;
-> see [Status](#status) and [Android feasibility](docs/ANDROID-FEASIBILITY.md).
+> see [Status](#status), [Android feasibility](docs/ANDROID-FEASIBILITY.md), and the [standalone Vulkan probe](android-probe/README.md).
 
 ## Contents
 
@@ -22,6 +22,7 @@ of the game.
 - [Getting started](#getting-started)
 - [Project layout](#project-layout)
 - [Documentation](#documentation)
+- [Android Vulkan probe](android-probe/README.md)
 - [License](#license)
 - [Credits](#credits)
 
@@ -69,7 +70,7 @@ Measured results and open problems: [docs/M2.md](docs/M2.md),
 
 ## Requirements
 
-- Linux x86-64 or arm64
+- Linux x86-64 (tested); Linux AArch64 is an unverified porting target
 - Python 3.10+ with `pefile`, `capstone`, `unicorn`, `pycdlib`
 - `msitools`, `cabextract`
 - CMake 3.20+, Ninja, Clang or GCC, SDL2 and SDL2_ttf development packages
