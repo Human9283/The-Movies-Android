@@ -2,7 +2,10 @@
 
 This is the measurement that chooses the Direct3D 9 backend (AUDIT.md 5.3,
 M3.md 3.4). It holds only what the game was seen to do, or what was read
-from its code. It grows as the run gets further.
+from its code. The runtime measurements below are from the Linux x86-64
+DXVK Native run under lavapipe/Xvfb; they are not measurements of the
+Android D3D9 probe or proof that the full game runs on Android. It grows as
+the run gets further.
 
 Tags: [static] read from `Movies.exe` 1.1; [run] measured on the M3 run
 (`tests/m3_boundary.py`, trace `docs/traces/m3_boundary_imports.json`);
