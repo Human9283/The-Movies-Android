@@ -45,9 +45,18 @@ extern "C" int SDL_main(int, char**) {
         return 12;
     }
 
-    auto create9 = reinterpret_cast<Direct3DCreate9Fn>(dlsym(RTLD_DEFAULT, "Direct3DCreate9"));
+    void* dxvk_library = dlopen("libdxvk_d3d9.so", RTLD_NOW | RTLD_LOCAL);
+    if (!dxvk_library) {
+        LOGE("dlopen libdxvk_d3d9.so failed: %s", dlerror());
+        SDL_DestroyWindow(window);
+        SDL_Vulkan_UnloadLibrary();
+        SDL_Quit();
+        return 13;
+    }
+    auto create9 = reinterpret_cast<Direct3DCreate9Fn>(dlsym(dxvk_library, "Direct3DCreate9"));
     if (!create9) {
         LOGE("Direct3DCreate9 export not found: %s", dlerror());
+        dlclose(dxvk_library);
         SDL_DestroyWindow(window);
         SDL_Vulkan_UnloadLibrary();
         SDL_Quit();
@@ -94,6 +103,7 @@ extern "C" int SDL_main(int, char**) {
     if (FAILED(hr) || !device) {
         LOGE("IDirect3D9::CreateDevice failed: HRESULT=0x%08x (%d)", static_cast<unsigned>(hr), static_cast<int>(hr));
         d3d->Release();
+        dlclose(dxvk_library);
         SDL_DestroyWindow(window);
         SDL_Vulkan_UnloadLibrary();
         SDL_Quit();
@@ -147,6 +157,7 @@ extern "C" int SDL_main(int, char**) {
 
     device->Release();
     d3d->Release();
+    dlclose(dxvk_library);
     SDL_DestroyWindow(window);
     SDL_Vulkan_UnloadLibrary();
     SDL_Quit();
