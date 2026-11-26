@@ -4,6 +4,15 @@ This is a diagnostic application, not an Android build of The Movies. It
 contains no game executable, lifted game code, ISO, assets, saves or user
 files.
 
+The Android NDK build additionally compiles the repository's real portable
+host C translation units (runtime bootstrap, loader, Win32 shims, VFS,
+DirectInput, media and D3D9 host modules) as ARM64 object files. The existing
+`tm_d3d9_dxvk.cpp` bridge is also compiled against the Android DXVK headers.
+These are compile-only checks: the objects are not linked into the probe APK,
+and the user's generated lifted game C is not present in the public
+repository. A successful APK build validates source/ABI compatibility, not a
+runnable game host.
+
 ## Current result: passed on Galaxy S24 Ultra
 
 The user ran the probe on a Samsung Galaxy S24 Ultra (Snapdragon 8 Gen 3 /
