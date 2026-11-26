@@ -64,6 +64,9 @@ set(TM_ANDROID_HOST_SOURCES
     "${TM_REPO_ROOT}/src/host/tm_ole32.c"
     "${TM_REPO_ROOT}/src/host/tm_winmm.c"
     "${TM_REPO_ROOT}/src/host/tm_trace.c"
+    "${PCRECOMP_SOURCE_DIR}/runtime/win32hle/guest_mem.c"
+    "${PCRECOMP_SOURCE_DIR}/runtime/win32hle/pe_loader.c"
+    "${PCRECOMP_SOURCE_DIR}/runtime/win32hle/host.c"
 )
 add_library(tm_android_host_compile OBJECT ${TM_ANDROID_HOST_SOURCES})
 target_compile_definitions(tm_android_host_compile PRIVATE
