@@ -40,7 +40,7 @@ gradle --no-daemon -p android-game \
 
 ## Current status and validation gates
 
-The Android application shell and full-link CMake target are present, but the target has not yet been built against the generated lift. The first successful configure/build is the next gate. The APK must then be tested on the Galaxy S24 Ultra for:
+The Android application shell and full-link CMake target are present. The first full ARM64 build is running in private workflow [45809671909](https://github.com/Human9283/the-movies-gamedata/actions/runs/45809671909); the latest known attempt is still in progress, so no successful full game APK is claimed yet. Once the APK is produced, it must be tested on the Galaxy S24 Ultra for:
 
 1. 4 GiB guest-memory reservation and PE mapping;
 2. entry into the lifted CRT and WinMain;
