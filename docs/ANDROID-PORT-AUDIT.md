@@ -9,8 +9,11 @@ to C; it is not run through an x86 emulator or Wine.
 Supported ABI: `arm64-v8a`.
 
 The Android application is in [`android-game/`](../android-game/README.md).
-The complete lifted game has not yet been verified in an APK or launched
-on Android.
+A full ARM64 APK has been built, installed and launched on a Samsung
+Galaxy S24 Ultra. The game reaches D3D9 device creation and repeatedly
+presents animated intro frames, but the observed run remains on the
+Lionhead splash and has not reached the main menu. The Android runtime is
+therefore partially validated and still under active debugging.
 
 ## Runtime architecture
 
@@ -121,6 +124,13 @@ A separate diagnostic application passed on a Samsung Galaxy S24 Ultra
 Vulkan surface creation, loading Android DXVK Native 1.9.2, D3D9 device
 creation, fixed-function drawing and `Present`.
 
+The full-game APK has also been run on this device. Native logs show
+successful DXVK/Vulkan initialization, D3D9 device creation, game rendering
+calls and repeated `Present` operations. Captured frames show the animated
+Lionhead intro logo and particles. This is stronger evidence than the
+standalone diagnostic, but it only proves that the game reaches its intro
+render loop. It does not prove that the main menu or gameplay works.
+
 The diagnostic renders a test primitive and does not execute game code.
 It does not establish compatibility with every D3D9 operation or resource
 format used by The Movies.
@@ -141,17 +151,17 @@ runtime coverage.
 
 ## Validation still required
 
-The full game still needs to pass these stages on Android:
+The following stages have been observed on Android: APK packaging,
+installation, application startup, native library loading, D3D9 device
+creation and repeated game-frame presentation. The remaining validation
+sequence is:
 
-1. Full native link and APK packaging.
-2. Application installation and startup.
-3. Guest address-space reservation and PE mapping.
-4. Relocation and import binding.
-5. CRT initialization and entry into `WinMain`.
-6. Creation of the game's D3D9 device.
-7. First frame rendered by the game's own code.
-8. Main menu and studio-lot operation.
-9. Touch input, Activity pause/resume, audio, video and save/load.
+1. Confirm guest-memory reservation, PE mapping, relocation and import
+   binding from the device logs.
+2. Progress beyond the animated Lionhead splash to the main menu.
+3. Verify touch input and stable landscape surface geometry.
+4. Enter and operate the studio lot.
+5. Test Activity pause/resume, audio, video, save/load and long sessions.
 
 A successful diagnostic D3D9 test or APK build must not be described as
 a successful game launch.
