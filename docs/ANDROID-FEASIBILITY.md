@@ -377,3 +377,19 @@ The artifact is named
 `the-movies-vulkan-probe-arm64-debug` and is attached to the successful
 workflow run above. It is a temporary debug diagnostic APK, not a game
 APK; GitHub Actions artifact retention applies.
+
+
+## Physical-device Vulkan smoke test: Galaxy S24 Ultra (2026-11-26, probe 0.3)
+
+The user ran the updated APK on a Samsung Galaxy S24 Ultra (Snapdragon 8 Gen 3 / Adreno 750). This is a measured [run] result, not an inference from a GPU database:
+
+- Vulkan loader API 1.4.0; physical-device Vulkan API 1.3.128; driverVersion 2150604801.
+- Graphics and presentation queues are available. The Android surface reports minImageCount 4 and maxImageCount 64.
+- DXVK 3.1.1 gate: FAIL because `VK_KHR_maintenance5`, `VK_KHR_maintenance6`, and `VK_KHR_load_store_op_none` are absent.
+- DXVK 2.4.1 baseline extensions: PASS; baseline features: PASS.
+- `vkCreateDevice`: PASS (VkResult 0).
+- `vkCreateSwapchainKHR`: PASS (VkResult 0), four images.
+
+This is materially stronger than capability enumeration: the stock Android driver successfully creates a Vulkan logical device and an Android-presentable swapchain using the probe's DXVK 2.4.1 baseline feature subset. It does **not** prove that the complete DXVK 2.4.1 device feature chain is identical to the probe subset, that DXVK links against Bionic, that DXVK's D3D9 backend initializes, or that a frame from The Movies renders. The probe explicitly does not link or run DXVK.
+
+**Decision:** keep the Linux DXVK 3.1.1 pin unchanged. For Android, promote DXVK 2.4.1 to the next test candidate rather than declaring it compatible. Next gate: build the actual Android ARM64 DXVK Native library (including Android WSI/lifecycle integration), then run a minimal D3D9 device-creation and present test before connecting the game's guest D3D9 bridge. Do not relax or patch DXVK feature requirements solely to make the probe pass.
