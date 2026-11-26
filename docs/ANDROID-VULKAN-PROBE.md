@@ -33,13 +33,18 @@ The check does not create a Vulkan logical device, load DXVK, render a frame,
 or launch The Movies. A passing hardware gate is only an initial
 compatibility signal.
 
-## Collect a report without a computer
+## Collect a device report
+
+The report records the phone's Vulkan implementation, GPU, driver, queue support,
+required extensions and surface capabilities. It helps determine whether the
+device meets the graphics requirements being evaluated for the Android port.
+It does not test DXVK or run the game.
 
 1. Download the debug APK from the successful workflow run linked above.
-2. Install it on an Android ARM64 phone and open **The Movies Vulkan Probe**.
-3. Wait for the report to appear.
-4. Tap **Скопировать отчёт**.
-5. Paste the copied text into the project discussion or an issue.
+2. Install it on an ARM64 Android device and open **The Movies Vulkan Probe**.
+3. Wait for the diagnostic report to appear.
+4. Use the app's copy-report control.
+5. Paste the copied text into a project discussion or GitHub issue.
 
 The app requires no internet connection, login, storage permission, or other
 runtime Android permission. It queries the local Vulkan implementation.
