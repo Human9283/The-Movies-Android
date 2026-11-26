@@ -392,11 +392,12 @@ background, as Wine's dinput).
 | `IDirectInput8A` QueryInterface, AddRef, Release | implemented | IUnknown and its own IID; reference counts; a device holds its DirectInput object | | QI/AddRef no; Release not yet | test_dinput8 |
 | `IDirectInput8A::CreateDevice` | implemented | `GUID_SysKeyboard`, `GUID_SysMouse`; `E_POINTER`, `DIERR_NOAGGREGATION`, `DIERR_DEVICENOTREG` for any other device | no joysticks or other devices | yes, both S_OK | test_dinput8 |
 | `IDirectInputDevice8A` QueryInterface, AddRef, Release | implemented | IUnknown and `IID_IDirectInputDevice8A`; Release unacquires and frees at 0 | | not yet | test_dinput8 |
-| `SetDataFormat` | implemented | `dwSize` 24, `dwObjSize` 16, data size a multiple of 4, every object inside it; `DIERR_ACQUIRED` | the object list is checked, not yet used (no input to place) | yes, DI_OK | test_dinput8 |
+| `SetDataFormat` | implemented | `dwSize` 24, `dwObjSize` 16, data size a multiple of 4, every object inside it; `DIERR_ACQUIRED` | the object list defines the keyboard/mouse state layout returned by the input methods | yes, DI_OK | test_dinput8 |
 | `SetCooperativeLevel` | implemented | exactly one of exclusive/non-exclusive and foreground/background; NULL window only for non-exclusive background (the desktop); a top-level window; `DIERR_UNSUPPORTED` for exclusive background; `DIERR_ACQUIRED` | exclusive mode has no effect (no cursor hiding or capture: no display) | yes, E_HANDLE (no window yet) | test_dinput8 |
 | `SetProperty` | implemented for `DIPROP_BUFFERSIZE` | a `DIPROPDWORD` with `DIPH_DEVICE`; `DIERR_INVALIDPARAM`, `DIERR_ACQUIRED` | any other property stops the run, naming it | yes, DI_OK | test_dinput8 |
 | `Acquire`, `Unacquire` | implemented | needs a data format; `DI_NOEFFECT` when already in that state; foreground level: `DIERR_OTHERAPPHASPRIO` unless the window is the foreground window | | Acquire yes, DI_OK; Unacquire not yet | test_dinput8 |
-| `GetDeviceState`, `GetDeviceData` | implemented | keyboard and mouse state from win32hle's input state; device-specific data format and buffered-event semantics | behaviour depends on the host input state; no joystick support | yes, after `CreateDevice` | test_dinput8 |\n| other methods (`EnumDevices`, `Poll`, ...) | unsupported | | named stubs: calling one stops the run | no | test_dinput8 checks the stubs are named |
+| `GetDeviceState`, `GetDeviceData` | implemented | keyboard and mouse state from win32hle's input state; device-specific data format and buffered-event semantics | behaviour depends on the host input state; no joystick support | yes, after `CreateDevice` | test_dinput8 |
+| other methods (`EnumDevices`, `Poll`, ...) | unsupported | | named stubs: calling one stops the run | no | test_dinput8 checks the stubs are named |
 
 **Input methods are implemented.** `GetDeviceState` and
 `GetDeviceData` read the keyboard and mouse state maintained by win32hle;
