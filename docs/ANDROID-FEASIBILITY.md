@@ -7,7 +7,7 @@ This document describes the Android ARM64 application target for The Movies
 requirements.
 
 The Android application shell, game-folder importer and full-game CMake
-target are present on branch `audit/android-arm64-next-steps`. The full
+target are present on branch `ci/android-arm64-asm-dispatch`. The full
 lifted game has not yet been verified in an Android APK or launched on a
 device.
 
@@ -51,12 +51,21 @@ The Android CMake target links:
 - the generated C translation units for the supported CD 1.1 executable.
 
 The generated game C and game data are obtained by private CI and are not
-stored in this public repository.
+stored in this public repository. The private workflow splits oversized
+generated C files at function boundaries into chunks of at most 3 MiB,
+validates function/symbol preservation, and emits the dispatch table as
+AArch64 assembly instead of compiling its large C initializer. The Android
+target excludes `recomp_dispatch.c`; generated C chunks use `-O0 -g0` and
+`RECOMP_LOCAL_REGS`, while Ninja compilation is serialized to one job.
+These settings are intended to lower peak compiler memory during the first
+ARM64 link.
 
 The Android CMake wrapper includes the repository's shared top-level
 CMake source configuration. Generated C files receive the
-`RECOMP_LOCAL_REGS` source property; it is not applied to unrelated host
-or dependency sources.
+`RECOMP_LOCAL_REGS` source property and the low-memory `-O0 -g0` flags; these
+source properties are not applied to unrelated host or dependency sources.
+The assembly dispatch table has a compile-time ABI guard for 64-bit pointers,
+field offsets and the 16-byte entry size.
 
 The application loads native libraries in this order:
 
@@ -155,7 +164,12 @@ execution.
 The full-game Android target is built in a private workflow so the generated
 C translation units remain private:
 
-[Private full-link workflow run 45809671909](https://github.com/Human9283/the-movies-gamedata/actions/runs/45809671909).
+[Latest private low-memory/assembly-dispatch experiment](https://github.com/Human9283/the-movies-gamedata/actions/runs/45887244868); [preceding experiment](https://github.com/Human9283/the-movies-gamedata/actions/runs/45885363769).
+
+At the documentation update on 2026-11-26, both runs had been observed in
+progress. The newer run had completed dispatch generation, source splitting
+and Android dependency/toolchain setup; the full native link, APK checks and
+artifact upload were not yet confirmed. No full-game APK is claimed.
 
 The lift input currently records:
 
@@ -169,14 +183,10 @@ The lift input currently records:
 The last two items remain analysis risks. Zero lift exceptions does not
 prove semantic correctness or complete runtime coverage.
 
-At the status check on 2026-11-26, workflow run 45809671909 (attempt 3)
-was still at the full Android host link / APK build step. Dependency builds
-and shared-library staging had completed; APK verification and artifact
-upload were pending.
-
 A successful native link and APK package will prove compilation and
 packaging only. The resulting application still requires on-device
-validation.
+validation. Check the linked workflow runs for live status; the status above
+is a snapshot from the documentation update, not a live indicator.
 
 ## 8. Remaining runtime validation
 
