@@ -1,55 +1,109 @@
 # Android DXVK Native D3D9 smoke test
 
-This is a diagnostic application, not an Android build of The Movies. It contains no game executable, lifted game code, ISO, assets, saves or user files.
+This is a diagnostic application, not an Android build of The Movies. It
+contains no game executable, lifted game code, ISO, assets, saves or user
+files.
 
-**Validation status:** the staged Vulkan/Surface + SDL/DXVK APK 0.3.0 built successfully in [workflow run 45786134694](https://github.com/Human9283/The-Movies-Android/actions/runs/45786134694), artifact `the-movies-dxvk-d3d9-probe-arm64` (ID `15099869888`). The CI verified APK contents, AArch64 native libraries, shared C++ runtime dependencies, 16 KB ELF load-segment alignment, and 16 KB APK alignment. Earlier APKs did not start successfully on the target phone. Version 0.3.0 has **not yet been tested on the phone**. Do not treat a green CI build as a successful device test; Android acceptance still requires a copied preflight report and, separately, a visible D3D9 triangle with successful `CreateDevice` and `Present`.
+## Current result: passed on Galaxy S24 Ultra
 
-## Startup and diagnostic sequence
+<badge> </badge>
 
-The launcher first opens a standalone Vulkan preflight screen. It does not
-load SDL or DXVK. It waits for a Java `SurfaceView.surfaceCreated` callback,
-obtains the corresponding `ANativeWindow`, creates
-`VK_KHR_android_surface`, enumerates the device and extension/feature support,
-then attempts a minimal logical device, swapchain, clear and present. The
-report can be copied even when the later SDL/DXVK stage crashes.
+The user ran the probe on a Samsung Galaxy S24 Ultra (Snapdragon 8 Gen 3 /
+Adreno 750). The copied native report ended with:
 
-After the preflight has finished, press **Запустить DXVK**. The SDL test then
-checks its own `ANativeWindow`, creates and destroys a Vulkan surface through
-`SDL_Vulkan_CreateSurface` (retrying briefly), and only then loads DXVK. This
-distinguishes a Java/Android Surface failure from an SDL WSI or DXVK failure.
-The preflight's DXVK 3.1.1 / 2.4.1 rows are reference comparisons, not a claim
-that the Android fork pinned below has identical feature requirements.
+```text
+Direct3DCreate9: PASS
+IDirect3D9::CreateDevice: PASS; backbuffer=1440x3120
+D3D9 fixed-function clear/draw/present started
+PASS D3D9 fixed-function triangle + Present
+```
+
+This confirms that the tested Android-adapted DXVK Native 1.9.2 build can
+initialize D3D9, create a device on the SDL Vulkan window, execute a
+fixed-function draw and present a frame on this phone. It is the first
+successful end-to-end D3D9 runtime result in this project on Android.
+
+The successful 0.8.0 ARM64 APK build is recorded in
+[GitHub Actions run 45793972336](https://github.com/Human9283/The-Movies-Android/actions/runs/45793972336).
+Artifact: `the-movies-dxvk-d3d9-probe-arm64`.
+
+**Boundary:** this is still a smoke-test application. It does not package or
+run the lifted game, the game host, or proprietary game data. It does not
+validate the complete set of D3D9 calls/resources used by The Movies,
+audio/video, touch input, Android pause/resume, guest-memory reservation,
+or save/load.
 
 ## What it tests
 
-The APK starts SDL2's Android Activity and creates an SDL Vulkan window. It then loads the pinned Android DXVK Native D3D9 library and attempts:
+The launcher first opens a standalone Vulkan preflight screen. It waits for
+a Java `SurfaceView.surfaceCreated` callback, obtains the corresponding
+`ANativeWindow`, creates `VK_KHR_android_surface`, enumerates device and
+extension/feature support, then attempts a minimal logical device, swapchain,
+clear and present. The report can be copied even if the later SDL/DXVK stage
+fails.
 
-1. `Direct3DCreate9(D3D_SDK_VERSION)`
-2. D3D9 HAL device creation on the SDL Vulkan window
-3. Backbuffer clear
-4. A fixed-function `XYZRHW | DIFFUSE` triangle
-5. `IDirect3DDevice9::Present`
+After the preflight has finished, press **Запустить DXVK**. The SDL test:
 
-The expected successful result is a blue background with a light/green triangle and the status line `PASS D3D9 fixed-function triangle + Present`. The Vulkan preflight screen has a **Скопировать отчёт** button; paste its contents into the ChatGPT conversation. The SDL/DXVK screen retains its own **Copy report** button if it starts successfully.
+1. Initializes SDL2's Android Activity.
+2. Creates the app's SDL Vulkan window and obtains its `ANativeWindow`.
+3. Creates and validates an SDL Vulkan surface.
+4. Loads the pinned Android DXVK Native D3D9 library.
+5. Calls `Direct3DCreate9(D3D_SDK_VERSION)`.
+6. Creates a D3D9 HAL device on the SDL Vulkan window.
+7. Clears the backbuffer, draws a fixed-function `XYZRHW | DIFFUSE` triangle,
+   and calls `IDirect3DDevice9::Present`.
 
-If the app stops early or shows an error, copy the report anyway. It includes the stage and HRESULT or SDL error.
+The expected successful result is a blue background with a light/green
+triangle and the status line
+`PASS D3D9 fixed-function triangle + Present`. Both reports have copy
+buttons; paste the full native trace when reporting a failure.
 
-## Build
+## Android-specific WSI fix
+
+The pinned fork's SDL2 extension provider originally created a hidden
+`Dummy Window` to query Vulkan instance extensions. SDL's Android video
+backend supports only one window, so this failed with
+`Android only supports one window` after SDL and Vulkan surface preflight
+had already succeeded.
+
+The project workflow now patches the Android build to reuse SDL window ID 1
+for extension enumeration and skips destroying that application-owned window.
+The desktop dummy-window path remains unchanged. This fix was validated by
+the successful `Direct3DCreate9`, `CreateDevice` and `Present` report above.
+
+## Build and pinned sources
 
 GitHub Actions builds the ARM64 APK from pinned public sources:
 
 - SDL2 `release-2.30.9`
-- Android DXVK Native fork `Star1xr/dxvk-native-android`, commit `f2c7207b3d8bc848fe3a27cef34ee5e67aeec552`
-- pcrecomp headers `7c07a0b42059b6dc4313d9b4ebded6f7a72db8f3` for a compile-only check of this repository's real `src/host/tm_d3d9_dxvk.cpp`
+- Android DXVK Native fork `Star1xr/dxvk-native-android`, commit
+  `f2c7207b3d8bc848fe3a27cef34ee5e67aeec552`
+- pcrecomp headers `7c07a0b42059b6dc4313d9b4ebded6f7a72db8f3` for an
+  object-only compile check of the repository's real
+  `src/host/tm_d3d9_dxvk.cpp`
 
-The workflow cross-compiles SDL2 and `libdxvk_d3d9.so` with Android NDK r28c, builds the APK, verifies its ARM64 native libraries, and compiles the existing game D3D9 bridge against the Android fork's headers. The bridge compile is object-only: it does not package or run the game host.
+The workflow cross-compiles SDL2 and `libdxvk_d3d9.so` for Android ARM64,
+builds the APK, checks the packaged native libraries and their shared C++
+runtime dependencies, and verifies 16 KB ELF/APK alignment. The bridge
+compile check does not package or run the game host.
 
-Latest build: [Android DXVK D3D9 smoke test](https://github.com/Human9283/The-Movies-Android/actions/workflows/android-d3d9-probe.yml)
+Open the [Android D3D9 workflow](https://github.com/Human9283/The-Movies-Android/actions/workflows/android-d3d9-probe.yml),
+select a successful run, and download artifact
+`the-movies-dxvk-d3d9-probe-arm64`. Unzip it and install `app-debug.apk`.
 
-Open the successful run, download artifact `the-movies-dxvk-d3d9-probe-arm64`, unzip it, and install `app-debug.apk`.
+## Next integration stages
 
-## Interpretation
+1. Add an Android-specific shared-library/JNI entry point around the existing
+   `tm_host_run()` bootstrap; do not call the Linux CLI `main()`.
+2. Build the real lifted runtime and pcrecomp/win32hle dependencies for
+   `arm64-v8a`, then validate the 4 GiB guest-address reservation and PE
+   image mapping on Android.
+3. Pass explicit app-private game, user and system paths into the host.
+4. Connect the tested D3D9 backend to the game's existing guest D3D9 bridge.
+5. Handle Android surface lifecycle, pause/resume, touch-to-mouse mapping,
+   audio/video and save/load.
+6. Run the original game and capture its first genuine frame.
 
-A successful screen and report demonstrate that this DXVK Native Android build can create a D3D9 device, execute a fixed-function draw and present through SDL2 on the tested phone. This is a much stronger result than Vulkan feature enumeration, but it does not yet prove that The Movies itself runs. The game's full D3D9 call/resource set, audio/video, input, lifecycle, guest memory and original game data still need integration and validation.
-
-The Android fork is a community adaptation, not an upstream-supported DXVK Android release. The Linux project's DXVK 3.1.1 pin remains unchanged.
+The Android fork is a community adaptation, not an upstream-supported DXVK
+Android release. The Linux project's DXVK Native 3.1.1 pin and Linux runtime
+remain unchanged.
