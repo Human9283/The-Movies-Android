@@ -405,3 +405,15 @@ the audit was first written, the feature branch
 This update supersedes the audit's earlier statements that no Android
 Gradle project or APK exists, but only for the diagnostic app. All findings
 about the absence of an Android game runtime remain valid.
+
+
+## Updated physical-device graphics evidence (2026-11-26)
+
+The user successfully installed and ran probe 0.3 on a Samsung Galaxy S24 Ultra (Adreno 750). The report confirms:
+
+- Android Vulkan surface and presentation queue are available.
+- The DXVK 3.1.1 hardware gate fails on the stock driver: maintenance5, maintenance6 and load_store_op_none are not exposed.
+- The DXVK 2.4.1 baseline subset passes feature/extension checks.
+- Real `vkCreateDevice` and `vkCreateSwapchainKHR` calls both succeed (VkResult 0); the swapchain has four images.
+
+This supersedes the earlier audit statement that the 2.4.1 logical-device/swapchain test was pending. It is still only a Vulkan smoke test: DXVK is neither linked nor executed, and no D3D9 frame has been presented. The next meaningful milestone is an Android ARM64 DXVK Native build plus a minimal D3D9 create/present test. Keep the desktop/Linux backend and its DXVK 3.1.1 pin unchanged; evaluate 2.4.1 as an Android-specific candidate only.
