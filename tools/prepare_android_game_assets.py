@@ -43,6 +43,33 @@ def main() -> int:
     if not isinstance(source_rows, list) or not source_rows:
         raise SystemExit("tm_manifest.json contains no file records")
 
+    problems = original.get("problems", [])
+    if not isinstance(problems, list):
+        raise SystemExit("tm_manifest.json has an invalid problems field")
+    if problems:
+        preview = "\\n".join(f"  - {problem}" for problem in problems[:10])
+        suffix = f"\\n  ... and {len(problems) - 10} more" if len(problems) > 10 else ""
+        raise SystemExit(
+            "The disc extraction reported problems; refusing to package an incomplete or suspect install:\\n"
+            + preview + suffix
+        )
+
+    expected_rows = original.get("expected_file_rows")
+    if not isinstance(expected_rows, int) or expected_rows != len(source_rows):
+        raise SystemExit(
+            "tm_manifest.json does not confirm that every MSI file row was extracted "
+            "(regenerate it with the current tm_install.py)"
+        )
+    invalid_sizes = [
+        item.get("path", "<unknown>")
+        for item in source_rows
+        if item.get("size_ok") is not True
+    ]
+    if invalid_sizes:
+        preview = "\\n".join(f"  - {path}" for path in invalid_sizes[:10])
+        suffix = f"\\n  ... and {len(invalid_sizes) - 10} more" if len(invalid_sizes) > 10 else ""
+        raise SystemExit("One or more extracted files do not match the MSI size table:\\n" + preview + suffix)
+
     unique: dict[str, dict] = {}
     duplicates = 0
     for item in source_rows:
