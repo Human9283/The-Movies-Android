@@ -100,8 +100,11 @@ public final class Diagnostics {
     private static void captureLogcat() {
         File output = new File(logDirectory, "logcat.txt");
         try {
+            // Restrict exported logcat to this application's process. A global
+            // logcat dump can contain unrelated messages from other apps.
+            String pid = Integer.toString(android.os.Process.myPid());
             Process process = Runtime.getRuntime().exec(new String[] {
-                "logcat", "-d", "-v", "threadtime", "-t", "2000"
+                "logcat", "-d", "-v", "threadtime", "--pid=" + pid, "-t", "2000"
             });
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
                  FileWriter writer = new FileWriter(output, false)) {
