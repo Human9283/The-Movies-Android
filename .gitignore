@@ -20,13 +20,18 @@ work/
 src/recomp/gen/
 tm_manifest.json
 
-# Build
+# Build and runtime output
 build/
 build-*/
 *.o
 *.so
 *.a
 *.apk
+*.log
+*.log.*
+*.dmp
+*.core
+core
 .gradle/
 local.properties
 
@@ -35,6 +40,6 @@ __pycache__/
 *.pyc
 .venv/
 
-# Private CI-generated Android payload; never commit proprietary game data.
-android-game/app/src/main/assets/game-data.tar
-android-game/app/src/main/assets/game-manifest.json
+# Never commit files staged as Android assets: this directory may contain the
+# proprietary game installation when preparing a local full APK.
+android-game/app/src/main/assets/
