@@ -10,7 +10,7 @@ The diagnostic archive may contain:
 - device manufacturer and model, Android version/API level and app version;
 - supported CPU ABI information;
 - application and native logs, including stack traces;
-- up to 2,000 recent Android logcat entries (the capture is not limited to this app's tag and may include unrelated system or application messages);
+- up to 2,000 recent Android logcat entries filtered to the app's process; this reduces unrelated log capture but does not make the archive anonymous;
 - local filesystem paths, game/runtime filenames and operation details.
 
 The archive is not intended to contain the original game installation, save files or account credentials. Review the actual archive before sharing; logs can contain unexpected data.
