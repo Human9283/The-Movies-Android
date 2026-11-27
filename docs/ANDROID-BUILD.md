@@ -98,6 +98,14 @@ Extract the installed files:
 python "$WORK/port/tools/tm_install.py" --iso "$WORK/iso" --out "$WORK/game"
 ~~~
 
+The extraction command must exit successfully. It writes `tm_manifest.json`
+with the number of expected MSI file rows, per-file size checks and any
+extraction problems. A missing cabinet member, size mismatch, collision or
+cabinet validation error makes the command fail. Do not continue with a
+partial installation. The Android asset packager repeats these checks and
+refuses manifests with extraction problems. Do not use `--no-hash` when
+preparing Android assets; the packager requires per-file SHA-256 values.
+
 Generate the executable analysis and function catalog:
 
 ~~~bash
@@ -126,13 +134,18 @@ PCRECOMP="$WORK/pcrecomp" python run_lift.py \
   --out "$WORK/work/gen" --all
 ~~~
 
-Check the generated code:
+Inspect the generated code:
 
 ~~~bash
 python "$WORK/port/tools/lift_health.py" "$WORK/work/gen"
 ~~~
 
-The lift must finish without lift exceptions. Keep the generated directory local; it contains code derived from the proprietary executable and must not be committed or distributed.
+The lift command must finish without exceptions. The health script summarizes
+dispatch entries, generated functions, unresolved indirect-tail targets and
+not-lifted stubs; it is an inspection aid, not a proof that every game path is
+implemented or that the Android port is playable. Keep the generated directory
+local; it contains code derived from the proprietary executable and must not
+be committed or distributed.
 
 Convert the dispatch table to AArch64 assembly and split the generated C into bounded translation units:
 
