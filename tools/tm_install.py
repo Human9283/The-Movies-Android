@@ -336,12 +336,12 @@ def main(argv=None):
     manifest.sort(key=lambda e: e['path'].lower())
     total = sum(e['size'] for e in manifest)
     with open(os.path.join(args.out, 'tm_manifest.json'), 'w') as fp:
-        json.dump({'files': manifest, 'problems': problems, 'total_bytes': total}, fp, indent=1)
+        json.dump({'files': manifest, 'problems': problems, 'total_bytes': total,\n                  'expected_file_rows': len(files)}, fp, indent=1)
     print('[done] %d of %d files, %.2f GB, %d problems'
           % (len(manifest), len(files), total / 1e9, len(problems)))
     for p in problems:
         print('  !', p)
-    return 0 if len(manifest) == len(files) else 1
+    return 0 if len(manifest) == len(files) and not problems else 1
 
 
 if __name__ == '__main__':
