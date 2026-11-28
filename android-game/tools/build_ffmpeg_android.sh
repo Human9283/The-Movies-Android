@@ -43,7 +43,6 @@ mkdir -p "$OUT"
   --enable-cross-compile --enable-pic --enable-shared --disable-static \
   --disable-programs --disable-doc --disable-debug --disable-network \
   --disable-autodetect --disable-everything \
-  --enable-avutil --enable-avcodec --enable-avformat --enable-swscale \
   --enable-demuxer=asf --enable-decoder=wmv1,wmv2,wmv3,vc1 \
   --enable-parser=vc1 --enable-protocol=file \
   --extra-cflags="-O2 -fPIC" \
