@@ -896,10 +896,13 @@ static int reader_wait_until(reader_t *r, uint64_t due_100ns, uint32_t expected_
         uint64_t target = due_100ns + shift;
         if (now >= target) return 1;
         uint64_t wait_100ns = target - now;
-        useconds_t sleep_us = (useconds_t)(wait_100ns / 10u);
-        if (sleep_us > 5000) sleep_us = 5000;
-        if (sleep_us < 250) sleep_us = 250;
-        usleep(sleep_us);
+        /* Clamp before narrowing to useconds_t. A long media timestamp can
+         * exceed the native type's range; casting first would wrap and turn
+         * an intended bounded wait into a busy retry loop. */
+        uint64_t sleep_us_wide = wait_100ns / 10u;
+        if (sleep_us_wide > 5000u) sleep_us_wide = 5000u;
+        if (sleep_us_wide < 250u) sleep_us_wide = 250u;
+        usleep((useconds_t)sleep_us_wide);
     }
 }
 
