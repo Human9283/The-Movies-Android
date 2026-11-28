@@ -297,7 +297,9 @@ static uint32_t reader_disconnect(reader_t *r) {
         guest_call(r->peer_pin, 2, 0, NULL);
         r->peer_pin = 0;
     }
-    atomic_store_explicit(&r->pin_flushing, 0, memory_order_release);
+    /* reader_end_flush owns the state transition. Preserve pin_flushing if
+     * the downstream EndFlush failed; a later successful connection starts
+     * a fresh downstream stream and clears it explicitly. */
     return stop_hr;
 }
 
@@ -636,6 +638,8 @@ static uint32_t reader_build_output_pin_connection(reader_t *r, uint32_t peer, u
     r->peer_pin = peer;
     r->peer_mem_input = mem_input;
     r->allocator = allocator;
+    atomic_fetch_add_explicit(&r->flush_generation, 1, memory_order_acq_rel);
+    atomic_store_explicit(&r->pin_flushing, 0, memory_order_release);
     r->state = FILTER_STATE_STOPPED;
     fprintf(stderr, "[dshow-reader] connected RGB24 %dx%d sample=%u allocator=%u x %u\n",
             r->width, r->height, r->sample_size, actual_buffers, actual_size);
