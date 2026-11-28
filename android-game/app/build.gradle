@@ -8,8 +8,9 @@ def sdlLibrary = providers.gradleProperty("sdlLibrary").getOrElse("")
 def sdl2TtfIncludeDir = providers.gradleProperty("sdl2TtfIncludeDir").getOrElse("")
 def sdl2TtfLibrary = providers.gradleProperty("sdl2TtfLibrary").getOrElse("")
 def dxvkLibrary = providers.gradleProperty("dxvkLibrary").getOrElse("")
-if ([sdlRoot, dxvkRoot, pcrecompRoot, tmGen, sdlLibrary, sdl2TtfIncludeDir, sdl2TtfLibrary, dxvkLibrary].any { it.isEmpty() }) {
-    throw new GradleException("Pass sdlRoot, dxvkRoot, pcrecompRoot, tmGen, sdlLibrary, sdl2TtfIncludeDir, sdl2TtfLibrary and dxvkLibrary")
+def ffmpegRoot = providers.gradleProperty("ffmpegRoot").getOrElse("")
+if ([sdlRoot, dxvkRoot, pcrecompRoot, tmGen, sdlLibrary, sdl2TtfIncludeDir, sdl2TtfLibrary, dxvkLibrary, ffmpegRoot].any { it.isEmpty() }) {
+    throw new GradleException("Pass sdlRoot, dxvkRoot, pcrecompRoot, tmGen, sdlLibrary, sdl2TtfIncludeDir, sdl2TtfLibrary, dxvkLibrary and ffmpegRoot")
 }
 
 android {
@@ -36,7 +37,8 @@ android {
                     "-DSDL2_TTF_INCLUDE_DIR=" + sdl2TtfIncludeDir,
                     "-DSDL2_TTF_LIBRARY=" + sdl2TtfLibrary,
                     "-DDXVK_ROOT=" + dxvkRoot,
-                    "-DDXVK_D3D9_LIBRARY=" + dxvkLibrary
+                    "-DDXVK_D3D9_LIBRARY=" + dxvkLibrary,
+                    "-DFFMPEG_ROOT=" + ffmpegRoot
             }
         }
     }
