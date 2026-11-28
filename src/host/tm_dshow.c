@@ -139,6 +139,7 @@ typedef struct {
     uint32_t filter_state, media_loaded;
     double media_duration, media_position, media_stop_time, media_preroll_time;
     double media_rate, avg_time_per_frame;
+    int32_t media_width, media_height;
     int32_t audio_volume, audio_balance;
     /* builder: the graph it was given (referenced) */
     uint32_t graph;
@@ -545,10 +546,9 @@ static void media_control_GetState(void) {               /* (this, timeout, FILT
  * separate so a call through the secondary interface cannot corrupt the
  * guest stack. */
 static void media_control_RenderFile(void) {             /* (this, BSTR filename) */
-    media_control_owner(A32(0));
+    obj_t *g = media_control_owner(A32(0));
     if (!A32(1)) RET(E_POINTER, 2);
-    fprintf(stderr, "[dshow] IMediaControl::RenderFile: no ASF reader/source filter is registered\n");
-    RET(VFW_E_CANNOT_RENDER, 2);
+    RET(graph_render_file(g, A32(1)), 2);
 }
 static void media_control_AddSourceFilter(void) {        /* (this, BSTR filename, IDispatch **out) */
     media_control_owner(A32(0));
@@ -672,6 +672,30 @@ static void basic_audio_get_Balance(void) {
     MEM32(A32(1)) = (uint32_t)o->audio_balance;
     RET(S_OK, 2);
 }
+static void basic_video_get_VideoWidth(void) {
+    obj_t *o = basic_video_owner(A32(0));
+    if (!A32(1)) RET(E_POINTER, 2);
+    if (!o->media_loaded || o->media_width <= 0) RET(E_NOTIMPL, 2);
+    MEM32(A32(1)) = (uint32_t)o->media_width;
+    RET(S_OK, 2);
+}
+static void basic_video_get_VideoHeight(void) {
+    obj_t *o = basic_video_owner(A32(0));
+    if (!A32(1)) RET(E_POINTER, 2);
+    if (!o->media_loaded || o->media_height <= 0) RET(E_NOTIMPL, 2);
+    MEM32(A32(1)) = (uint32_t)o->media_height;
+    RET(S_OK, 2);
+}
+static void basic_video_GetVideoSize(void) {
+    obj_t *o = basic_video_owner(A32(0));
+    uint32_t width = A32(1), height = A32(2);
+    if (!width || !height) RET(E_POINTER, 3);
+    if (!o->media_loaded || o->media_width <= 0 || o->media_height <= 0) RET(E_NOTIMPL, 3);
+    MEM32(width) = (uint32_t)o->media_width;
+    MEM32(height) = (uint32_t)o->media_height;
+    RET(S_OK, 3);
+}
+
 static void basic_video_get_AvgTimePerFrame(void) {
     obj_t *o = basic_video_owner(A32(0));
     if (!A32(1)) RET(E_POINTER, 2);
@@ -749,29 +773,10 @@ static void graph_Reconnect(void) {                     /* (this, IPin *pin) */
 
 /* The reader/source-filter path is not implemented yet. Return DirectShow's
  * normal render failure instead of invoking a fatal placeholder vtable. */
-static void graph_RenderFile(void) {                    /* (this, file, playlist) */
-    self(OBJ_GRAPH, "RenderFile");
-    if (!A32(1)) RET(E_POINTER, 3);
-    fprintf(stderr, "[dshow] FilterGraph::RenderFile: no ASF reader/source filter is registered\n");
-    RET(VFW_E_CANNOT_RENDER, 3);
-}
-static void graph_AddSourceFilter(void) {               /* (this, file, name, &filter) */
-    self(OBJ_GRAPH, "AddSourceFilter");
-    uint32_t out = A32(3);
-    if (!out) RET(E_POINTER, 4);
-    MEM32(out) = 0;
-    if (!A32(1)) RET(E_POINTER, 4);
-    fprintf(stderr, "[dshow] FilterGraph::AddSourceFilter: no source filter is registered\n");
-    RET(VFW_E_CANNOT_RENDER, 4);
-}
-
-/* IGraphBuilder::Render walks the graph's filters and tries their input pins.
- * The filters and enumerators are COM objects owned by the guest, so the host
- * does not assume a pin count, pin name, or media-type layout. */
-static void graph_Render(void) {                        /* (this, IPin *out) */
-    obj_t *o = self(OBJ_GRAPH, "Render");
-    uint32_t graph_va = o->va, out_pin = A32(1);
-    if (!out_pin) RET(E_POINTER, 2);
+/* Connect one source output pin to the first compatible input pin in the graph. */
+static uint32_t graph_connect_output_pin(uint32_t graph_va, uint32_t out_pin) {
+    obj_t *o = obj_of(graph_va, OBJ_GRAPH);
+    if (!o || !out_pin) return E_POINTER;
 
     uint32_t *pin_mem = (uint32_t *)hle_alloc(4);
     uint32_t *fetched_mem = (uint32_t *)hle_alloc(4);
@@ -780,24 +785,23 @@ static void graph_Render(void) {                        /* (this, IPin *out) */
         if (pin_mem) hle_free(pin_mem);
         if (fetched_mem) hle_free(fetched_mem);
         if (direction_mem) hle_free(direction_mem);
-        RET(E_OUTOFMEMORY, 2);
+        return E_OUTOFMEMORY;
     }
     uint32_t pin_va = hle_va(pin_mem);
     uint32_t fetched_va = hle_va(fetched_mem);
     uint32_t direction_va = hle_va(direction_mem);
     uint32_t filters[MAX_FILTERS];
     int count = o->nf;
-    memcpy(filters, o->filter, (size_t)count * sizeof filters[0]);
+    memcpy(filters, o->filter, (size_t)count * sizeof(filters[0]));
 
     uint32_t result = VFW_E_CANNOT_RENDER;
     int connected = 0;
     for (int i = 0; i < count && !connected; i++) {
-        uint32_t enumerator = 0;
         uint32_t enum_args[1] = { pin_va };
         MEM32(pin_va) = 0;
         uint32_t hr = vcall(filters[i], 10, 1, enum_args); /* IBaseFilter::EnumPins */
-        enumerator = MEM32(enum_args[0]);
-        if (hr & 0x80000000u || !enumerator) continue;
+        uint32_t enumerator = MEM32(pin_va);
+        if ((hr & 0x80000000u) || !enumerator) continue;
 
         for (;;) {
             MEM32(pin_va) = 0;
@@ -810,10 +814,10 @@ static void graph_Render(void) {                        /* (this, IPin *out) */
 
             MEM32(direction_va) = 0xFFFFFFFFu;
             uint32_t direction_args[1] = { direction_va };
-            uint32_t direction_hr = vcall(pin, 9, 1, direction_args); /* IPin::QueryDirection */
+            uint32_t direction_hr = vcall(pin, 9, 1, direction_args);
             if (!(direction_hr & 0x80000000u) && MEM32(direction_va) == 0) {
                 uint32_t connect_args[2] = { pin, 0 };
-                uint32_t connect_hr = vcall(out_pin, 3, 2, connect_args); /* IPin::Connect */
+                uint32_t connect_hr = vcall(out_pin, 3, 2, connect_args);
                 if (!(connect_hr & 0x80000000u)) {
                     result = S_OK;
                     connected = 1;
@@ -830,10 +834,99 @@ static void graph_Render(void) {                        /* (this, IPin *out) */
     hle_free(pin_mem);
     hle_free(fetched_mem);
     hle_free(direction_mem);
-    /* A guest callback may re-enter the graph; verify that it still exists. */
-    if (!obj_of(graph_va, OBJ_GRAPH))
-        hle_fatal("[dshow] FilterGraph vanished during Render");
-    RET(result, 2);
+    return obj_of(graph_va, OBJ_GRAPH) ? result : E_UNEXPECTED;
+}
+
+static uint32_t graph_connect_reader_output(uint32_t graph_va, uint32_t filter_va) {
+    uint32_t *pin_mem = (uint32_t *)hle_alloc(4);
+    uint32_t *fetched_mem = (uint32_t *)hle_alloc(4);
+    if (!pin_mem || !fetched_mem) {
+        if (pin_mem) hle_free(pin_mem);
+        if (fetched_mem) hle_free(fetched_mem);
+        return E_OUTOFMEMORY;
+    }
+    uint32_t pin_va = hle_va(pin_mem);
+    uint32_t fetched_va = hle_va(fetched_mem);
+    uint32_t enum_args[1] = { pin_va };
+    MEM32(pin_va) = 0;
+    uint32_t hr = vcall(filter_va, 10, 1, enum_args);    /* IBaseFilter::EnumPins */
+    uint32_t enumerator = MEM32(pin_va);
+    if ((hr & 0x80000000u) || !enumerator) {
+        hle_free(pin_mem);
+        hle_free(fetched_mem);
+        return (hr & 0x80000000u) ? hr : E_UNEXPECTED;
+    }
+
+    uint32_t result = VFW_E_CANNOT_RENDER;
+    for (;;) {
+        MEM32(pin_va) = 0;
+        MEM32(fetched_va) = 0;
+        uint32_t next_args[3] = { 1, pin_va, fetched_va };
+        hr = vcall(enumerator, 3, 3, next_args);
+        uint32_t pin = MEM32(pin_va);
+        uint32_t fetched = MEM32(fetched_va);
+        if (!fetched || !pin) break;
+
+        uint32_t direction = 0xFFFFFFFFu;
+        uint32_t direction_args[1] = { hle_va(&direction) };
+        uint32_t direction_hr = vcall(pin, 9, 1, direction_args);
+        if (!(direction_hr & 0x80000000u) && direction == 1) {
+            result = graph_connect_output_pin(graph_va, pin);
+            com_release(pin);
+            break;
+        }
+        com_release(pin);
+        if (hr & 0x80000000u) break;
+    }
+    com_release(enumerator);
+    hle_free(pin_mem);
+    hle_free(fetched_mem);
+    return result;
+}
+
+static uint32_t graph_render_file(obj_t *graph, uint32_t file_name) {
+    if (!graph || !file_name) return E_POINTER;
+    uint32_t filter = 0;
+    uint32_t hr = tm_dshow_reader_add_source_filter(graph->va, file_name, 0, &filter);
+    if (hr & 0x80000000u) return hr;
+
+    uint32_t graph_va = graph->va;
+    hr = graph_connect_reader_output(graph_va, filter);
+    if (hr & 0x80000000u) {
+        uint32_t remove_args[1] = { filter };
+        (void)vcall(graph_va, 4, 1, remove_args);         /* IFilterGraph::RemoveFilter */
+        com_release(filter);
+        return hr;
+    }
+    com_release(filter);                                 /* graph owns its independent reference */
+    return S_OK;
+}
+
+static void graph_RenderFile(void) {                    /* (this, file, playlist) */
+    obj_t *g = self(OBJ_GRAPH, "RenderFile");
+    if (!A32(1)) RET(E_POINTER, 3);
+    RET(graph_render_file(g, A32(1)), 3);
+}
+static void graph_AddSourceFilter(void) {               /* (this, file, name, &filter) */
+    obj_t *g = self(OBJ_GRAPH, "AddSourceFilter");
+    uint32_t out = A32(3);
+    if (!out) RET(E_POINTER, 4);
+    MEM32(out) = 0;
+    if (!A32(1)) RET(E_POINTER, 4);
+    uint32_t filter = 0;
+    uint32_t hr = tm_dshow_reader_add_source_filter(g->va, A32(1), A32(2), &filter);
+    if (!(hr & 0x80000000u)) MEM32(out) = filter;
+    RET(hr, 4);
+}
+
+/* IGraphBuilder::Render walks the graph's filters and tries their input pins.
+ * The filters and enumerators are COM objects owned by the guest, so the host
+ * does not assume a pin count, pin name, or media-type layout. */
+static void graph_Render(void) {                        /* (this, IPin *out) */
+    obj_t *o = self(OBJ_GRAPH, "Render");
+    uint32_t out_pin = A32(1);
+    if (!out_pin) RET(E_POINTER, 2);
+    RET(graph_connect_output_pin(o->va, out_pin), 2);
 }
 
 static void ascii_wide(const char *src, uint16_t *dst) {
@@ -954,7 +1047,20 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
         RET(g ? jr : E_UNEXPECTED, 3);
     }
     g->filter[g->nf] = f, g->fname[g->nf] = hle_va(keep), g->nf++;
-    if (is_asf_reader) g->asf_readers++;
+    if (is_asf_reader) {
+        g->asf_readers++;
+        double duration = 0.0, frame_seconds = 0.0;
+        int width = 0, height = 0;
+        if (tm_dshow_reader_media_info(f, &duration, &frame_seconds, &width, &height)) {
+            g->media_loaded = 1;
+            g->media_duration = duration;
+            g->media_position = 0.0;
+            g->media_stop_time = duration;
+            g->avg_time_per_frame = frame_seconds;
+            g->media_width = width;
+            g->media_height = height;
+        }
+    }
     g->graph_version++;
     uint32_t result = renamed ? VFW_S_DUPLICATE_NAME : S_OK;
     fprintf(stderr, "[dshow] FilterGraph 0x%08X: AddFilter(0x%08X, \"%s\") -> 0x%08X, %d filter%s\n",
@@ -1472,6 +1578,9 @@ static const win32hle_shim g_impl[] = {
     { "FilterGraphBasicVideo::AddRef",                  basic_video_AddRef },
     { "FilterGraphBasicVideo::Release",                 basic_video_Release },
     { "FilterGraphBasicVideo::get_AvgTimePerFrame",     basic_video_get_AvgTimePerFrame },
+    { "FilterGraphBasicVideo::get_VideoWidth",          basic_video_get_VideoWidth },
+    { "FilterGraphBasicVideo::get_VideoHeight",         basic_video_get_VideoHeight },
+    { "FilterGraphBasicVideo::GetVideoSize",             basic_video_GetVideoSize },
     { "CaptureGraphBuilder2::QueryInterface",      builder_QueryInterface },
     { "CaptureGraphBuilder2::AddRef",              builder_AddRef },
     { "CaptureGraphBuilder2::Release",             builder_Release },
