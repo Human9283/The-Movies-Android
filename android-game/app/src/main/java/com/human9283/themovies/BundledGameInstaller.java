@@ -131,7 +131,11 @@ public final class BundledGameInstaller {
         }
 
         File backup = new File(context.getFilesDir(), "game-previous");
-        deleteRecursively(backup);
+        if (backup.exists()) {
+            deleteRecursively(staging);
+            throw new IOException("A previous game installation backup already exists at "
+                + backup.getAbsolutePath() + "; refusing to overwrite it");
+        }
         boolean hadTarget = target.exists();
         if (hadTarget && !target.renameTo(backup)) {
             deleteRecursively(staging);
