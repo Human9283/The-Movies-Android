@@ -55,12 +55,10 @@ int SDL_main(int argc, char **argv) {
     (void)argv;
     SDL_SetMainReady();
 
-    /* Use SDL finger events as the sole touch source. Landscape orientation
-     * is enforced by GameActivity and AndroidManifest, not an iOS-only hint. */
-    SDL_SetHint("SDL_TOUCH_MOUSE_EVENTS", "0");
+    /* SDL's Android touch-to-mouse synthesis feeds the Win32 mouse state
+     * consumed by DirectInput. Do not synthesize touch events back from mouse. */
+    SDL_SetHint("SDL_TOUCH_MOUSE_EVENTS", "1");
     SDL_SetHint("SDL_MOUSE_TOUCH_EVENTS", "0");
-    setenv("TM_DINPUT_TRACE", "1", 1);
-    setenv("RA2_INPUT_TRACE", "1", 1);
 
     const char *root = SDL_AndroidGetInternalStoragePath();
     if (!root || !root[0]) {
@@ -72,21 +70,18 @@ int SDL_main(int argc, char **argv) {
     char dxvk_log_path[PATH_MAX];
     if (snprintf(dxvk_log_path, sizeof(dxvk_log_path), "%s/logs", root) < (int)sizeof(dxvk_log_path)) {
         setenv("DXVK_LOG_PATH", dxvk_log_path, 1);
-        setenv("DXVK_LOG_LEVEL", "info", 1);
-        setenv("DXVK_HUD", "devinfo,fps,frametimes,version,api", 1);
-        fprintf(stderr, "[android] DXVK info logging and diagnostic HUD enabled: %s\n", dxvk_log_path);
+        setenv("DXVK_LOG_LEVEL", "warn", 1);
+        fprintf(stderr, "[android] DXVK warning log path: %s\n", dxvk_log_path);
     }
 
     char game[PATH_MAX], user[PATH_MAX], system_dir[PATH_MAX], exe[PATH_MAX], data[PATH_MAX];
-    char imports_json[PATH_MAX], import_trace[PATH_MAX], seen_out[PATH_MAX];
+    char imports_json[PATH_MAX];
     if (snprintf(game, sizeof(game), "%s/game", root) >= (int)sizeof(game) ||
         snprintf(user, sizeof(user), "%s/user", root) >= (int)sizeof(user) ||
         snprintf(system_dir, sizeof(system_dir), "%s/system", root) >= (int)sizeof(system_dir) ||
         snprintf(exe, sizeof(exe), "%s/Movies.exe", game) >= (int)sizeof(exe) ||
         snprintf(data, sizeof(data), "%s/Data", game) >= (int)sizeof(data) ||
-        snprintf(imports_json, sizeof(imports_json), "%s/logs/imports.json", root) >= (int)sizeof(imports_json) ||
-        snprintf(import_trace, sizeof(import_trace), "%s/logs/import-trace.json", root) >= (int)sizeof(import_trace) ||
-        snprintf(seen_out, sizeof(seen_out), "%s/logs/seen-functions.txt", root) >= (int)sizeof(seen_out)) {
+        snprintf(imports_json, sizeof(imports_json), "%s/logs/imports.json", root) >= (int)sizeof(imports_json)) {
         fprintf(stderr, "[android] app-private path is too long\n");
         return 70;
     }
@@ -104,29 +99,16 @@ int SDL_main(int argc, char **argv) {
     fprintf(stderr, "[android] game root: %s\n", game);
     fprintf(stderr, "[android] user root: %s\n", user);
     fprintf(stderr, "[android] system root: %s\n", system_dir);
-    char frames[PATH_MAX];
-    if (snprintf(frames, sizeof(frames), "%s/logs/frames", root) < (int)sizeof(frames) &&
-        tm_mkdirs(frames)) {
-        if (setenv("TM_D3D9_SHOTS", frames, 1) == 0)
-            fprintf(stderr, "[android] D3D9 frame capture enabled: %s\n", frames);
-        else
-            fprintf(stderr, "[android] could not enable D3D9 frame capture\n");
-    } else {
-        fprintf(stderr, "[android] could not create D3D9 frame capture directory\n");
-    }
-
     fprintf(stderr, "[android] starting shared host with Android DXVK D3D9 backend\n");
-    fprintf(stderr, "[android] diagnostic watchdog: 180 seconds; guest import and function traces enabled\n");
+    fprintf(stderr, "[android] interactive session: no automatic watchdog timeout\n");
 
     const tm_host_options options = {
         .game_dir = game,
         .user_dir = user,
         .system_dir = system_dir,
         .imports_json = imports_json,
-        .import_trace = import_trace,
-        .seen_out = seen_out,
         .d3d9_backend = "dxvk",
-        .watchdog_seconds = 180
+        .watchdog_seconds = 0
     };
     return tm_host_run(&options);
 }
