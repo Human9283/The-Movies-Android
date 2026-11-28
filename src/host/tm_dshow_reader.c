@@ -869,8 +869,15 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time, int start_
                     uint64_t paused_at = atomic_load_explicit(&r->pause_started_100ns,
                                                               memory_order_acquire);
                     uint64_t now = hle_mono_ns() / 100u;
-                    if (paused_at && now > paused_at)
-                        atomic_fetch_add_explicit(&r->pause_shift_100ns, now - paused_at,
+                    /* tStart is the absolute reference time corresponding to
+                     * stream time zero. Continue the existing stream position,
+                     * but do not feed the renderer ahead of the graph's future
+                     * start time. If the caller supplied a past tStart, resume
+                     * immediately and let overdue samples be delivered. */
+                    uint64_t effective_start = start_time > now ? start_time : now;
+                    if (paused_at && effective_start > paused_at)
+                        atomic_fetch_add_explicit(&r->pause_shift_100ns,
+                                                  effective_start - paused_at,
                                                   memory_order_acq_rel);
                     atomic_store_explicit(&r->pause_started_100ns, 0, memory_order_release);
                 }
