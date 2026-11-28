@@ -48,7 +48,9 @@ gameplay works.
    calls downstream `IPin::NewSegment(0, duration, 1.0)`. If a flush
    interrupts sample submission while playback continues, the worker starts a
    new segment at that frame's media position and rebases sample timestamps to
-   zero for the new segment. The first sample of each segment is marked
+   zero for the new segment. Its scheduling anchor is rebased in the same clock
+   domain while preserving accumulated pause compensation, avoiding a catch-up
+   burst or double-counting paused time. The first sample of each segment is marked
    discontinuous. The single reader worker serializes
    `NewSegment`, `Receive`, and `EndOfStream` in source order. The HLE machine
    lock serializes their guest-COM dispatch against graph-thread control
