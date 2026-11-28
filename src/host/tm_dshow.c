@@ -996,12 +996,12 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
     obj_t *g = self(OBJ_GRAPH, "AddFilter");
     uint32_t f = A32(1), pname = A32(2), va = g->va;
 
-    /* The game's TEXTURERENDERER invokes IMediaEventSink::Notify through
-     * its IFilterGraph pointer. Both interfaces place their third method
-     * at vtable slot 3, so Notify(EC_COMPLETE, p1, p2) arrives here with
-     * the event code in the nominal IBaseFilter* argument. A small value
-     * cannot be a valid guest COM object address; route it as an event and
-     * preserve Notify's four-argument stdcall cleanup. */
+    /* NULL is still an invalid AddFilter argument. The game's
+     * TEXTURERENDERER invokes IMediaEventSink::Notify through its
+     * IFilterGraph pointer; Notify(EC_COMPLETE, p1, p2) arrives in this
+     * vtable slot with a small nonzero event code in place of the filter. */
+    if (!f) RET(E_POINTER, 3);
+    /* Preserve Notify's four-argument stdcall cleanup. */
     if (f < 0x10000u) {
         uint32_t event_code = f, param1 = pname, param2 = A32(3);
         g->last_event_code = event_code;
