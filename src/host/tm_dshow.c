@@ -65,6 +65,8 @@
 #define E_FAIL                 0x80004005u
 #define E_NOTIMPL               0x80004001u
 #define VFW_E_CANNOT_RENDER     0x80040218u
+#define VFW_S_DUPLICATE_NAME    0x0004022Du
+#define VFW_E_DUPLICATE_NAME    0x8004022Du
 #define E_UNEXPECTED           0x8000FFFFu
 #define E_OUTOFMEMORY          0x8007000Eu
 #define CLASS_E_NOAGGREGATION  0x80040110u
@@ -743,26 +745,75 @@ static void graph_Render(void) {                        /* (this, IPin *out) */
     RET(result, 2);
 }
 
+static void ascii_wide(const char *src, uint16_t *dst) {
+    size_t i = 0;
+    while (src[i] && i < MAX_FILTER_NAME - 1) {
+        dst[i] = (uint8_t)src[i];
+        i++;
+    }
+    dst[i] = 0;
+}
+
+/* FILTER_INFO::achName holds 128 WCHARs including its terminator. The
+ * Filter Graph Manager generates a name for NULL, and renames a duplicate. */
+static int generated_filter_name(const obj_t *g, uint16_t *out) {
+    for (unsigned serial = 1; serial < 1000; serial++) {
+        char candidate[32];
+        snprintf(candidate, sizeof(candidate), "Filter %u", serial);
+        ascii_wide(candidate, out);
+        if (!name_used(g, out)) return 1;
+    }
+    return 0;
+}
+
+static int renamed_filter_name(const obj_t *g, const uint16_t *base, uint16_t *out) {
+    const size_t base_len = wlen(base);
+    for (unsigned serial = 2; serial < 1000; serial++) {
+        char suffix[24];
+        uint16_t wide_suffix[24];
+        snprintf(suffix, sizeof(suffix), " (%u)", serial);
+        ascii_wide(suffix, wide_suffix);
+        size_t suffix_len = wlen(wide_suffix);
+        size_t keep = base_len;
+        if (keep > MAX_FILTER_NAME - 1 - suffix_len)
+            keep = MAX_FILTER_NAME - 1 - suffix_len;
+        memcpy(out, base, keep * sizeof(*out));
+        memcpy(out + keep, wide_suffix, (suffix_len + 1) * sizeof(*out));
+        if (!name_used(g, out)) return 1;
+    }
+    return 0;
+}
+
 static void graph_AddFilter(void) {                     /* (this, IBaseFilter *filter, LPCWSTR name) */
     obj_t *g = self(OBJ_GRAPH, "AddFilter");
     uint32_t f = A32(1), pname = A32(2), va = g->va;
     if (!f) RET(E_POINTER, 3);
     for (int k = 0; k < g->nf; k++)
-        if (g->filter[k] == f) hle_fatal("[dshow] FilterGraph::AddFilter(0x%08X): this filter is already in the graph; "
-                                          "not implemented here", f);
-    if (!pname) hle_fatal("[dshow] FilterGraph::AddFilter(0x%08X, NULL): a generated name is not implemented here", f);
-    if (g->nf == MAX_FILTERS) hle_fatal("[dshow] FilterGraph::AddFilter: more than %d filters in one graph", MAX_FILTERS);
-    uint16_t w[MAX_FILTER_NAME];
-    const uint16_t *src = (const uint16_t *)hle_ptr(pname);
-    size_t n = 0;
-    while (src[n] && n < MAX_FILTER_NAME - 1) w[n] = src[n], n++;
-    w[n] = 0;
+        if (g->filter[k] == f) RET(E_FAIL, 3);
+    if (g->nf == MAX_FILTERS) RET(E_OUTOFMEMORY, 3);
+
+    uint16_t w[MAX_FILTER_NAME] = { 0 };
+    int renamed = 0;
+    if (!pname) {
+        if (!generated_filter_name(g, w)) RET(VFW_E_DUPLICATE_NAME, 3);
+    } else {
+        const uint16_t *src = (const uint16_t *)hle_ptr(pname);
+        size_t n = 0;
+        while (src[n] && n < MAX_FILTER_NAME - 1) {
+            w[n] = src[n];
+            n++;
+        }
+        w[n] = 0;
+        if (name_used(g, w)) {
+            uint16_t unique[MAX_FILTER_NAME] = { 0 };
+            if (!renamed_filter_name(g, w, unique)) RET(VFW_E_DUPLICATE_NAME, 3);
+            memcpy(w, unique, sizeof(w));
+            renamed = 1;
+        }
+    }
+
     char nm[MAX_FILTER_NAME];
     wname(w, nm, sizeof nm);
-    if (src[n]) hle_fatal("[dshow] FilterGraph::AddFilter(\"%s...\"): a name of %d characters or more is not implemented here",
-                          nm, MAX_FILTER_NAME);
-    if (name_used(g, w)) hle_fatal("[dshow] FilterGraph::AddFilter(\"%s\"): the name is in use; renaming "
-                                   "(VFW_S_DUPLICATE_NAME) is not implemented here", nm);
     uint16_t *keep = (uint16_t *)hle_alloc(MAX_FILTER_NAME * 2);
     if (!keep) RET(E_OUTOFMEMORY, 3);
     memcpy(keep, w, (wlen(w) + 1) * 2);
@@ -773,13 +824,14 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
     if (jr & 0x80000000u || !g) {
         com_release(f);
         hle_free(keep);
-        fprintf(stderr, "[dshow] FilterGraph::AddFilter(0x%08X, \"%s\"): JoinFilterGraph -> 0x%08X\n", f, nm, jr);
+        fprintf(stderr, "[dshow] FilterGraph::AddFilter(0x%08X, \"%s\"): JoinFilterGraph -> 0x%08X\\n", f, nm, jr);
         RET(g ? jr : E_UNEXPECTED, 3);
     }
     g->filter[g->nf] = f, g->fname[g->nf] = hle_va(keep), g->nf++;
-    fprintf(stderr, "[dshow] FilterGraph 0x%08X: AddFilter(0x%08X, \"%s\") -> S_OK, %d filter%s\n", va, f, nm,
-            g->nf, g->nf == 1 ? "" : "s");
-    RET(S_OK, 3);
+    uint32_t result = renamed ? VFW_S_DUPLICATE_NAME : S_OK;
+    fprintf(stderr, "[dshow] FilterGraph 0x%08X: AddFilter(0x%08X, \"%s\") -> 0x%08X, %d filter%s\\n",
+            va, f, nm, result, g->nf, g->nf == 1 ? "" : "s");
+    RET(result, 3);
 }
 
 /* ---- the capture graph builder: ICaptureGraphBuilder2 ---- */
