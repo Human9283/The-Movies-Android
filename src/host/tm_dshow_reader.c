@@ -760,10 +760,10 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
     uint32_t pointer_args[1] = { pointer_out_va };
     hr = guest_call(sample, 3, 1, pointer_args);        /* IMediaSample::GetPointer */
     uint32_t buffer_va = guest_read32_locked(pointer_out_va);
-    uint32_t max_size = guest_call(sample, 4, 0, NULL); /* IMediaSample::GetSize returns LONG */
+    int32_t max_size = (int32_t)guest_call(sample, 4, 0, NULL); /* GetSize returns LONG */
     if (hr == S_OK && !buffer_va) {
         hr = E_POINTER;
-    } else if (hr == S_OK && max_size < size) {
+    } else if (hr == S_OK && (max_size < 0 || (uint32_t)max_size < size)) {
         hr = E_FAIL;
     }
     if (hr == S_OK) {
