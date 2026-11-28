@@ -97,6 +97,7 @@ struct reader {
     uint32_t pin_va;
     uint32_t graph_va;
     atomic_uint clock_va;
+    pthread_mutex_t clock_mutex;       /* protects clock pointer + AddRef handoff */
     int refs;
     int width, height, stride;
     uint32_t sample_size;
@@ -196,10 +197,11 @@ static uint32_t guest_call(uint32_t object, uint32_t slot, int nargs, const uint
  * AddRef protects the object if another thread changes the graph clock. */
 static uint64_t reader_reference_time(reader_t *r) {
     uint64_t fallback = hle_mono_ns() / 100u;
+    pthread_mutex_lock(&r->clock_mutex);
     uint32_t clock = atomic_load_explicit(&r->clock_va, memory_order_acquire);
+    if (clock) guest_call(clock, 1, 0, NULL);      /* AddRef while SetSyncSource cannot release it */
+    pthread_mutex_unlock(&r->clock_mutex);
     if (!clock) return fallback;
-
-    guest_call(clock, 1, 0, NULL);                 /* IReferenceClock::AddRef */
     uint32_t time_va = guest_alloc_locked(8);
     if (!time_va) {
         guest_call(clock, 2, 0, NULL);
@@ -259,8 +261,11 @@ static void reader_disconnect(reader_t *r) {
 
 static void reader_destroy(reader_t *r) {
     reader_disconnect(r);
-    uint32_t clock = atomic_load_explicit(&r->clock_va, memory_order_acquire);
+    pthread_mutex_lock(&r->clock_mutex);
+    uint32_t clock = atomic_exchange_explicit(&r->clock_va, 0, memory_order_acq_rel);
+    pthread_mutex_unlock(&r->clock_mutex);
     if (clock) guest_call(clock, 2, 0, NULL);
+    pthread_mutex_destroy(&r->clock_mutex);
     if (r->decoder) tm_asf_decoder_close(r->decoder);
     if (r->media_type_va) hle_free(hle_ptr(r->media_type_va));
     if (r->format_va) hle_free(hle_ptr(r->format_va));
@@ -595,8 +600,25 @@ static void reader_notify_complete(reader_t *r) {
     (void)guest_call(r->graph_va, 3, 3, args);              /* IFilterGraph slot aliases Notify */
 }
 
+/* A new segment resets the renderer's stream-time origin. All three
+ * arguments are 64-bit values in the 32-bit guest ABI: tStart, tStop, rate. */
+static uint32_t reader_notify_new_segment(reader_t *r) {
+    if (!r->peer_pin) return VFW_E_NOT_CONNECTED;
+    uint64_t stop = 0x7fffffffffffffffULL;
+    if (r->duration_seconds > 0.0 && r->duration_seconds < 9.0e11)
+        stop = (uint64_t)(r->duration_seconds * (double)REFERENCE_TIME_PER_SEC);
+    double rate = 1.0;
+    uint64_t rate_bits = 0;
+    memcpy(&rate_bits, &rate, sizeof(rate_bits));
+    uint32_t args[6] = {
+        0, 0, (uint32_t)stop, (uint32_t)(stop >> 32),
+        (uint32_t)rate_bits, (uint32_t)(rate_bits >> 32)
+    };
+    return guest_call(r->peer_pin, 17, 6, args);  /* IPin::NewSegment */
+}
+
 static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size,
-                                int64_t start, int64_t end) {
+                                int64_t start, int64_t end, int discontinuity) {
     if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) return 2;
     if (!r->peer_mem_input || !r->allocator) return 0;
     uint32_t sample_out_va = guest_alloc_locked(4);
@@ -643,10 +665,11 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
         uint32_t set_time_args[2] = { time_va, time_va + 8 };
         hr = guest_call(sample, 6, 2, set_time_args);  /* SetTime */
         uint32_t one[1] = { 1 }, zero[1] = { 0 }, actual[1] = { size };
+        uint32_t discontinuity_flag[1] = { discontinuity ? 1u : 0u };
         if (hr == S_OK) hr = guest_call(sample, 8, 1, one);            /* SetSyncPoint */
         if (hr == S_OK) hr = guest_call(sample, 10, 1, zero);          /* SetPreroll */
         if (hr == S_OK) hr = guest_call(sample, 12, 1, actual);        /* SetActualDataLength */
-        if (hr == S_OK) hr = guest_call(sample, 16, 1, zero);          /* SetDiscontinuity */
+        if (hr == S_OK) hr = guest_call(sample, 16, 1, discontinuity_flag); /* SetDiscontinuity */
         if (hr == S_OK) {
             uint32_t receive_args[1] = { sample };
             hr = guest_call(r->peer_mem_input, 6, 1, receive_args); /* IMemInputPin::Receive (slot 6) */
@@ -726,14 +749,25 @@ static void *reader_worker(void *opaque) {
         return NULL;
     }
 
-    uint64_t run_start = r->run_start_100ns ? r->run_start_100ns : hle_mono_ns() / 100u;
+    /* Zero is a valid reference-clock value. The caller always supplies the
+     * clock-domain anchor when creating the worker; do not replace it with
+     * host monotonic time based on a zero-value sentinel. */
+    uint64_t run_start = r->run_start_100ns;
     int64_t first_pts = INT64_MIN;
     uint64_t frame_number = 0;
     char error[256];
     int reached_eof = 0;
     int stream_error = 0;
+    int discontinuity_pending = 1;
 
-    while (!atomic_load_explicit(&r->stop_requested, memory_order_acquire)) {
+    uint32_t segment_hr = reader_notify_new_segment(r);
+    if (segment_hr & 0x80000000u) {
+        fprintf(stderr, "[dshow-reader] initial NewSegment -> 0x%08X\n", segment_hr);
+        stream_error = 1;
+    }
+
+    while (!stream_error &&
+           !atomic_load_explicit(&r->stop_requested, memory_order_acquire)) {
         if (!reader_wait_unpaused(r)) break;
         tm_asf_frame_info frame_info;
         int result = tm_asf_decoder_read_rgb24(r->decoder, frame, r->sample_size,
@@ -749,8 +783,15 @@ static void *reader_worker(void *opaque) {
                     r->decoder = next;
                     first_pts = INT64_MIN;
                     frame_number = 0;
-                    run_start = hle_mono_ns() / 100u + 1000u;
+                    run_start = reader_reference_time(r) + 1000u;
                     atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
+                    segment_hr = reader_notify_new_segment(r);
+                    if (segment_hr & 0x80000000u) {
+                        fprintf(stderr, "[dshow-reader] loop NewSegment -> 0x%08X\n", segment_hr);
+                        stream_error = 1;
+                        break;
+                    }
+                    discontinuity_pending = 1;
                     continue;
                 }
                 fprintf(stderr, "[dshow-reader] loop reopen failed: %s (%d)\n", error, rc);
@@ -775,7 +816,7 @@ static void *reader_worker(void *opaque) {
         int delivery;
         for (;;) {
             delivery = reader_deliver_frame(r, frame, r->sample_size, (int64_t)pts,
-                                            (int64_t)(pts + duration));
+                                            (int64_t)(pts + duration), discontinuity_pending);
             if (delivery == 0 &&
                 atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
                 delivery = 2;                       /* BeginFlush cancelled Receive */
@@ -797,8 +838,10 @@ static void *reader_worker(void *opaque) {
             stream_error = 1;
             break;
         }
-        if (delivery == 1)
+        if (delivery == 1) {
             atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
+            discontinuity_pending = 0;
+        }
         frame_number++;
     }
 
@@ -1007,7 +1050,7 @@ static void filter_Pause(void) {
         if (hr & 0x80000000u) RET(hr, 1);
         r->allocator_committed = 1;
     }
-    RET(reader_start_worker(r, hle_mono_ns() / 100u, 1), 1);
+    RET(reader_start_worker(r, reader_reference_time(r), 1), 1);
 }
 static void filter_Run(void) {
     reader_t *r = reader_from_this("IMediaFilter::Run");
@@ -1029,18 +1072,22 @@ static void filter_GetState(void) {
 static void filter_SetSyncSource(void) {
     reader_t *r = reader_from_this("IMediaFilter::SetSyncSource");
     uint32_t clock = A32(1);
+    pthread_mutex_lock(&r->clock_mutex);
     if (clock) guest_call(clock, 1, 0, NULL);
     uint32_t previous = atomic_exchange_explicit(&r->clock_va, clock, memory_order_acq_rel);
     if (previous) guest_call(previous, 2, 0, NULL);
+    pthread_mutex_unlock(&r->clock_mutex);
     RET(S_OK, 2);
 }
 static void filter_GetSyncSource(void) {
     reader_t *r = reader_from_this("IMediaFilter::GetSyncSource");
     uint32_t out = A32(1);
     if (!out) RET(E_POINTER, 2);
+    pthread_mutex_lock(&r->clock_mutex);
     uint32_t clock = atomic_load_explicit(&r->clock_va, memory_order_acquire);
-    MEM32(out) = clock;
     if (clock) guest_call(clock, 1, 0, NULL);
+    MEM32(out) = clock;
+    pthread_mutex_unlock(&r->clock_mutex);
     RET(S_OK, 2);
 }
 static void filter_EnumPins(void) {
@@ -1328,10 +1375,12 @@ static void pin_EndFlush(void) {
 static void pin_NewSegment(void) {
     reader_t *r = reader_from_this("IPin::NewSegment");
     if (r->peer_pin) {
-        uint32_t args[3] = { A32(1), A32(2), A32(3) };
-        guest_call(r->peer_pin, 17, 3, args);
+        uint32_t args[6] = {
+            A32(1), A32(2), A32(3), A32(4), A32(5), A32(6)
+        };
+        guest_call(r->peer_pin, 17, 6, args);
     }
-    RET(S_OK, 4);
+    RET(S_OK, 7);
 }
 
 /* ---- IEnumPins ---- */
@@ -1589,16 +1638,25 @@ static uint32_t reader_create(const uint8_t *iid, uint32_t *out) {
         return E_NOINTERFACE;
     reader_t *r = (reader_t *)calloc(1, sizeof(*r));
     if (!r) return E_OUTOFMEMORY;
+    if (pthread_mutex_init(&r->clock_mutex, NULL) != 0) {
+        free(r);
+        return E_FAIL;
+    }
     int slot = -1;
     for (int i = 0; i < MAX_READER_OBJECTS; i++)
         if (!g_readers[i]) { slot = i; break; }
-    if (slot < 0) { free(r); return E_OUTOFMEMORY; }
+    if (slot < 0) {
+        pthread_mutex_destroy(&r->clock_mutex);
+        free(r);
+        return E_OUTOFMEMORY;
+    }
 
     uint8_t *filter = hle_alloc(4), *file = hle_alloc(4), *pin = hle_alloc(4);
     if (!filter || !file || !pin) {
         if (filter) hle_free(filter);
         if (file) hle_free(file);
         if (pin) hle_free(pin);
+        pthread_mutex_destroy(&r->clock_mutex);
         free(r);
         return E_OUTOFMEMORY;
     }
