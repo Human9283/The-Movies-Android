@@ -188,6 +188,44 @@ playback fixes found:
   hangs, capture whether the worker is blocked in Receive, GetBuffer, or
   another callback first.
 
+### COM ABI and cancellation audit (2026-11-28)
+
+A source-level slot/argument review was made against the pinned pcrecomp shim
+ABI and the DirectShow interface layouts:
+
+- The graph's IGraphBuilder vtable, the separate IMediaEventSink vtable, and
+  the IDispatch-derived IMediaControl / IMediaPosition / IBasicAudio vtables
+  have the expected method ordering. The IDispatch prefix occupies slots 3-6;
+  the game's IMediaPosition calls therefore land at slots 7-9 as intended.
+- The WMAsfReader IBaseFilter vtable follows IUnknown, IPersist, IMediaFilter,
+  then IBaseFilter. Its IPin vtable includes EndOfStream, BeginFlush,
+  EndFlush and NewSegment in the expected slots. IFileSourceFilter retains
+  inherited IPersist::GetClassID before Load and GetCurFile.
+- The renderer's EC_COMPLETE notification is deliberately routed through
+  the graph's AddFilter slot. The special event-code branch returns with
+  stdcall argument count 4, matching Notify(this, code, p1, p2), rather than
+  AddFilter's three arguments. This matches the pinned win32hle RET contract:
+  RET pops the return address and exactly argc stack arguments.
+- The graph returns the IMediaPosition vtable for the game's IID_IMediaSeeking
+  query only as a title-specific ABI alias. This is not a general COM
+  equivalence between the interfaces.
+
+A cancellation assumption remains important. The reader uses AM_GBF_NOWAIT for
+allocator GetBuffer, but holds the HLE machine lock while calling the game's
+downstream IMemInputPin::Receive. The source comment assumes Receive can yield
+through an HLE blocking API, allowing another thread to enter BeginFlush.
+That assumption must be verified on the actual texture renderer. If Receive
+blocks without releasing the global machine lock, the game thread cannot
+enter Stop/BeginFlush to cancel it; this would reproduce the class of teardown
+hang reported by Life Support. The runtime trace must therefore record entry
+and return from Receive, machine-lock yield/block events, BeginFlush, Stop,
+and worker join. Do not change lock ownership or move Receive outside the
+machine lock without a safe guest-register/guest-memory design.
+
+This audit checks source-level ordering and stack counts only. It does not
+prove the actual game call sequence, renderer cancellation behaviour, or
+runtime COM reference balance.
+
 These are source-level findings and runtime hypotheses, not device validation.
 
 
