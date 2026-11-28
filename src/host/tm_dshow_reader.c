@@ -674,7 +674,8 @@ static uint32_t reader_notify_new_segment(reader_t *r, uint64_t segment_start,
 }
 
 static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size,
-                                int64_t start, int64_t end, int discontinuity) {
+                                int64_t start, int64_t end, int discontinuity,
+                                uint32_t expected_generation) {
     /* Keep sample setup and the final pin-flushing check in one HLE machine
      * turn. Otherwise BeginFlush could run between the first flag check and
      * Receive, allowing a new sample to enter an already-flushing renderer.
@@ -682,7 +683,8 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
      * able to enter then and cancel the in-flight downstream call. */
     mach_enter();
     uint32_t flush_generation = atomic_load_explicit(&r->flush_generation, memory_order_acquire);
-    if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
+    if (flush_generation != expected_generation ||
+        atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
         mach_leave();
         return 2;
     }
@@ -921,7 +923,8 @@ static void *reader_worker(void *opaque) {
             }
             uint64_t sample_pts = pts >= segment_pts_base ? pts - segment_pts_base : 0;
             delivery = reader_deliver_frame(r, frame, r->sample_size, (int64_t)sample_pts,
-                                            (int64_t)(sample_pts + duration), discontinuity_pending);
+                                            (int64_t)(sample_pts + duration), discontinuity_pending,
+                                            segment_generation);
             if (delivery == 0 &&
                 atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
                 delivery = 2;                       /* BeginFlush cancelled Receive */
