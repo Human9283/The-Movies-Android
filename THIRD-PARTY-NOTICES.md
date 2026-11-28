@@ -8,11 +8,11 @@ source tree or prebuilt dependency library is vendored in this repository.
 
 | Component | Pinned source | Licence and packaging |
 |---|---|---|
-| SDL2 | `release-2.30.9` | zlib; packaged as `libSDL2.so` |
-| SDL2_ttf | `release-2.22.0` | zlib; packaged as `libSDL2_ttf.so` |
-| FreeType | SDL2_ttf submodule `VER-2-13-2-SDL` | FreeType Project Licence (FTL); built into SDL2_ttf |
+| SDL2 | `release-2.32.10` | zlib; packaged as `libSDL2.so` |
+| SDL2_ttf | `release-2.24.0` | zlib; packaged as `libSDL2_ttf.so` |
+| FreeType | SDL2_ttf submodule `VER-2-13-2-SDL` (`12c5e620858bd503731091e9371d06c0a3e7c967`) | FreeType Project Licence (FTL); built into SDL2_ttf |
 | DXVK Native Android fork | `f2c7207b3d8bc848fe3a27cef34ee5e67aeec552` | zlib/libpng; packaged as `libdxvk_d3d9.so` |
-| pcrecomp / win32hle | `7c07a0b42059b6dc4313d9b4ebded6f7a72db8f3` | MIT; build-time runtime and source of the patches/table noted below |
+| pcrecomp / win32hle | `5f1d2f76873419bf0414de7a0a9aca34d8e720f9` | MIT; build-time runtime and source of the patches/table noted below |
 | The Movies lift driver | `8e278f6b22d70095d0b1b10803370613b20862f5` | MIT for the driver's own files; build-time tool only |
 
 The SDL2_ttf build in the guide enables its vendored FreeType dependency and
@@ -32,7 +32,7 @@ executable. Do not distribute the generated lift or original game data.
 
 ## SDL2 and SDL2_ttf — zlib licence
 
-Copyright (C) 1997-2024 Sam Lantinga <slouken@libsdl.org>
+Copyright (C) 1997-2025 Sam Lantinga <slouken@libsdl.org>
 
 This software is provided 'as-is', without any express or implied
 warranty. In no event will the authors be held liable for any damages
