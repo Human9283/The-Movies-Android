@@ -39,7 +39,18 @@ gameplay works.
    An allocator `VFW_E_TIMEOUT` is treated as backpressure: the source retries
    the same decoded frame rather than dropping it. An in-progress pin flush
    cancels the current sample and resumes only after `EndFlush`.
-7. End of stream is forwarded to the connected pin and reported to the graph
+7. The reader uses the graph-selected `IReferenceClock` for frame pacing and
+   pause accounting. The clock pointer is AddRef-protected while it is handed
+   to the worker, so a concurrent `SetSyncSource` cannot release it between
+   pointer load and `GetTime`. A system-monotonic fallback is used only when
+   the graph has no usable clock.
+8. Before the first sample, and again after reopening a looped file, the source
+   calls downstream `IPin::NewSegment(0, duration, 1.0)`. The first sample of
+   each segment is marked discontinuous. `NewSegment` is serialized against
+   `BeginFlush`/`EndFlush`; it runs on the same worker as `Receive`, while a
+   separate recursive control mutex orders it against graph-thread flushes
+   without preventing `BeginFlush` from cancelling a blocked `Receive`.
+9. End of stream is forwarded to the connected pin and reported to the graph
    through the game's `IFilterGraph` / `IMediaEventSink::Notify` vtable alias.
 
 The graph also routes `IGraphBuilder::RenderFile` and
