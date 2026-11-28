@@ -672,6 +672,46 @@ static void graph_ConnectDirect(void) {                 /* (this, out, in, AM_ME
     RET(vcall(out_pin, 3, 2, args), 4);                  /* IPin::Connect */
 }
 
+static void graph_Disconnect(void) {                    /* (this, IPin *pin) */
+    self(OBJ_GRAPH, "Disconnect");
+    uint32_t pin = A32(1);
+    if (!pin) RET(E_POINTER, 2);
+    RET(vcall(pin, 5, 0, NULL), 2);                      /* IPin::Disconnect */
+}
+
+static void graph_Reconnect(void) {                     /* (this, IPin *pin) */
+    self(OBJ_GRAPH, "Reconnect");
+    uint32_t pin = A32(1);
+    if (!pin) RET(E_POINTER, 2);
+
+    uint32_t *peer_mem = (uint32_t *)hle_alloc(4);
+    if (!peer_mem) RET(E_OUTOFMEMORY, 2);
+    uint32_t peer_va = hle_va(peer_mem);
+    MEM32(peer_va) = 0;
+    uint32_t connected_args[1] = { peer_va };
+    uint32_t hr = vcall(pin, 6, 1, connected_args);      /* IPin::ConnectedTo */
+    uint32_t peer = MEM32(peer_va);
+    hle_free(peer_mem);
+    if (hr & 0x80000000u) RET(hr, 2);
+    if (!peer) RET(VFW_E_NOT_CONNECTED, 2);
+
+    hr = vcall(pin, 5, 0, NULL);
+    if (hr & 0x80000000u) {
+        vcall(peer, 2, 0, NULL);
+        RET(hr, 2);
+    }
+    uint32_t peer_disconnect = vcall(peer, 5, 0, NULL);
+    if (peer_disconnect & 0x80000000u) {
+        vcall(peer, 2, 0, NULL);
+        RET(peer_disconnect, 2);
+    }
+
+    uint32_t connect_args[2] = { peer, 0 };
+    hr = vcall(pin, 3, 2, connect_args);                 /* IPin::Connect */
+    vcall(peer, 2, 0, NULL);                             /* ConnectedTo returned an AddRef */
+    RET(hr, 2);
+}
+
 /* The reader/source-filter path is not implemented yet. Return DirectShow's
  * normal render failure instead of invoking a fatal placeholder vtable. */
 static void graph_RenderFile(void) {                    /* (this, file, playlist) */
@@ -992,7 +1032,81 @@ static void enum_filters_Clone(void) {
     RET(S_OK, 2);
 }
 
-static void graph_RemoveFilter(void) {
+static uint32_t graph_disconnect_filter_pins(uint32_t filter) {
+    /* The local WMAsfWriter is only a graph-lifetime probe and exposes no
+       pins. Its unimplemented EnumPins/SetSyncSource slots must not be called. */
+    if (obj_of(filter, OBJ_WRITER)) return S_OK;
+
+    uint32_t *pin_mem = (uint32_t *)hle_alloc(4);
+    uint32_t *fetched_mem = (uint32_t *)hle_alloc(4);
+    if (!pin_mem || !fetched_mem) {
+        if (pin_mem) hle_free(pin_mem);
+        if (fetched_mem) hle_free(fetched_mem);
+        return E_OUTOFMEMORY;
+    }
+    uint32_t pin_va = hle_va(pin_mem), fetched_va = hle_va(fetched_mem);
+    uint32_t enum_args[1] = { pin_va };
+    MEM32(pin_va) = 0;
+    uint32_t hr = vcall(filter, 10, 1, enum_args);       /* IBaseFilter::EnumPins */
+    uint32_t enumerator = MEM32(pin_va);
+    if (hr & 0x80000000u || !enumerator) {
+        hle_free(pin_mem);
+        hle_free(fetched_mem);
+        return (hr & 0x80000000u) ? hr : E_UNEXPECTED;
+    }
+
+    uint32_t result = S_OK;
+    for (;;) {
+        MEM32(pin_va) = 0;
+        MEM32(fetched_va) = 0;
+        uint32_t next_args[3] = { 1, pin_va, fetched_va };
+        hr = vcall(enumerator, 3, 3, next_args);          /* IEnumPins::Next */
+        uint32_t pin = MEM32(pin_va);
+        uint32_t fetched = MEM32(fetched_va);
+        if (!fetched) {
+            if (hr & 0x80000000u) result = hr;
+            break;
+        }
+
+        uint32_t *peer_mem = (uint32_t *)hle_alloc(4);
+        if (!peer_mem) {
+            result = E_OUTOFMEMORY;
+            vcall(pin, 2, 0, NULL);
+            break;
+        }
+        uint32_t peer_va = hle_va(peer_mem);
+        MEM32(peer_va) = 0;
+        uint32_t connected_args[1] = { peer_va };
+        uint32_t connected_hr = vcall(pin, 6, 1, connected_args); /* IPin::ConnectedTo */
+        uint32_t peer = MEM32(peer_va);
+        hle_free(peer_mem);
+
+        if (!(connected_hr & 0x80000000u) && peer) {
+            uint32_t disconnect_hr = vcall(pin, 5, 0, NULL);
+            if (!(disconnect_hr & 0x80000000u))
+                disconnect_hr = vcall(peer, 5, 0, NULL);
+            vcall(peer, 2, 0, NULL);                     /* ConnectedTo returned an AddRef */
+            if (disconnect_hr & 0x80000000u) {
+                result = disconnect_hr;
+                vcall(pin, 2, 0, NULL);
+                break;
+            }
+        }
+        vcall(pin, 2, 0, NULL);                          /* release Next's reference */
+    }
+
+    vcall(enumerator, 2, 0, NULL);                       /* IEnumPins::Release */
+    hle_free(pin_mem);
+    hle_free(fetched_mem);
+    if (result & 0x80000000u) return result;
+
+    uint32_t no_clock[1] = { 0 };
+    hr = vcall(filter, 8, 1, no_clock);                  /* IMediaFilter::SetSyncSource(NULL) */
+    if (hr & 0x80000000u) return hr;
+    return S_OK;
+}
+
+static void graph_RemoveFilter(void) {                  /* (this, IBaseFilter *filter) */
     obj_t *g = self(OBJ_GRAPH, "RemoveFilter");
     uint32_t graph_va = g->va, filter = A32(1);
     if (!filter) RET(E_POINTER, 2);
@@ -1001,16 +1115,19 @@ static void graph_RemoveFilter(void) {
         if (g->filter[i] == filter) { index = i; break; }
     if (index < 0) RET(E_FAIL, 2);
 
+    uint32_t hr = graph_disconnect_filter_pins(filter);
+    if (hr & 0x80000000u) RET(hr, 2);
+
     uint32_t none[2] = { 0, 0 };
-    uint32_t hr = vcall(filter, 13, 2, none);
+    hr = vcall(filter, 13, 2, none);                     /* IBaseFilter::JoinFilterGraph(NULL, NULL) */
     if (hr & 0x80000000u) RET(hr, 2);
 
     g = obj_of(graph_va, OBJ_GRAPH);
     if (!g) RET(E_UNEXPECTED, 2);
-    index = -1;
+    index = -1;                                         /* JoinFilterGraph may re-enter the graph */
     for (int i = 0; i < g->nf; i++)
         if (g->filter[i] == filter) { index = i; break; }
-    if (index < 0) RET(S_OK, 2);
+    if (index < 0) RET(S_OK, 2);                        /* a re-entrant removal already completed */
 
     uint32_t name = g->fname[index];
     for (int i = index; i + 1 < g->nf; i++) {
@@ -1229,6 +1346,8 @@ static const win32hle_shim g_impl[] = {
     { "FilterGraph::FindFilterByName",             graph_FindFilterByName },
     { "FilterGraph::Connect",                      graph_Connect },
     { "FilterGraph::ConnectDirect",                 graph_ConnectDirect },
+    { "FilterGraph::Reconnect",                    graph_Reconnect },
+    { "FilterGraph::Disconnect",                   graph_Disconnect },
     { "FilterGraph::RenderFile",                     graph_RenderFile },
     { "FilterGraph::AddSourceFilter",                graph_AddSourceFilter },
     { "FilterGraphMediaControl::RenderFile",           media_control_RenderFile },
