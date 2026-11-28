@@ -101,6 +101,7 @@ struct reader {
     int refs;
     int width, height, stride;
     uint32_t sample_size;
+    atomic_uint_fast64_t current_position_100ns;
     double duration_seconds;
     double avg_frame_seconds;
     uint32_t state;
@@ -525,6 +526,7 @@ static uint32_t reader_load_path(reader_t *r, const uint16_t *wide_path) {
     r->height = info.height;
     r->stride = stride;
     r->sample_size = (uint32_t)sample_size;
+    atomic_store_explicit(&r->current_position_100ns, 0, memory_order_release);
     r->duration_seconds = (info.duration >= 0 && info.time_base_den > 0)
         ? (double)info.duration * (double)info.time_base_num / (double)info.time_base_den
         : 0.0;
@@ -952,6 +954,7 @@ static void *reader_worker(void *opaque) {
                                                r->stride, &frame_info, error, sizeof error);
         if (result == TM_ASF_READ_EOF) {
             if (r->looping && !atomic_load_explicit(&r->stop_requested, memory_order_acquire)) {
+                atomic_store_explicit(&r->current_position_100ns, 0, memory_order_release);
                 tm_asf_decoder_close(r->decoder);
                 r->decoder = NULL;
                 tm_asf_video_info info;
@@ -980,6 +983,11 @@ static void *reader_worker(void *opaque) {
                 break;
             }
             reached_eof = 1;
+            if (r->duration_seconds > 0.0) {
+                uint64_t duration_limit = (uint64_t)(r->duration_seconds *
+                    (double)REFERENCE_TIME_PER_SEC);
+                atomic_store_explicit(&r->current_position_100ns, duration_limit, memory_order_release);
+            }
             break;
         }
         if (result == TM_ASF_READ_ERROR) {
@@ -1047,6 +1055,14 @@ static void *reader_worker(void *opaque) {
             break;
         }
         if (delivery == 1) {
+            /* The game polls IMediaPosition::get_CurrentPosition to decide
+             * when an FMV has finished. Publish the file-timeline position
+             * only after the renderer accepted this frame. */
+            uint64_t position = pts + duration;
+            uint64_t duration_limit = r->duration_seconds > 0.0
+                ? (uint64_t)(r->duration_seconds * (double)REFERENCE_TIME_PER_SEC) : 0;
+            if (duration_limit && position > duration_limit) position = duration_limit;
+            atomic_store_explicit(&r->current_position_100ns, position, memory_order_release);
             atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
             discontinuity_pending = 0;
         }
@@ -1213,6 +1229,7 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time, int start_
     atomic_store_explicit(&r->paused, start_paused, memory_order_release);
     atomic_store_explicit(&r->running, !start_paused, memory_order_release);
     atomic_store_explicit(&r->worker_done, 0, memory_order_release);
+    atomic_store_explicit(&r->current_position_100ns, 0, memory_order_release);
     atomic_store_explicit(&r->preroll_pending, start_paused, memory_order_release);
     atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
     atomic_store_explicit(&r->pause_started_100ns,
@@ -1903,6 +1920,7 @@ static uint32_t reader_create(const uint8_t *iid, uint32_t *out) {
     MEM32(r->file_va) = g_file_vt;
     MEM32(r->pin_va) = g_pin_vt;
     atomic_init(&r->clock_va, 0);
+    atomic_init(&r->current_position_100ns, 0);
     atomic_init(&r->stop_requested, 0);
     atomic_init(&r->pin_flushing, 0);
     atomic_init(&r->flush_generation, 0);
@@ -1977,6 +1995,14 @@ int tm_dshow_reader_media_info(uint32_t filter, double *duration_seconds,
     if (frame_seconds) *frame_seconds = r->avg_frame_seconds;
     if (width) *width = r->width;
     if (height) *height = r->height;
+    return 1;
+}
+
+int tm_dshow_reader_current_position(uint32_t filter, double *position_seconds) {
+    reader_t *r = reader_by_interface(filter);
+    if (!r || !position_seconds) return 0;
+    uint64_t position = atomic_load_explicit(&r->current_position_100ns, memory_order_acquire);
+    *position_seconds = (double)position / (double)REFERENCE_TIME_PER_SEC;
     return 1;
 }
 
