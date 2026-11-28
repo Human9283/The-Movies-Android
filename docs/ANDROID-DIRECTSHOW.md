@@ -160,6 +160,25 @@ new playback/loop starts. Graph `get_CurrentPosition` reads that value from
 the active ASF reader. This provides progress reporting only; seeking and
 rate changes remain unsupported.
 
+There is a second, separate completion gate in the game's playback controller.
+The Life Support Ghidra notes identify its field at offset `0x1C` as a game-side
+state (`3 = setup`, `1 = playing`) and report that `IsVideoFinished` only
+uses the position/duration comparison in controller states 1 and 2; other
+states are treated as finished. This is **not** the DirectShow graph's
+`FILTER_STATE` (Stopped/Paused/Running). Do not map the two state machines
+onto each other. If the position fixes do not advance the intro, the runtime
+trace must include the game's controller-state transitions as well as graph
+state and media position.
+
+One limitation needs explicit attention: Android
+`IMediaPosition::put_CurrentPosition` currently validates and stores the
+requested value in the graph cache, but does not seek the FFmpeg decoder.
+The next `get_CurrentPosition` reads the reader's actual position and can
+overwrite that cached value. Treat this method as a compatibility stub, not
+as working seeking. At runtime, record every call and argument; a nonzero
+request or a reset after playback has begun would require a real seek/reopen
+implementation before claiming correct replay behaviour.
+
 The cross-check also records two behaviours already represented in this
 Android graph: the texture renderer can deliver `EC_COMPLETE` through the
 `IFilterGraph` pointer's slot corresponding to `AddFilter`, and the game
