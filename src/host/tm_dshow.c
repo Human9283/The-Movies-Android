@@ -504,12 +504,12 @@ static uint32_t graph_filter_transition(obj_t *o, int method, int new_state,
     uint32_t first_failure = S_OK;
     int incomplete = 0;
 
-    /* DirectShow prepares downstream filters first. The native game graph
-     * inserts the source before the renderer, so walk backwards for Run and
-     * Pause. On Stop, keep the source-first order for non-ASF legacy graphs;
-     * the WMV reader graph handles its game-specific Stop/Run tick separately. */
-    int i = method == 4 ? 0 : count - 1;
-    int step = method == 4 ? 1 : -1;
+    /* DirectShow changes graph state downstream-first for Run, Pause and
+     * Stop. Renderers must be ready before a source delivers, and stopping a
+     * renderer first releases a source thread blocked in Receive. The native
+     * game graph adds its source before its renderer, so walk backwards. */
+    int i = count - 1;
+    int step = -1;
     for (; i >= 0 && i < count; i += step) {
         uint32_t args[2] = { start_low, start_high };
         uint32_t hr = vcall(filters[i], method, method == 6 ? 2 : 0, method == 6 ? args : NULL);
