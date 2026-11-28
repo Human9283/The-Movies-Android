@@ -13,8 +13,8 @@ You must provide your own legally obtained copy of the original game. This repos
 ## Current scope
 
 - Android target: ARM64 (`arm64-v8a`), Android 7.0/API 24 or later, with a Vulkan 1.1-compatible GPU and driver.
-- Graphics: the Android D3D9 path can present the game's animated intro.
-- Media: a video-only WMAsfReader/RGB24 path using FFmpeg is implemented in source, but has not been built or validated on Android; playback of the intro and menu videos is not yet confirmed.
+- Graphics: an older device-tested revision presented animated intro frames through the Android D3D9 path. The current source revision has not been rebuilt on Android.
+- Media: the current source contains a video-only WMAsfReader/RGB24 path using FFmpeg, but that path has not yet been built or validated on Android; playback of the intro and menu videos is unconfirmed.
 - Main menu, studio gameplay, media playback, audio, touch controls, save/load and sustained play are not yet verified as working.
 
 The immediate goal is to complete and validate the Russian CD 1.1 port. A Steam-release port may be considered afterwards.
