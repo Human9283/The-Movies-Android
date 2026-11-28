@@ -1520,8 +1520,8 @@ static void pin_ReceiveConnection(void) {
 static void pin_Disconnect(void) {
     reader_t *r = reader_from_this("IPin::Disconnect");
     if (!r->peer_pin) RET(S_FALSE, 1);
-    reader_disconnect(r);
-    RET(S_OK, 1);
+    uint32_t hr = reader_disconnect(r);
+    RET(hr, 1);
 }
 static void pin_ConnectedTo(void) {
     reader_t *r = reader_from_this("IPin::ConnectedTo");
