@@ -539,8 +539,6 @@ static uint32_t reader_build_output_pin_connection(reader_t *r, uint32_t peer, u
         return hr;
     }
 
-    uint32_t addref_args[1] = { 0 };
-    (void)addref_args;
     guest_call(peer, 1, 0, NULL);
     r->peer_pin = peer;
     r->peer_mem_input = mem_input;
@@ -773,7 +771,7 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time) {
         char error[256];
         int rc = tm_asf_decoder_open(r->host_path, &r->decoder, &info, error, sizeof error);
         if (rc < 0 || !r->decoder) {
-            fprintf(stderr, "[dshow-reader] restart failed: %s (%d)\\n", error, rc);
+            fprintf(stderr, "[dshow-reader] restart failed: %s (%d)\n", error, rc);
             return VFW_E_CANNOT_RENDER;
         }
     }
@@ -906,6 +904,7 @@ static void filter_FindPin(void) {
     if (!out) RET(E_POINTER, 3);
     MEM32(out) = 0;
     if (!id) RET(E_POINTER, 3);
+    if (!id) RET(E_POINTER, 3);
     const uint16_t *s = (const uint16_t *)hle_ptr(id);
     if ((s[0] == 'V' || s[0] == 'v') && (s[1] == 'i' || s[1] == 'I') &&
         (s[2] == 'd' || s[2] == 'D') && (s[3] == 'e' || s[3] == 'E') &&
@@ -1005,7 +1004,12 @@ static void file_GetCurFile(void) {
         MEM32(mt_out) = 0;
         uint32_t mt = 0;
         uint32_t hr = media_type_clone(r, &mt);
-        if (hr == S_OK) MEM32(mt_out) = mt;
+        if (hr != S_OK) {
+            hle_free(copy);
+            MEM32(name_out) = 0;
+            RET(hr, 3);
+        }
+        MEM32(mt_out) = mt;
     }
     RET(S_OK, 3);
 }
