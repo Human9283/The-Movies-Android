@@ -629,7 +629,8 @@ static uint32_t reader_notify_end_of_stream(reader_t *r) {
  * The single reader worker calls NewSegment and Receive sequentially, so
  * these source-side streaming notifications are serialized without holding
  * a native mutex across guest COM execution. */
-static uint32_t reader_notify_new_segment(reader_t *r) {
+static uint32_t reader_notify_new_segment(reader_t *r, uint64_t segment_start,
+                                          uint32_t *out_generation) {
     double rate = 1.0;
     uint64_t rate_bits = 0;
     memcpy(&rate_bits, &rate, sizeof(rate_bits));
@@ -637,7 +638,8 @@ static uint32_t reader_notify_new_segment(reader_t *r) {
     if (r->duration_seconds > 0.0 && r->duration_seconds < 9.0e11)
         stop = (uint64_t)(r->duration_seconds * (double)REFERENCE_TIME_PER_SEC);
     uint32_t args[6] = {
-        0, 0, (uint32_t)stop, (uint32_t)(stop >> 32),
+        (uint32_t)segment_start, (uint32_t)(segment_start >> 32),
+        (uint32_t)stop, (uint32_t)(stop >> 32),
         (uint32_t)rate_bits, (uint32_t)(rate_bits >> 32)
     };
 
@@ -666,6 +668,7 @@ static uint32_t reader_notify_new_segment(reader_t *r) {
             usleep(5000);
             continue; /* Re-announce the segment after a concurrent flush. */
         }
+        if (!(hr & 0x80000000u) && out_generation) *out_generation = generation;
         return hr;
     }
 }
@@ -842,8 +845,10 @@ static void *reader_worker(void *opaque) {
     int reached_eof = 0;
     int stream_error = 0;
     int discontinuity_pending = 1;
+    uint64_t segment_pts_base = 0;
+    uint32_t segment_generation = 0;
 
-    uint32_t segment_hr = reader_notify_new_segment(r);
+    uint32_t segment_hr = reader_notify_new_segment(r, 0, &segment_generation);
     if (segment_hr & 0x80000000u) {
         fprintf(stderr, "[dshow-reader] initial NewSegment -> 0x%08X\n", segment_hr);
         stream_error = 1;
@@ -866,9 +871,10 @@ static void *reader_worker(void *opaque) {
                     r->decoder = next;
                     first_pts = INT64_MIN;
                     frame_number = 0;
+                    segment_pts_base = 0;
                     run_start = reader_reference_time(r) + 1000u;
                     atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
-                    segment_hr = reader_notify_new_segment(r);
+                    segment_hr = reader_notify_new_segment(r, 0, &segment_generation);
                     if (segment_hr & 0x80000000u) {
                         fprintf(stderr, "[dshow-reader] loop NewSegment -> 0x%08X\n", segment_hr);
                         stream_error = 1;
@@ -898,8 +904,24 @@ static void *reader_worker(void *opaque) {
         if (!duration) duration = 1;
         int delivery;
         for (;;) {
-            delivery = reader_deliver_frame(r, frame, r->sample_size, (int64_t)pts,
-                                            (int64_t)(pts + duration), discontinuity_pending);
+            uint32_t current_generation = atomic_load_explicit(&r->flush_generation, memory_order_acquire);
+            if (current_generation != segment_generation) {
+                while (atomic_load_explicit(&r->pin_flushing, memory_order_acquire) &&
+                       !atomic_load_explicit(&r->stop_requested, memory_order_acquire))
+                    usleep(5000);
+                if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) break;
+                segment_hr = reader_notify_new_segment(r, pts, &segment_generation);
+                if (segment_hr & 0x80000000u) {
+                    fprintf(stderr, "[dshow-reader] post-flush NewSegment -> 0x%08X\\n", segment_hr);
+                    stream_error = 1;
+                    break;
+                }
+                segment_pts_base = pts;
+                discontinuity_pending = 1;
+            }
+            uint64_t sample_pts = pts >= segment_pts_base ? pts - segment_pts_base : 0;
+            delivery = reader_deliver_frame(r, frame, r->sample_size, (int64_t)sample_pts,
+                                            (int64_t)(sample_pts + duration), discontinuity_pending);
             if (delivery == 0 &&
                 atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
                 delivery = 2;                       /* BeginFlush cancelled Receive */
@@ -915,6 +937,7 @@ static void *reader_worker(void *opaque) {
             usleep(5000);
         }
         if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) break;
+        if (stream_error) break;
         if (delivery == 0) {
             fprintf(stderr, "[dshow-reader] downstream rejected frame %llu\n",
                     (unsigned long long)frame_number);
