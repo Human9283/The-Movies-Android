@@ -127,6 +127,7 @@ struct reader {
     atomic_int running;
     int looping;
     atomic_int pin_flushing;
+    atomic_uint flush_generation;
 };
 
 struct pin_enum {
@@ -609,6 +610,7 @@ static void reader_notify_complete(reader_t *r) {
 
 static uint32_t reader_notify_end_of_stream(reader_t *r) {
     mach_enter();
+    uint32_t generation = atomic_load_explicit(&r->flush_generation, memory_order_acquire);
     uint32_t hr = S_OK;
     if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
         hr = S_FALSE; /* A flush owns the downstream stream boundary. */
@@ -616,6 +618,8 @@ static uint32_t reader_notify_end_of_stream(reader_t *r) {
         hr = guest_call(r->peer_pin, 14, 0, NULL);           /* IPin::EndOfStream */
     else
         hr = VFW_E_NOT_CONNECTED;
+    if (atomic_load_explicit(&r->flush_generation, memory_order_acquire) != generation)
+        hr = S_FALSE; /* EndOfStream overlapped a flush; do not complete this graph. */
     mach_leave();
     return hr;
 }
@@ -645,6 +649,7 @@ static uint32_t reader_notify_new_segment(reader_t *r) {
             mach_leave();
             return E_FAIL;
         }
+        uint32_t generation = atomic_load_explicit(&r->flush_generation, memory_order_acquire);
         if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
             mach_leave();
             usleep(5000);
@@ -653,7 +658,14 @@ static uint32_t reader_notify_new_segment(reader_t *r) {
         uint32_t hr = r->peer_pin
             ? guest_call(r->peer_pin, 17, 6, args)  /* IPin::NewSegment */
             : VFW_E_NOT_CONNECTED;
+        int interrupted = atomic_load_explicit(&r->flush_generation, memory_order_acquire) != generation;
+        int flushing = atomic_load_explicit(&r->pin_flushing, memory_order_acquire);
         mach_leave();
+        if (interrupted || flushing) {
+            if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) return E_FAIL;
+            usleep(5000);
+            continue; /* Re-announce the segment after a concurrent flush. */
+        }
         return hr;
     }
 }
@@ -666,6 +678,7 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
      * Receive itself may yield through HLE blocking APIs; BeginFlush remains
      * able to enter then and cancel the in-flight downstream call. */
     mach_enter();
+    uint32_t flush_generation = atomic_load_explicit(&r->flush_generation, memory_order_acquire);
     if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
         mach_leave();
         return 2;
@@ -729,8 +742,11 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
         if (hr == S_OK) hr = guest_call(sample, 12, 1, actual);        /* SetActualDataLength */
         if (hr == S_OK) hr = guest_call(sample, 16, 1, discontinuity_flag); /* SetDiscontinuity */
         if (hr == S_OK) {
-            if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
-                hr = S_FALSE; /* Flush began before this sample was submitted. */
+            uint32_t generation_now = atomic_load_explicit(&r->flush_generation, memory_order_acquire);
+            if (atomic_load_explicit(&r->stop_requested, memory_order_acquire) ||
+                atomic_load_explicit(&r->pin_flushing, memory_order_acquire) ||
+                generation_now != flush_generation) {
+                hr = S_FALSE; /* Flush/Stop superseded this not-yet-submitted sample. */
             } else {
                 uint32_t receive_args[1] = { sample };
                 hr = guest_call(r->peer_mem_input, 6, 1, receive_args); /* IMemInputPin::Receive */
@@ -744,9 +760,11 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
     guest_free_locked(pointer_out_va);
     guest_free_locked(time_va);
     guest_free_locked(sample_out_va);
+    int flush_interrupted = atomic_load_explicit(&r->flush_generation, memory_order_acquire) != flush_generation;
+    int stopping = atomic_load_explicit(&r->stop_requested, memory_order_acquire);
+    int flushing = atomic_load_explicit(&r->pin_flushing, memory_order_acquire);
     mach_leave();
-    if (hr == S_FALSE && atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
-        return 2;
+    if (flush_interrupted || stopping || flushing) return 2;
     return hr == S_OK ? 1 : 0;
 }
 
@@ -1434,6 +1452,7 @@ static void pin_BeginFlush(void) {
     /* Flush is a cancellation/control call. It deliberately does not wait
      * for the worker's in-flight Receive; downstream BeginFlush must be able
      * to release that call. The HLE machine lock serializes COM dispatch. */
+    atomic_fetch_add_explicit(&r->flush_generation, 1, memory_order_acq_rel);
     atomic_store_explicit(&r->pin_flushing, 1, memory_order_release);
     if (r->peer_pin) guest_call(r->peer_pin, 15, 0, NULL);
     RET(S_OK, 1);
@@ -1736,6 +1755,7 @@ static uint32_t reader_create(const uint8_t *iid, uint32_t *out) {
     atomic_init(&r->clock_va, 0);
     atomic_init(&r->stop_requested, 0);
     atomic_init(&r->pin_flushing, 0);
+    atomic_init(&r->flush_generation, 0);
     atomic_init(&r->paused, 0);
     atomic_init(&r->running, 0);
     atomic_init(&r->pause_shift_100ns, 0);
