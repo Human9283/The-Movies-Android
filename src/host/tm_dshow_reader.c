@@ -830,13 +830,15 @@ static int reader_wait_unpaused(reader_t *r) {
     }
 }
 
-static int reader_wait_until(reader_t *r, uint64_t due_100ns) {
+static int reader_wait_until(reader_t *r, uint64_t due_100ns, uint32_t expected_generation) {
     for (;;) {
         if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) return 0;
         if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
             usleep(5000);
             continue;
         }
+        if (atomic_load_explicit(&r->flush_generation, memory_order_acquire) != expected_generation)
+            return 1; /* Resume immediately so the caller can announce the new segment. */
         if (atomic_load_explicit(&r->paused, memory_order_acquire)) {
             if (atomic_load_explicit(&r->preroll_pending, memory_order_acquire))
                 return 1;
@@ -872,7 +874,7 @@ static void *reader_worker(void *opaque) {
     /* Zero is a valid reference-clock value. The caller always supplies the
      * clock-domain anchor when creating the worker; do not replace it with
      * host monotonic time based on a zero-value sentinel. */
-    uint64_t run_start = r->run_start_100ns;
+    uint64_t segment_clock_anchor = r->run_start_100ns;
     int64_t first_pts = INT64_MIN;
     uint64_t frame_number = 0;
     char error[256];
@@ -908,7 +910,6 @@ static void *reader_worker(void *opaque) {
                     first_pts = INT64_MIN;
                     frame_number = 0;
                     segment_pts_base = 0;
-                    run_start = reader_reference_time(r) + 1000u;
                     atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
                     segment_hr = reader_notify_new_segment(r, 0, &segment_generation);
                     if (segment_hr & 0x80000000u) {
@@ -917,6 +918,7 @@ static void *reader_worker(void *opaque) {
                         stream_error_hr = segment_hr;
                         break;
                     }
+                    segment_clock_anchor = reader_reference_time(r) + 1000u;
                     discontinuity_pending = 1;
                     continue;
                 }
@@ -937,7 +939,9 @@ static void *reader_worker(void *opaque) {
         if (first_pts == INT64_MIN && frame_info.pts != INT64_MIN)
             first_pts = frame_info.pts;
         uint64_t pts = frame_pts_100ns(r, &frame_info, first_pts, frame_number);
-        if (!reader_wait_until(r, run_start + pts)) break;
+        uint64_t segment_relative_pts = pts >= segment_pts_base ? pts - segment_pts_base : 0;
+        if (!reader_wait_until(r, segment_clock_anchor + segment_relative_pts,
+                               segment_generation)) break;
         uint64_t duration = frame_info.duration > 0 && frame_info.time_base_den > 0
             ? (uint64_t)((long double)frame_info.duration * frame_info.time_base_num *
                          REFERENCE_TIME_PER_SEC / frame_info.time_base_den)
@@ -960,6 +964,7 @@ static void *reader_worker(void *opaque) {
                     break;
                 }
                 segment_pts_base = pts;
+                segment_clock_anchor = reader_reference_time(r);
                 discontinuity_pending = 1;
             }
             uint64_t sample_pts = pts >= segment_pts_base ? pts - segment_pts_base : 0;
