@@ -240,7 +240,7 @@ export DXVK_LIB="$WORK/dxvk-build/arm64-v8a/lib/libdxvk_d3d9.so"
 
 ## 6. Prepare the pinned pcrecomp runtime
 
-The Android port applies its Win32 input bridge to the pinned pcrecomp runtime. Android touch is currently translated by SDL into ordinary mouse events, which the DirectInput shim consumes; this is single-pointer mouse emulation, not native multi-touch. Apply the runtime patch once to the clean checkout:
+The Android port applies its Win32 input bridge to the pinned pcrecomp runtime. SDL finger events are mapped directly to Win32 mouse messages consumed by DirectInput; SDL's duplicate touch-to-mouse synthesis is disabled. This is single-pointer mouse emulation, not native multi-touch. Apply the runtime patch once to the clean checkout:
 
 ~~~bash
 python "$WORK/port/android-game/tools/patch_win32hle_input_trace.py" \
