@@ -101,6 +101,8 @@ static const guid_t IID_IGraphBuilder_   = G(0x56A868A9, 0x0AD4, 0x11CE, 0xB0,0x
 static const guid_t IID_IMediaEventSink_ = G(0x56A868A2, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70);
 static const guid_t IID_IMediaControl_   = G(0x56A868B1, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70);
 static const guid_t IID_IMediaPosition_  = G(0x56A868B2, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70);
+/* The game asks for IMediaSeeking but calls IMediaPosition methods through it. */
+static const guid_t IID_IMediaSeeking_   = G(0x36B73880, 0xC2C8, 0x11CF, 0x8B,0x46,0x00,0x80,0x5F,0x6C,0xEF,0x60);
 static const guid_t IID_IBasicAudio_     = G(0x56A868B3, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70);
 static const guid_t IID_IBasicVideo_     = G(0x56A868B5, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70);
 static const guid_t IID_ICaptureGraphBuilder2_ = G(0x93E5A4E0, 0x2D50, 0x11D2, 0xAB,0xFA,0x00,0xA0,0xC9,0xC6,0xE3,0x8D);
@@ -113,7 +115,6 @@ static const named_iid g_graph_missing[] = {
     { "IFilterGraph2",  G(0x36B73882, 0xC2C8, 0x11CF, 0x8B,0x46,0x00,0x80,0x5F,0x6C,0xEF,0x60) },
     { "IMediaEvent",    G(0x56A868B6, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70) },
     { "IMediaEventEx",  G(0x56A868C0, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70) },
-    { "IMediaSeeking",  G(0x36B73880, 0xC2C8, 0x11CF, 0x8B,0x46,0x00,0x80,0x5F,0x6C,0xEF,0x60) },
     { "IVideoWindow",   G(0x56A868B4, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70) },
     { NULL, {0} }
 };
@@ -312,8 +313,14 @@ static uint32_t graph_query(obj_t *o, uint32_t riid, uint32_t ppv) {
         interface_va = graph_media_filter(o);
     else if (!memcmp(iid, IID_IMediaControl_, 16))
         interface_va = graph_media_control(o);
-    else if (!memcmp(iid, IID_IMediaPosition_, 16))
+    else if (!memcmp(iid, IID_IMediaPosition_, 16) ||
+             !memcmp(iid, IID_IMediaSeeking_, 16)) {
+        /* Game-specific ABI quirk confirmed in MoviePlayer_Setup: the game
+         * requests IID_IMediaSeeking, then invokes IMediaPosition methods
+         * (get_Duration / put_CurrentPosition / get_CurrentPosition) through
+         * that pointer. Return the same IMediaPosition vtable for both IIDs. */
         interface_va = graph_media_position(o);
+    }
     else if (!memcmp(iid, IID_IBasicAudio_, 16))
         interface_va = graph_basic_audio(o);
     else if (!memcmp(iid, IID_IBasicVideo_, 16))
@@ -326,6 +333,7 @@ static uint32_t graph_query(obj_t *o, uint32_t riid, uint32_t ppv) {
     if (!memcmp(iid, IID_IMediaFilter_, 16) || !memcmp(iid, IID_IPersist_, 16) ||
         !memcmp(iid, IID_IMediaControl_, 16) ||
         !memcmp(iid, IID_IMediaPosition_, 16) ||
+        !memcmp(iid, IID_IMediaSeeking_, 16) ||
         !memcmp(iid, IID_IBasicAudio_, 16) ||
         !memcmp(iid, IID_IBasicVideo_, 16))
         return E_OUTOFMEMORY;
