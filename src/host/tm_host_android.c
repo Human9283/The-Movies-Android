@@ -55,9 +55,9 @@ int SDL_main(int argc, char **argv) {
     (void)argv;
     SDL_SetMainReady();
 
-    /* SDL's Android touch-to-mouse synthesis feeds the Win32 mouse state
-     * consumed by DirectInput. Do not synthesize touch events back from mouse. */
-    SDL_SetHint("SDL_TOUCH_MOUSE_EVENTS", "1");
+    /* The patched win32hle screen loop maps SDL finger events directly to
+     * the guest's Win32 mouse. Disable SDL's duplicate touch-to-mouse path. */
+    SDL_SetHint("SDL_TOUCH_MOUSE_EVENTS", "0");
     SDL_SetHint("SDL_MOUSE_TOUCH_EVENTS", "0");
 
     const char *root = SDL_AndroidGetInternalStoragePath();
