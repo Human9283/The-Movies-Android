@@ -615,11 +615,12 @@ static void reader_notify_error(reader_t *r, uint32_t error_hr) {
     (void)guest_call(r->graph_va, 3, 3, args);              /* IMediaEventSink::Notify */
 }
 
-static uint32_t reader_notify_end_of_stream(reader_t *r) {
+static uint32_t reader_notify_end_of_stream(reader_t *r, uint32_t expected_generation) {
     mach_enter();
     uint32_t generation = atomic_load_explicit(&r->flush_generation, memory_order_acquire);
     uint32_t hr = S_OK;
-    if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
+    if (generation != expected_generation ||
+        atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
         hr = S_FALSE; /* A flush owns the downstream stream boundary. */
     else if (r->peer_pin)
         hr = guest_call(r->peer_pin, 14, 0, NULL);           /* IPin::EndOfStream */
@@ -902,6 +903,7 @@ static void *reader_worker(void *opaque) {
                     if (segment_hr & 0x80000000u) {
                         fprintf(stderr, "[dshow-reader] loop NewSegment -> 0x%08X\n", segment_hr);
                         stream_error = 1;
+                        stream_error_hr = segment_hr;
                         break;
                     }
                     discontinuity_pending = 1;
@@ -989,7 +991,7 @@ static void *reader_worker(void *opaque) {
         if (stream_error) {
             reader_notify_error(r, stream_error_hr);
         } else if (reached_eof && !r->looping) {
-            uint32_t eos_hr = reader_notify_end_of_stream(r);
+            uint32_t eos_hr = reader_notify_end_of_stream(r, segment_generation);
             if (eos_hr == S_OK) reader_notify_complete(r);
             else fprintf(stderr, "[dshow-reader] EndOfStream skipped/failed -> 0x%08X\n", eos_hr);
         }
