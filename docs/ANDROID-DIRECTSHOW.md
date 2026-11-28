@@ -124,6 +124,51 @@ objects that may still be reachable from a streaming callback. A subsequent
 AddRef/Release cycle can retry the deferred teardown; if no owner retries, this
 safety fallback can leave a retained graph allocation.
 
+
+## Game-specific COM compatibility cross-check
+
+A comparison with [Life Support for The Movies](https://github.com/KillerPixelCrew/lifesupport-TheMovies)
+identified a game-specific interface quirk that a generic DirectShow implementation
+would miss. Its reverse-engineering notes identify `MoviePlayer_Setup` and record
+this sequence:
+
+1. Create `CLSID_FilterGraph`.
+2. Create `CLSID_WMAsfReader`.
+3. Render/connect the source output to the game's texture renderer.
+4. Query the graph for `IMediaControl`.
+5. Query the graph for `IMediaSeeking`.
+6. Query the graph for `IMediaPosition`.
+7. Query the graph for `IBasicAudio`.
+
+The same notes report that the game stores the result of the
+`IID_IMediaSeeking` query but later calls `IMediaPosition` methods through
+that pointer. The Windows compatibility implementation therefore returns its
+`IMediaPosition` interface pointer for both IIDs. The Android graph now does
+the same: both queries resolve to the graph's existing
+`FilterGraphMediaPosition` interface and share the controlling graph
+reference count. This is an intentional game-ABI compatibility alias, **not**
+a claim that the two DirectShow interfaces are interchangeable in general.
+
+The cross-check also records two behaviours already represented in this
+Android graph: the texture renderer can deliver `EC_COMPLETE` through the
+`IFilterGraph` pointer's slot corresponding to `AddFilter`, and the game
+uses graph-level `Stop` / `Run` calls as a per-frame presentation sequence
+while an ASF reader is attached. Keep these narrowly scoped compatibility
+rules; do not generalize them to unrelated filters or graphs.
+
+The reference project is a 32-bit Windows ASI mod (also used with Wine), not
+an Android port. Its MinHook, WASAPI and Windows-specific libmpv integration
+are not directly reusable in this Android runtime. Its value here is the
+game-specific reverse engineering and the independently verified call
+sequence. Its README reports launch through the menu and transition into the
+game; its engineering notes explicitly say extended simulation/campaign play
+has not yet been exercised.
+
+This comparison is source-level evidence only. The Android runtime still
+requires a device trace to confirm that the same executable path reaches these
+calls and that the alias gets past the current Lionhead splash.
+
+
 ## FFmpeg build
 
 Use [the Android build guide](ANDROID-BUILD.md#7-build-the-minimal-android-wmv-decoder)
