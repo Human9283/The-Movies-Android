@@ -114,6 +114,7 @@ struct reader {
     uint32_t peer_pin;
     uint32_t peer_mem_input;
     uint32_t allocator;
+    int allocator_committed;
     pthread_t worker;
     int worker_started;
     atomic_int stop_requested;
@@ -205,6 +206,10 @@ static void reader_stop_worker(reader_t *r);
 static void reader_disconnect(reader_t *r) {
     reader_stop_worker(r);
     if (r->allocator) {
+        if (r->allocator_committed) {
+            (void)guest_call(r->allocator, 6, 0, NULL);  /* IMemAllocator::Decommit */
+            r->allocator_committed = 0;
+        }
         guest_call(r->allocator, 2, 0, NULL);
         r->allocator = 0;
     }
@@ -510,7 +515,7 @@ static uint32_t reader_build_output_pin_connection(reader_t *r, uint32_t peer, u
     }
     MEM32(hle_va(properties) + 0) = 4;                       /* cBuffers */
     MEM32(hle_va(properties) + 4) = r->sample_size;          /* cbBuffer */
-    MEM32(hle_va(properties) + 8) = 4;                       /* cbAlign */
+    MEM32(hle_va(properties) + 8) = 1;                       /* cbAlign */
     MEM32(hle_va(properties) + 12) = 0;                      /* cbPrefix */
     uint32_t set_args[2] = { hle_va(properties), hle_va(properties) + 16 };
     hr = guest_call(allocator, 3, 2, set_args);              /* SetProperties */
@@ -619,6 +624,19 @@ static uint64_t frame_pts_100ns(reader_t *r, const tm_asf_frame_info *frame,
                       (long double)REFERENCE_TIME_PER_SEC);
 }
 
+static int reader_wait_unpaused(reader_t *r, uint64_t *clock_shift) {
+    while (atomic_load_explicit(&r->paused, memory_order_acquire) &&
+           !atomic_load_explicit(&r->stop_requested, memory_order_acquire)) {
+        uint64_t paused_at = hle_mono_ns() / 100u;
+        while (atomic_load_explicit(&r->paused, memory_order_acquire) &&
+               !atomic_load_explicit(&r->stop_requested, memory_order_acquire))
+            usleep(5000);
+        uint64_t resumed_at = hle_mono_ns() / 100u;
+        if (resumed_at > paused_at) *clock_shift += resumed_at - paused_at;
+    }
+    return !atomic_load_explicit(&r->stop_requested, memory_order_acquire);
+}
+
 static int reader_wait_until(reader_t *r, uint64_t due_100ns, uint64_t *clock_shift) {
     for (;;) {
         if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) return 0;
@@ -662,10 +680,7 @@ static void *reader_worker(void *opaque) {
     char error[256];
 
     while (!atomic_load_explicit(&r->stop_requested, memory_order_acquire)) {
-        if (atomic_load_explicit(&r->paused, memory_order_acquire)) {
-            usleep(5000);
-            continue;
-        }
+        if (!reader_wait_unpaused(r, &clock_shift)) break;
         tm_asf_frame_info frame_info;
         int result = tm_asf_decoder_read_rgb24(r->decoder, frame, r->sample_size,
                                                r->stride, &frame_info, error, sizeof error);
@@ -816,6 +831,10 @@ static void filter_GetClassID(void) {
 static void filter_Stop(void) {
     reader_t *r = reader_from_this("IMediaFilter::Stop");
     reader_stop_worker(r);
+    if (r->allocator && r->allocator_committed) {
+        (void)guest_call(r->allocator, 6, 0, NULL);      /* IMemAllocator::Decommit */
+        r->allocator_committed = 0;
+    }
     RET(S_OK, 1);
 }
 static void filter_Pause(void) {
@@ -829,6 +848,11 @@ static void filter_Pause(void) {
 static void filter_Run(void) {
     reader_t *r = reader_from_this("IMediaFilter::Run");
     uint64_t start = (uint64_t)A32(1) | ((uint64_t)A32(2) << 32);
+    if (r->allocator && !r->allocator_committed) {
+        uint32_t commit_hr = guest_call(r->allocator, 5, 0, NULL); /* IMemAllocator::Commit */
+        if (commit_hr & 0x80000000u) RET(commit_hr, 3);
+        r->allocator_committed = 1;
+    }
     RET(reader_start_worker(r, start), 3);
 }
 static void filter_GetState(void) {
