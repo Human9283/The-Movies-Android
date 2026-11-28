@@ -283,7 +283,8 @@ static uint32_t reader_disconnect(reader_t *r) {
     if (atomic_load_explicit(&r->worker_started, memory_order_acquire)) return VFW_E_WRONG_STATE;
     if (r->allocator) {
         if (r->allocator_committed) {
-            (void)guest_call(r->allocator, 6, 0, NULL);  /* IMemAllocator::Decommit */
+            uint32_t decommit_hr = guest_call(r->allocator, 6, 0, NULL); /* IMemAllocator::Decommit */
+            if (decommit_hr & 0x80000000u) return decommit_hr;
             r->allocator_committed = 0;
         }
         guest_call(r->allocator, 2, 0, NULL);
@@ -1281,7 +1282,8 @@ static void filter_Stop(void) {
     }
     if (atomic_load_explicit(&r->worker_started, memory_order_acquire)) RET(stop_hr, 1);
     if (r->allocator && r->allocator_committed) {
-        (void)guest_call(r->allocator, 6, 0, NULL);      /* IMemAllocator::Decommit */
+        uint32_t decommit_hr = guest_call(r->allocator, 6, 0, NULL); /* IMemAllocator::Decommit */
+        if (decommit_hr & 0x80000000u) RET(decommit_hr, 1);
         r->allocator_committed = 0;
     }
     RET(stop_hr, 1);
