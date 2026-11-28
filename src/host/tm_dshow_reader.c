@@ -660,13 +660,27 @@ static uint32_t reader_notify_new_segment(reader_t *r) {
 
 static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size,
                                 int64_t start, int64_t end, int discontinuity) {
-    if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) return 2;
-    if (!r->peer_mem_input || !r->allocator) return 0;
+    /* Keep sample setup and the final pin-flushing check in one HLE machine
+     * turn. Otherwise BeginFlush could run between the first flag check and
+     * Receive, allowing a new sample to enter an already-flushing renderer.
+     * Receive itself may yield through HLE blocking APIs; BeginFlush remains
+     * able to enter then and cancel the in-flight downstream call. */
+    mach_enter();
+    if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
+        mach_leave();
+        return 2;
+    }
+    if (!r->peer_mem_input || !r->allocator) {
+        mach_leave();
+        return 0;
+    }
+
     uint32_t sample_out_va = guest_alloc_locked(4);
     uint32_t time_va = guest_alloc_locked(16);
     if (!sample_out_va || !time_va) {
         guest_free_locked(sample_out_va);
         guest_free_locked(time_va);
+        mach_leave();
         return 0;
     }
     guest_write32_locked(sample_out_va, 0);
@@ -679,11 +693,13 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
     if (hr == VFW_E_TIMEOUT) {
         guest_free_locked(time_va);
         guest_free_locked(sample_out_va);
+        mach_leave();
         return 2;                                      /* retry when a renderer sample is freed */
     }
     if (hr != S_OK || !sample) {
         guest_free_locked(time_va);
         guest_free_locked(sample_out_va);
+        mach_leave();
         return 0;                                      /* decommitted allocator or COM failure */
     }
 
@@ -692,6 +708,7 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
         guest_call(sample, 2, 0, NULL);
         guest_free_locked(time_va);
         guest_free_locked(sample_out_va);
+        mach_leave();
         return 0;
     }
     guest_write32_locked(pointer_out_va, 0);
@@ -712,8 +729,12 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
         if (hr == S_OK) hr = guest_call(sample, 12, 1, actual);        /* SetActualDataLength */
         if (hr == S_OK) hr = guest_call(sample, 16, 1, discontinuity_flag); /* SetDiscontinuity */
         if (hr == S_OK) {
-            uint32_t receive_args[1] = { sample };
-            hr = guest_call(r->peer_mem_input, 6, 1, receive_args); /* IMemInputPin::Receive (slot 6) */
+            if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
+                hr = S_FALSE; /* Flush began before this sample was submitted. */
+            } else {
+                uint32_t receive_args[1] = { sample };
+                hr = guest_call(r->peer_mem_input, 6, 1, receive_args); /* IMemInputPin::Receive */
+            }
         }
     } else {
         hr = E_FAIL;
@@ -723,6 +744,9 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
     guest_free_locked(pointer_out_va);
     guest_free_locked(time_va);
     guest_free_locked(sample_out_va);
+    mach_leave();
+    if (hr == S_FALSE && atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
+        return 2;
     return hr == S_OK ? 1 : 0;
 }
 
