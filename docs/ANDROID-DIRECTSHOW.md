@@ -52,7 +52,11 @@ gameplay works.
    callbacks. No native mutex is held across guest COM calls: doing so would
    invert the HLE machine-lock order and could deadlock a worker callback
    against `BeginFlush`. `BeginFlush` remains a concurrent cancellation call
-   so it can release a blocked downstream `Receive`.
+   so it can release a blocked downstream `Receive`. Sample allocation,
+   metadata setup and the final `pin_flushing` check are performed in one HLE
+   machine turn, preventing a flush from slipping between the check and the
+   submission of a new sample. The blocking `Receive` can still yield the HLE
+   machine to the flush callback while it is in flight.
 9. End of stream is forwarded to the connected pin and reported to the graph
    through the game's `IFilterGraph` / `IMediaEventSink::Notify` vtable alias.
 
