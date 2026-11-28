@@ -103,6 +103,9 @@ struct reader {
     double avg_frame_seconds;
     uint32_t state;
     uint64_t run_start_100ns;
+    atomic_uint_fast64_t pause_shift_100ns;
+    atomic_uint_fast64_t pause_started_100ns;
+    atomic_int preroll_pending;
     atomic_int worker_done;
     uint16_t filter_name[128];
     uint16_t current_path[PATH_MAX];
@@ -586,7 +589,7 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
     if ((hr & 0x80000000u) || !sample) {
         guest_free_locked(time_va);
         guest_free_locked(sample_out_va);
-        return 1;                                      /* dropped frame: renderer busy */
+        return 2;                                      /* dropped frame: renderer busy */
     }
 
     uint32_t pointer_out_va = guest_alloc_locked(4);
@@ -622,7 +625,7 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
     guest_free_locked(pointer_out_va);
     guest_free_locked(time_va);
     guest_free_locked(sample_out_va);
-    return !(hr & 0x80000000u);
+    return hr == S_OK ? 1 : 0;
 }
 
 static uint64_t frame_pts_100ns(reader_t *r, const tm_asf_frame_info *frame,
@@ -637,33 +640,28 @@ static uint64_t frame_pts_100ns(reader_t *r, const tm_asf_frame_info *frame,
                       (long double)REFERENCE_TIME_PER_SEC);
 }
 
-static int reader_wait_unpaused(reader_t *r, uint64_t *clock_shift) {
+static int reader_wait_unpaused(reader_t *r) {
     while (atomic_load_explicit(&r->paused, memory_order_acquire) &&
            !atomic_load_explicit(&r->stop_requested, memory_order_acquire)) {
-        uint64_t paused_at = hle_mono_ns() / 100u;
-        while (atomic_load_explicit(&r->paused, memory_order_acquire) &&
-               !atomic_load_explicit(&r->stop_requested, memory_order_acquire))
-            usleep(5000);
-        uint64_t resumed_at = hle_mono_ns() / 100u;
-        if (resumed_at > paused_at) *clock_shift += resumed_at - paused_at;
+        if (atomic_load_explicit(&r->preroll_pending, memory_order_acquire))
+            return 1;                               /* allow one frame to cue the renderer */
+        usleep(5000);
     }
     return !atomic_load_explicit(&r->stop_requested, memory_order_acquire);
 }
 
-static int reader_wait_until(reader_t *r, uint64_t due_100ns, uint64_t *clock_shift) {
+static int reader_wait_until(reader_t *r, uint64_t due_100ns) {
     for (;;) {
         if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) return 0;
         if (atomic_load_explicit(&r->paused, memory_order_acquire)) {
-            uint64_t paused_at = hle_mono_ns() / 100u;
-            while (atomic_load_explicit(&r->paused, memory_order_acquire) &&
-                   !atomic_load_explicit(&r->stop_requested, memory_order_acquire))
-                usleep(5000);
-            uint64_t resumed_at = hle_mono_ns() / 100u;
-            if (resumed_at > paused_at) *clock_shift += resumed_at - paused_at;
+            if (atomic_load_explicit(&r->preroll_pending, memory_order_acquire))
+                return 1;
+            usleep(5000);
             continue;
         }
         uint64_t now = hle_mono_ns() / 100u;
-        uint64_t target = due_100ns + *clock_shift;
+        uint64_t shift = atomic_load_explicit(&r->pause_shift_100ns, memory_order_acquire);
+        uint64_t target = due_100ns + shift;
         if (now >= target) return 1;
         uint64_t wait_100ns = target - now;
         useconds_t sleep_us = (useconds_t)(wait_100ns / 10u);
@@ -690,11 +688,12 @@ static void *reader_worker(void *opaque) {
     uint64_t run_start = r->run_start_100ns ? r->run_start_100ns : hle_mono_ns() / 100u;
     int64_t first_pts = INT64_MIN;
     uint64_t frame_number = 0;
-    uint64_t clock_shift = 0;
     char error[256];
+    int reached_eof = 0;
+    int stream_error = 0;
 
     while (!atomic_load_explicit(&r->stop_requested, memory_order_acquire)) {
-        if (!reader_wait_unpaused(r, &clock_shift)) break;
+        if (!reader_wait_unpaused(r)) break;
         tm_asf_frame_info frame_info;
         int result = tm_asf_decoder_read_rgb24(r->decoder, frame, r->sample_size,
                                                r->stride, &frame_info, error, sizeof error);
@@ -714,35 +713,42 @@ static void *reader_worker(void *opaque) {
                 }
                 fprintf(stderr, "[dshow-reader] loop reopen failed: %s (%d)\n", error, rc);
             }
+            reached_eof = 1;
             break;
         }
         if (result == TM_ASF_READ_ERROR) {
             fprintf(stderr, "[dshow-reader] decode failed: %s\n", error);
+            stream_error = 1;
             break;
         }
         if (first_pts == INT64_MIN && frame_info.pts != INT64_MIN)
             first_pts = frame_info.pts;
         uint64_t pts = frame_pts_100ns(r, &frame_info, first_pts, frame_number);
-        if (!reader_wait_until(r, run_start + pts, &clock_shift)) break;
+        if (!reader_wait_until(r, run_start + pts)) break;
         uint64_t duration = frame_info.duration > 0 && frame_info.time_base_den > 0
             ? (uint64_t)((long double)frame_info.duration * frame_info.time_base_num *
                          REFERENCE_TIME_PER_SEC / frame_info.time_base_den)
             : (uint64_t)(r->avg_frame_seconds * (double)REFERENCE_TIME_PER_SEC);
         if (!duration) duration = 1;
-        if (!reader_deliver_frame(r, frame, r->sample_size, (int64_t)pts,
-                                  (int64_t)(pts + duration))) {
+        int delivery = reader_deliver_frame(r, frame, r->sample_size, (int64_t)pts,
+                                            (int64_t)(pts + duration));
+        if (delivery == 0) {
             if (!atomic_load_explicit(&r->stop_requested, memory_order_acquire))
                 fprintf(stderr, "[dshow-reader] downstream rejected frame %llu\n",
                         (unsigned long long)frame_number);
+            stream_error = 1;
             break;
         }
+        if (delivery == 1)
+            atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
         frame_number++;
     }
 
     free(frame);
     atomic_store_explicit(&r->running, 0, memory_order_release);
     atomic_store_explicit(&r->worker_done, 1, memory_order_release);
-    if (!atomic_load_explicit(&r->stop_requested, memory_order_acquire) && !r->looping) {
+    if (!atomic_load_explicit(&r->stop_requested, memory_order_acquire) &&
+        reached_eof && !stream_error && !r->looping) {
         if (r->peer_pin) guest_call(r->peer_pin, 14, 0, NULL);  /* IPin::EndOfStream */
         reader_notify_complete(r);
     }
@@ -772,25 +778,49 @@ static void reader_stop_worker(reader_t *r) {
          * final Release until after this call unwinds. */
         atomic_store_explicit(&r->stop_requested, 1, memory_order_release);
         atomic_store_explicit(&r->running, 0, memory_order_release);
+        atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
         r->worker_started = 0;
         r->state = FILTER_STATE_STOPPED;
         return;
     }
     (void)reader_join_worker(r, 1);
     atomic_store_explicit(&r->running, 0, memory_order_release);
+    atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
     r->state = FILTER_STATE_STOPPED;
 }
 
-static uint32_t reader_start_worker(reader_t *r, uint64_t start_time) {
+static uint32_t reader_start_worker(reader_t *r, uint64_t start_time, int start_paused) {
     if (!r->decoder || !r->peer_mem_input || !r->allocator)
         return VFW_E_NOT_CONNECTED;
+
     if (r->worker_started) {
         if (!atomic_load_explicit(&r->worker_done, memory_order_acquire)) {
-            atomic_store_explicit(&r->paused, 0, memory_order_release);
-            atomic_store_explicit(&r->running, 1, memory_order_release);
-            r->state = FILTER_STATE_RUNNING;
+            if (start_paused) {
+                if (!atomic_load_explicit(&r->paused, memory_order_acquire)) {
+                    atomic_store_explicit(&r->pause_started_100ns, hle_mono_ns() / 100u,
+                                          memory_order_release);
+                    atomic_store_explicit(&r->preroll_pending, 1, memory_order_release);
+                }
+                atomic_store_explicit(&r->paused, 1, memory_order_release);
+                atomic_store_explicit(&r->running, 0, memory_order_release);
+                r->state = FILTER_STATE_PAUSED;
+            } else {
+                if (atomic_load_explicit(&r->paused, memory_order_acquire)) {
+                    uint64_t paused_at = atomic_load_explicit(&r->pause_started_100ns,
+                                                              memory_order_acquire);
+                    uint64_t now = hle_mono_ns() / 100u;
+                    if (paused_at && now > paused_at)
+                        atomic_fetch_add_explicit(&r->pause_shift_100ns, now - paused_at,
+                                                  memory_order_acq_rel);
+                    atomic_store_explicit(&r->pause_started_100ns, 0, memory_order_release);
+                }
+                atomic_store_explicit(&r->paused, 0, memory_order_release);
+                atomic_store_explicit(&r->running, 1, memory_order_release);
+                r->state = FILTER_STATE_RUNNING;
+            }
             return S_OK;
         }
+
         if (reader_join_worker(r, 0) != S_OK) return E_FAIL;
         if (r->decoder) tm_asf_decoder_close(r->decoder);
         r->decoder = NULL;
@@ -802,17 +832,25 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time) {
             return VFW_E_CANNOT_RENDER;
         }
     }
+
     reader_addref(r);                               /* worker owns the filter through callbacks */
     atomic_store_explicit(&r->stop_requested, 0, memory_order_release);
-    atomic_store_explicit(&r->paused, 0, memory_order_release);
-    atomic_store_explicit(&r->running, 1, memory_order_release);
+    atomic_store_explicit(&r->paused, start_paused, memory_order_release);
+    atomic_store_explicit(&r->running, !start_paused, memory_order_release);
     atomic_store_explicit(&r->worker_done, 0, memory_order_release);
+    atomic_store_explicit(&r->preroll_pending, start_paused, memory_order_release);
+    atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
+    atomic_store_explicit(&r->pause_started_100ns,
+                          start_paused ? hle_mono_ns() / 100u : 0,
+                          memory_order_release);
     r->run_start_100ns = start_time;
     r->worker_tid = hle_thread_id_new();
-    r->state = FILTER_STATE_RUNNING;
+    r->state = start_paused ? FILTER_STATE_PAUSED : FILTER_STATE_RUNNING;
     int rc = pthread_create(&r->worker, NULL, reader_worker, r);
     if (rc != 0) {
         atomic_store_explicit(&r->running, 0, memory_order_release);
+        atomic_store_explicit(&r->paused, 0, memory_order_release);
+        atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
         r->state = FILTER_STATE_STOPPED;
         reader_release_host(r);                     /* pthread_create failed */
         return E_FAIL;
@@ -869,10 +907,12 @@ static void filter_Stop(void) {
 static void filter_Pause(void) {
     reader_t *r = reader_from_this("IMediaFilter::Pause");
     if (!r->decoder) RET(VFW_E_CANNOT_RENDER, 1);
-    atomic_store_explicit(&r->paused, 1, memory_order_release);
-    atomic_store_explicit(&r->running, 0, memory_order_release);
-    r->state = FILTER_STATE_PAUSED;
-    RET(S_OK, 1);
+    if (r->allocator && !r->allocator_committed) {
+        uint32_t hr = guest_call(r->allocator, 5, 0, NULL); /* IMemAllocator::Commit */
+        if (hr & 0x80000000u) RET(hr, 1);
+        r->allocator_committed = 1;
+    }
+    RET(reader_start_worker(r, hle_mono_ns() / 100u, 1), 1);
 }
 static void filter_Run(void) {
     reader_t *r = reader_from_this("IMediaFilter::Run");
@@ -882,7 +922,7 @@ static void filter_Run(void) {
         if (commit_hr & 0x80000000u) RET(commit_hr, 3);
         r->allocator_committed = 1;
     }
-    RET(reader_start_worker(r, start), 3);
+    RET(reader_start_worker(r, start, 0), 3);
 }
 static void filter_GetState(void) {
     reader_t *r = reader_from_this("IMediaFilter::GetState");
@@ -1479,6 +1519,9 @@ static uint32_t reader_create(const uint8_t *iid, uint32_t *out) {
     atomic_init(&r->stop_requested, 0);
     atomic_init(&r->paused, 0);
     atomic_init(&r->running, 0);
+    atomic_init(&r->pause_shift_100ns, 0);
+    atomic_init(&r->pause_started_100ns, 0);
+    atomic_init(&r->preroll_pending, 0);
     atomic_init(&r->worker_done, 1);
     g_readers[slot] = r;
 
