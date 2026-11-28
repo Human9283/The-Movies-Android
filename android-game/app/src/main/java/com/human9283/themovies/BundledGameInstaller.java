@@ -63,14 +63,24 @@ public final class BundledGameInstaller {
         }
 
         Map<String, ExpectedFile> expected = new HashMap<>();
+        long manifestBytes = 0;
         for (int i = 0; i < entries.length(); i++) {
             JSONObject item = entries.getJSONObject(i);
             String path = item.getString("path");
             long size = item.getLong("size");
             String hash = item.getString("sha256").toLowerCase(Locale.ROOT);
-            if (!isSafeRelativePath(path) || size < 0 || hash.length() != 64 || expected.put(path, new ExpectedFile(size, hash)) != null) {
+            if (!isSafeRelativePath(path) || size < 0 || !hash.matches("[0-9a-f]{64}")
+                    || expected.put(path, new ExpectedFile(size, hash)) != null) {
                 throw new IOException("Invalid or duplicate game manifest entry: " + path);
             }
+            try {
+                manifestBytes = Math.addExact(manifestBytes, size);
+            } catch (ArithmeticException overflow) {
+                throw new IOException("Game manifest byte count overflows", overflow);
+            }
+        }
+        if (manifestBytes != expectedTotal) {
+            throw new IOException("Game manifest total_bytes does not match the sum of its file sizes");
         }
 
         StatFs storage = new StatFs(context.getFilesDir().getAbsolutePath());
@@ -108,9 +118,13 @@ public final class BundledGameInstaller {
             throw new IOException("Could not preserve the previous game installation");
         }
         if (!staging.renameTo(target)) {
-            if (hadTarget) backup.renameTo(target);
+            boolean restored = !hadTarget || backup.renameTo(target);
             deleteRecursively(staging);
-            throw new IOException("Could not activate the bundled game installation");
+            if (!restored) {
+                throw new IOException("Could not activate the bundled installation or restore the previous one. "
+                    + "The previous installation is preserved at " + backup.getAbsolutePath());
+            }
+            throw new IOException("Could not activate the bundled game installation; the previous installation was restored");
         }
         deleteRecursively(backup);
     }
@@ -222,7 +236,9 @@ public final class BundledGameInstaller {
             }
             if (c < '0' || c > '7') throw new IOException("Invalid TAR numeric field");
             found = true;
-            value = (value << 3) + (c - '0');
+            int digit = c - '0';
+            if (value > (Long.MAX_VALUE - digit) / 8) throw new IOException("TAR numeric field overflows");
+            value = (value << 3) + digit;
         }
         return value;
     }
