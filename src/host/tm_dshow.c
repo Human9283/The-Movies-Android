@@ -562,8 +562,25 @@ static uint32_t graph_run_at(obj_t *o, uint64_t start_time) {
                                               (uint32_t)(start_time >> 32));
     return (run_hr & 0x80000000u) ? run_hr : pause_hr;
 }
+static uint64_t graph_reference_time(obj_t *o) {
+    if (o->sync_source_va) {
+        uint64_t *time_mem = (uint64_t *)hle_alloc(sizeof(uint64_t));
+        if (time_mem) {
+            uint32_t clock = o->sync_source_va;
+            com_addref(clock);
+            uint32_t args[1] = { hle_va(time_mem) };
+            uint32_t hr = vcall(clock, 3, 1, args);      /* IReferenceClock::GetTime */
+            uint64_t value = *time_mem;
+            com_release(clock);
+            hle_free(time_mem);
+            if (hr == S_OK || hr == 1u /* S_FALSE */) return value;
+        }
+    }
+    return hle_mono_ns() / 100u;
+}
+
 static uint32_t graph_run(obj_t *o) {
-    uint64_t start = hle_mono_ns() / 100u + 1000000u;
+    uint64_t start = graph_reference_time(o) + 1000000u;
     return graph_run_at(o, start);
 }
 static uint32_t graph_pause(obj_t *o) {
@@ -1308,6 +1325,17 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
         hle_free(keep);
         fprintf(stderr, "[dshow] FilterGraph::AddFilter(0x%08X, \"%s\"): JoinFilterGraph -> 0x%08X\n", f, nm, jr);
         RET(g ? jr : E_UNEXPECTED, 3);
+    }
+    if (g->sync_source_va) {
+        uint32_t clock_args[1] = { g->sync_source_va };
+        uint32_t clock_hr = vcall(f, 8, 1, clock_args); /* IMediaFilter::SetSyncSource */
+        if (clock_hr & 0x80000000u) {
+            uint32_t none[2] = { 0, 0 };
+            (void)vcall(f, 13, 2, none);
+            com_release(f);
+            hle_free(keep);
+            RET(clock_hr, 3);
+        }
     }
     g->filter[g->nf] = f, g->fname[g->nf] = hle_va(keep), g->nf++;
     if (is_asf_reader) {
