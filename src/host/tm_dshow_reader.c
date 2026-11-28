@@ -97,8 +97,6 @@ struct reader {
     uint32_t pin_va;
     uint32_t graph_va;
     atomic_uint clock_va;
-    pthread_mutex_t clock_mutex;       /* protects clock pointer + AddRef handoff */
-    pthread_mutex_t stream_mutex;      /* serializes NewSegment against flush calls */
     int refs;
     int width, height, stride;
     uint32_t sample_size;
@@ -194,18 +192,26 @@ static uint32_t guest_call(uint32_t object, uint32_t slot, int nargs, const uint
     return hle_call_guest(method, nargs + 1, call_args);
 }
 
-/* Read the graph-selected DirectShow reference clock. The temporary
- * AddRef protects the object if another thread changes the graph clock. */
+/* Read the graph-selected DirectShow reference clock. All guest COM pointer
+ * access is protected by the HLE machine lock, which also serializes this
+ * handoff against SetSyncSource and the final Release during destruction.
+ * Do not take a native mutex before entering the machine: the caller may be
+ * a guest callback that already owns it, and the worker may otherwise invert
+ * the machine-lock / native-mutex order. */
 static uint64_t reader_reference_time(reader_t *r) {
     uint64_t fallback = hle_mono_ns() / 100u;
-    pthread_mutex_lock(&r->clock_mutex);
+    mach_enter();
     uint32_t clock = atomic_load_explicit(&r->clock_va, memory_order_acquire);
-    if (clock) guest_call(clock, 1, 0, NULL);      /* AddRef while SetSyncSource cannot release it */
-    pthread_mutex_unlock(&r->clock_mutex);
-    if (!clock) return fallback;
+    if (!clock) {
+        mach_leave();
+        return fallback;
+    }
+
+    guest_call(clock, 1, 0, NULL);                 /* IReferenceClock::AddRef */
     uint32_t time_va = guest_alloc_locked(8);
     if (!time_va) {
         guest_call(clock, 2, 0, NULL);
+        mach_leave();
         return fallback;
     }
     uint32_t args[1] = { time_va };
@@ -213,6 +219,7 @@ static uint64_t reader_reference_time(reader_t *r) {
     uint64_t value = guest_read64_locked(time_va);
     guest_free_locked(time_va);
     guest_call(clock, 2, 0, NULL);
+    mach_leave();
     return (hr == S_OK || hr == S_FALSE) ? value : fallback;
 }
 
@@ -262,12 +269,10 @@ static void reader_disconnect(reader_t *r) {
 
 static void reader_destroy(reader_t *r) {
     reader_disconnect(r);
-    pthread_mutex_lock(&r->clock_mutex);
+    /* reader_destroy is called with the HLE machine lock held. This excludes
+     * the worker's reader_reference_time and every SetSyncSource callback. */
     uint32_t clock = atomic_exchange_explicit(&r->clock_va, 0, memory_order_acq_rel);
-    pthread_mutex_unlock(&r->clock_mutex);
     if (clock) guest_call(clock, 2, 0, NULL);
-    pthread_mutex_destroy(&r->clock_mutex);
-    pthread_mutex_destroy(&r->stream_mutex);
     if (r->decoder) tm_asf_decoder_close(r->decoder);
     if (r->media_type_va) hle_free(hle_ptr(r->media_type_va));
     if (r->format_va) hle_free(hle_ptr(r->format_va));
@@ -603,7 +608,7 @@ static void reader_notify_complete(reader_t *r) {
 }
 
 static uint32_t reader_notify_end_of_stream(reader_t *r) {
-    pthread_mutex_lock(&r->stream_mutex);
+    mach_enter();
     uint32_t hr = S_OK;
     if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
         hr = S_FALSE; /* A flush owns the downstream stream boundary. */
@@ -611,14 +616,16 @@ static uint32_t reader_notify_end_of_stream(reader_t *r) {
         hr = guest_call(r->peer_pin, 14, 0, NULL);           /* IPin::EndOfStream */
     else
         hr = VFW_E_NOT_CONNECTED;
-    pthread_mutex_unlock(&r->stream_mutex);
+    mach_leave();
     return hr;
 }
 
 /* A new segment resets the renderer's stream-time origin. All three
- * arguments are 64-bit values in the 32-bit guest ABI: tStart, tStop, rate. */
+ * arguments are 64-bit values in the 32-bit guest ABI: tStart, tStop, rate.
+ * The single reader worker calls NewSegment and Receive sequentially, so
+ * these source-side streaming notifications are serialized without holding
+ * a native mutex across guest COM execution. */
 static uint32_t reader_notify_new_segment(reader_t *r) {
-    if (!r->peer_pin) return VFW_E_NOT_CONNECTED;
     double rate = 1.0;
     uint64_t rate_bits = 0;
     memcpy(&rate_bits, &rate, sizeof(rate_bits));
@@ -630,26 +637,23 @@ static uint32_t reader_notify_new_segment(reader_t *r) {
         (uint32_t)rate_bits, (uint32_t)(rate_bits >> 32)
     };
 
-    /* NewSegment must not overlap downstream streaming/flush control. The
-     * worker itself serializes it with Receive; this mutex also orders it
-     * against BeginFlush/EndFlush arriving from the graph thread. */
     for (;;) {
         if (atomic_load_explicit(&r->stop_requested, memory_order_acquire))
             return E_FAIL;
-        while (atomic_load_explicit(&r->pin_flushing, memory_order_acquire) &&
-               !atomic_load_explicit(&r->stop_requested, memory_order_acquire))
-            usleep(5000);
-        pthread_mutex_lock(&r->stream_mutex);
+        mach_enter();
         if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) {
-            pthread_mutex_unlock(&r->stream_mutex);
+            mach_leave();
             return E_FAIL;
         }
         if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
-            pthread_mutex_unlock(&r->stream_mutex);
+            mach_leave();
+            usleep(5000);
             continue;
         }
-        uint32_t hr = guest_call(r->peer_pin, 17, 6, args); /* IPin::NewSegment */
-        pthread_mutex_unlock(&r->stream_mutex);
+        uint32_t hr = r->peer_pin
+            ? guest_call(r->peer_pin, 17, 6, args)  /* IPin::NewSegment */
+            : VFW_E_NOT_CONNECTED;
+        mach_leave();
         return hr;
     }
 }
@@ -985,7 +989,7 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time, int start_
                      * may need time to prepare the next frame. The graph passes
                      * a small future start time for that reason. Shift only by
                      * the time actually spent paused, not by the future lead. */
-                    if (paused_at && now > paused_at)
+                    if (now > paused_at)
                         atomic_fetch_add_explicit(&r->pause_shift_100ns,
                                                   now - paused_at,
                                                   memory_order_acq_rel);
@@ -1111,22 +1115,25 @@ static void filter_GetState(void) {
 static void filter_SetSyncSource(void) {
     reader_t *r = reader_from_this("IMediaFilter::SetSyncSource");
     uint32_t clock = A32(1);
-    pthread_mutex_lock(&r->clock_mutex);
+    /* HLE callbacks and the decoder worker share the machine lock for all
+     * guest COM pointers. This avoids a native-mutex inversion with worker
+     * callbacks that themselves need to enter lifted code. */
+    mach_enter();
     if (clock) guest_call(clock, 1, 0, NULL);
     uint32_t previous = atomic_exchange_explicit(&r->clock_va, clock, memory_order_acq_rel);
     if (previous) guest_call(previous, 2, 0, NULL);
-    pthread_mutex_unlock(&r->clock_mutex);
+    mach_leave();
     RET(S_OK, 2);
 }
 static void filter_GetSyncSource(void) {
     reader_t *r = reader_from_this("IMediaFilter::GetSyncSource");
     uint32_t out = A32(1);
     if (!out) RET(E_POINTER, 2);
-    pthread_mutex_lock(&r->clock_mutex);
+    mach_enter();
     uint32_t clock = atomic_load_explicit(&r->clock_va, memory_order_acquire);
     if (clock) guest_call(clock, 1, 0, NULL);
     MEM32(out) = clock;
-    pthread_mutex_unlock(&r->clock_mutex);
+    mach_leave();
     RET(S_OK, 2);
 }
 static void filter_EnumPins(void) {
@@ -1400,18 +1407,17 @@ static void pin_EndOfStream(void) {
 }
 static void pin_BeginFlush(void) {
     reader_t *r = reader_from_this("IPin::BeginFlush");
+    /* Flush is a cancellation/control call. It deliberately does not wait
+     * for the worker's in-flight Receive; downstream BeginFlush must be able
+     * to release that call. The HLE machine lock serializes COM dispatch. */
     atomic_store_explicit(&r->pin_flushing, 1, memory_order_release);
-    pthread_mutex_lock(&r->stream_mutex);
     if (r->peer_pin) guest_call(r->peer_pin, 15, 0, NULL);
-    pthread_mutex_unlock(&r->stream_mutex);
     RET(S_OK, 1);
 }
 static void pin_EndFlush(void) {
     reader_t *r = reader_from_this("IPin::EndFlush");
-    pthread_mutex_lock(&r->stream_mutex);
     if (r->peer_pin) guest_call(r->peer_pin, 16, 0, NULL);
     atomic_store_explicit(&r->pin_flushing, 0, memory_order_release);
-    pthread_mutex_unlock(&r->stream_mutex);
     RET(S_OK, 1);
 }
 static void pin_NewSegment(void) {
@@ -1680,41 +1686,16 @@ static uint32_t reader_create(const uint8_t *iid, uint32_t *out) {
         return E_NOINTERFACE;
     reader_t *r = (reader_t *)calloc(1, sizeof(*r));
     if (!r) return E_OUTOFMEMORY;
-    if (pthread_mutex_init(&r->clock_mutex, NULL) != 0) {
-        free(r);
-        return E_FAIL;
-    }
-    pthread_mutexattr_t stream_attr;
-    if (pthread_mutexattr_init(&stream_attr) != 0) {
-        pthread_mutex_destroy(&r->clock_mutex);
-        free(r);
-        return E_FAIL;
-    }
-    int attr_hr = pthread_mutexattr_settype(&stream_attr, PTHREAD_MUTEX_RECURSIVE);
-    int stream_hr = attr_hr == 0 ? pthread_mutex_init(&r->stream_mutex, &stream_attr) : attr_hr;
-    pthread_mutexattr_destroy(&stream_attr);
-    if (stream_hr != 0) {
-        pthread_mutex_destroy(&r->clock_mutex);
-        free(r);
-        return E_FAIL;
-    }
     int slot = -1;
     for (int i = 0; i < MAX_READER_OBJECTS; i++)
         if (!g_readers[i]) { slot = i; break; }
-    if (slot < 0) {
-        pthread_mutex_destroy(&r->clock_mutex);
-        pthread_mutex_destroy(&r->stream_mutex);
-        free(r);
-        return E_OUTOFMEMORY;
-    }
+    if (slot < 0) { free(r); return E_OUTOFMEMORY; }
 
     uint8_t *filter = hle_alloc(4), *file = hle_alloc(4), *pin = hle_alloc(4);
     if (!filter || !file || !pin) {
         if (filter) hle_free(filter);
         if (file) hle_free(file);
         if (pin) hle_free(pin);
-        pthread_mutex_destroy(&r->clock_mutex);
-        pthread_mutex_destroy(&r->stream_mutex);
         free(r);
         return E_OUTOFMEMORY;
     }
