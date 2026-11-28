@@ -30,14 +30,14 @@ static void wmv_WMCreateProfileManager(void) {            /* (IWMProfileManager 
     uint32_t out = A32(0);
     if (!out) RET(0x80004003u, 1);                       /* E_POINTER */
     MEM32(out) = 0;
-    fprintf(stderr, "[wmvcore] WMCreateProfileManager: profile manager unavailable\\n");
+    fprintf(stderr, "[wmvcore] WMCreateProfileManager: profile manager unavailable\n");
     RET(0x80004001u, 1);                                 /* E_NOTIMPL */
 }
 static void wmv_WMCreateSyncReader(void) {                /* (cert, rights, IWMSyncReader **) */
     uint32_t out = A32(2);
     if (!out) RET(0x80004003u, 3);                       /* E_POINTER */
     MEM32(out) = 0;
-    fprintf(stderr, "[wmvcore] WMCreateSyncReader: synchronous ASF reader unavailable\\n");
+    fprintf(stderr, "[wmvcore] WMCreateSyncReader: synchronous ASF reader unavailable\n");
     RET(0x80004001u, 3);                                 /* E_NOTIMPL */
 }
 
