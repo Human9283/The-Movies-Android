@@ -1526,14 +1526,15 @@ static void pin_BeginFlush(void) {
      * to release that call. The HLE machine lock serializes COM dispatch. */
     atomic_fetch_add_explicit(&r->flush_generation, 1, memory_order_acq_rel);
     atomic_store_explicit(&r->pin_flushing, 1, memory_order_release);
-    if (r->peer_pin) guest_call(r->peer_pin, 15, 0, NULL);
-    RET(S_OK, 1);
+    uint32_t hr = r->peer_pin ? guest_call(r->peer_pin, 15, 0, NULL) : S_OK;
+    RET(hr, 1);
 }
 static void pin_EndFlush(void) {
     reader_t *r = reader_from_this("IPin::EndFlush");
-    if (r->peer_pin) guest_call(r->peer_pin, 16, 0, NULL);
-    atomic_store_explicit(&r->pin_flushing, 0, memory_order_release);
-    RET(S_OK, 1);
+    uint32_t hr = r->peer_pin ? guest_call(r->peer_pin, 16, 0, NULL) : S_OK;
+    if (!(hr & 0x80000000u))
+        atomic_store_explicit(&r->pin_flushing, 0, memory_order_release);
+    RET(hr, 1);
 }
 static void pin_NewSegment(void) {
     reader_t *r = reader_from_this("IPin::NewSegment");
