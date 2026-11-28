@@ -158,7 +158,38 @@ Android reader now publishes its file-timeline position atomically after each
 accepted frame, sets it to the known duration at EOF, and resets it when a
 new playback/loop starts. Graph `get_CurrentPosition` reads that value from
 the active ASF reader. This provides progress reporting only; seeking and
-rate changes remain unsupported.
+rate changes remain unsupported.rate changes remain unsupported.
+
+### Follow-up audit: playback lifecycle against Life Support
+
+A source-level comparison of the Android reader with the later Life Support
+playback fixes found:
+
+- Pause/resume is represented in the Android worker: pausing an active reader
+  sets its paused/running flags and Run resumes the same worker. This matches
+  the functional requirement described by Life Support for menu navigation.
+- The Android reader loops only paths matching frontend_loop / loop.wmv.
+  At loop EOF it resets the published position, reopens the decoder, sends a
+  new segment, and does not send EOS or EC_COMPLETE. Non-loop files publish
+  duration, then send downstream EOS and graph EC_COMPLETE. This is
+  consistent with the intended distinction between the menu loop and intros.
+- A lifecycle detail remains to verify: when a non-loop worker reaches EOF,
+  it clears the atomic running flag and sets worker_done, but does not
+  itself change the reader's FILTER_STATE field from Running. A later
+  Stop resets that state; a later Run joins/reopens a completed worker.
+  The game may not care, but this is not proven. Runtime traces should record
+  GetState, Stop, Pause, and Run around EOF and menu transition before
+  changing this behaviour.
+- The Life Support project reports a real teardown hang inside downstream
+  IMemInputPin::Receive, solved there with BeginFlush before destroying
+  its playback backend. The Android reader already has flush-generation
+  tracking and uses downstream BeginFlush/EndFlush around stream changes;
+  do not transplant the Life Support fix mechanically. If Android teardown
+  hangs, capture whether the worker is blocked in Receive, GetBuffer, or
+  another callback first.
+
+These are source-level findings and runtime hypotheses, not device validation.
+
 
 There is a second, separate completion gate in the game's playback controller.
 The Life Support Ghidra notes identify its field at offset `0x1C` as a game-side
