@@ -275,7 +275,11 @@ static uint32_t reader_end_flush(reader_t *r) {
 
 static uint32_t reader_disconnect(reader_t *r) {
     uint32_t stop_hr = reader_stop_worker(r);
-    if (r->worker_started) return stop_hr;
+    /* A callback can remove this filter from its own Receive call. In that
+     * case the worker has only been asked to stop; it still owns the sample
+     * and allocator until Receive unwinds. Keep the connection intact and
+     * let the caller retry after the streaming thread exits. */
+    if (r->worker_started) return VFW_E_WRONG_STATE;
     if (r->allocator) {
         if (r->allocator_committed) {
             (void)guest_call(r->allocator, 6, 0, NULL);  /* IMemAllocator::Decommit */
@@ -320,9 +324,15 @@ static uint32_t reader_release_host(reader_t *r) {
     int refs = __atomic_sub_fetch(&r->refs, 1, __ATOMIC_ACQ_REL);
     if (refs < 0) hle_fatal("[dshow-reader] reference count underflow");
     if (!refs) {
-        /* The last Release may be the worker's self-reference after an
-         * EC_COMPLETE callback removed the filter. Destruction frees guest
-         * interface storage, so it must run under the HLE machine lock. */
+        /* If the worker owns the final reference, it is now past every
+         * streaming callback and will not touch the reader again. Detach here,
+         * not from a re-entrant Stop/Disconnect inside Receive. */
+        if (r->worker_started && pthread_equal(pthread_self(), r->worker)) {
+            (void)pthread_detach(pthread_self());
+            r->worker_started = 0;
+        }
+        /* Destruction frees guest interface storage, so it must run under
+         * the HLE machine lock. */
         mach_enter();
         reader_destroy(r);
         mach_leave();
@@ -1088,10 +1098,11 @@ static uint32_t reader_stop_worker(reader_t *r) {
         atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
         atomic_store_explicit(&r->pause_started_100ns, 0, memory_order_release);
         atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
-        (void)pthread_detach(pthread_self());
-        r->worker_started = 0;
+        /* Do not detach or clear worker_started here. The callback may still
+         * be inside Receive; an external Stop/Disconnect must be able to join
+         * this thread after the callback unwinds. */
         r->state = FILTER_STATE_STOPPED;
-        return S_OK;
+        return S_FALSE;
     }
 
     /* BeginFlush is the DirectShow cancellation path for a downstream
@@ -1350,6 +1361,7 @@ static void filter_JoinFilterGraph(void) {
     if (!graph) {
         uint32_t stop_hr = reader_stop_worker(r);
         if (stop_hr & 0x80000000u) RET(stop_hr, 3);
+        if (r->worker_started) RET(VFW_E_WRONG_STATE, 3);
         r->graph_va = 0;
         r->filter_name[0] = 0;
     } else {
