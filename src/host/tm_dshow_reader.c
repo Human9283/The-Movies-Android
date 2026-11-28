@@ -98,6 +98,7 @@ struct reader {
     uint32_t graph_va;
     atomic_uint clock_va;
     pthread_mutex_t clock_mutex;       /* protects clock pointer + AddRef handoff */
+    pthread_mutex_t stream_mutex;      /* serializes NewSegment against flush calls */
     int refs;
     int width, height, stride;
     uint32_t sample_size;
@@ -266,6 +267,7 @@ static void reader_destroy(reader_t *r) {
     pthread_mutex_unlock(&r->clock_mutex);
     if (clock) guest_call(clock, 2, 0, NULL);
     pthread_mutex_destroy(&r->clock_mutex);
+    pthread_mutex_destroy(&r->stream_mutex);
     if (r->decoder) tm_asf_decoder_close(r->decoder);
     if (r->media_type_va) hle_free(hle_ptr(r->media_type_va));
     if (r->format_va) hle_free(hle_ptr(r->format_va));
@@ -604,17 +606,39 @@ static void reader_notify_complete(reader_t *r) {
  * arguments are 64-bit values in the 32-bit guest ABI: tStart, tStop, rate. */
 static uint32_t reader_notify_new_segment(reader_t *r) {
     if (!r->peer_pin) return VFW_E_NOT_CONNECTED;
-    uint64_t stop = 0x7fffffffffffffffULL;
-    if (r->duration_seconds > 0.0 && r->duration_seconds < 9.0e11)
-        stop = (uint64_t)(r->duration_seconds * (double)REFERENCE_TIME_PER_SEC);
     double rate = 1.0;
     uint64_t rate_bits = 0;
     memcpy(&rate_bits, &rate, sizeof(rate_bits));
+    uint64_t stop = 0x7fffffffffffffffULL;
+    if (r->duration_seconds > 0.0 && r->duration_seconds < 9.0e11)
+        stop = (uint64_t)(r->duration_seconds * (double)REFERENCE_TIME_PER_SEC);
     uint32_t args[6] = {
         0, 0, (uint32_t)stop, (uint32_t)(stop >> 32),
         (uint32_t)rate_bits, (uint32_t)(rate_bits >> 32)
     };
-    return guest_call(r->peer_pin, 17, 6, args);  /* IPin::NewSegment */
+
+    /* NewSegment must not overlap downstream streaming/flush control. The
+     * worker itself serializes it with Receive; this mutex also orders it
+     * against BeginFlush/EndFlush arriving from the graph thread. */
+    for (;;) {
+        if (atomic_load_explicit(&r->stop_requested, memory_order_acquire))
+            return E_FAIL;
+        while (atomic_load_explicit(&r->pin_flushing, memory_order_acquire) &&
+               !atomic_load_explicit(&r->stop_requested, memory_order_acquire))
+            usleep(5000);
+        pthread_mutex_lock(&r->stream_mutex);
+        if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) {
+            pthread_mutex_unlock(&r->stream_mutex);
+            return E_FAIL;
+        }
+        if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
+            pthread_mutex_unlock(&r->stream_mutex);
+            continue;
+        }
+        uint32_t hr = guest_call(r->peer_pin, 17, 6, args); /* IPin::NewSegment */
+        pthread_mutex_unlock(&r->stream_mutex);
+        return hr;
+    }
 }
 
 static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size,
@@ -894,6 +918,7 @@ static void reader_stop_worker(reader_t *r) {
         atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
         atomic_store_explicit(&r->pause_started_100ns, 0, memory_order_release);
         atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
+        (void)pthread_detach(pthread_self());
         r->worker_started = 0;
         r->state = FILTER_STATE_STOPPED;
         return;
@@ -1363,13 +1388,17 @@ static void pin_EndOfStream(void) {
 static void pin_BeginFlush(void) {
     reader_t *r = reader_from_this("IPin::BeginFlush");
     atomic_store_explicit(&r->pin_flushing, 1, memory_order_release);
+    pthread_mutex_lock(&r->stream_mutex);
     if (r->peer_pin) guest_call(r->peer_pin, 15, 0, NULL);
+    pthread_mutex_unlock(&r->stream_mutex);
     RET(S_OK, 1);
 }
 static void pin_EndFlush(void) {
     reader_t *r = reader_from_this("IPin::EndFlush");
+    pthread_mutex_lock(&r->stream_mutex);
     if (r->peer_pin) guest_call(r->peer_pin, 16, 0, NULL);
     atomic_store_explicit(&r->pin_flushing, 0, memory_order_release);
+    pthread_mutex_unlock(&r->stream_mutex);
     RET(S_OK, 1);
 }
 static void pin_NewSegment(void) {
@@ -1642,11 +1671,26 @@ static uint32_t reader_create(const uint8_t *iid, uint32_t *out) {
         free(r);
         return E_FAIL;
     }
+    pthread_mutexattr_t stream_attr;
+    if (pthread_mutexattr_init(&stream_attr) != 0) {
+        pthread_mutex_destroy(&r->clock_mutex);
+        free(r);
+        return E_FAIL;
+    }
+    int attr_hr = pthread_mutexattr_settype(&stream_attr, PTHREAD_MUTEX_RECURSIVE);
+    int stream_hr = attr_hr == 0 ? pthread_mutex_init(&r->stream_mutex, &stream_attr) : attr_hr;
+    pthread_mutexattr_destroy(&stream_attr);
+    if (stream_hr != 0) {
+        pthread_mutex_destroy(&r->clock_mutex);
+        free(r);
+        return E_FAIL;
+    }
     int slot = -1;
     for (int i = 0; i < MAX_READER_OBJECTS; i++)
         if (!g_readers[i]) { slot = i; break; }
     if (slot < 0) {
         pthread_mutex_destroy(&r->clock_mutex);
+        pthread_mutex_destroy(&r->stream_mutex);
         free(r);
         return E_OUTOFMEMORY;
     }
@@ -1657,6 +1701,7 @@ static uint32_t reader_create(const uint8_t *iid, uint32_t *out) {
         if (file) hle_free(file);
         if (pin) hle_free(pin);
         pthread_mutex_destroy(&r->clock_mutex);
+        pthread_mutex_destroy(&r->stream_mutex);
         free(r);
         return E_OUTOFMEMORY;
     }
