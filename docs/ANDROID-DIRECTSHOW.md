@@ -1,0 +1,81 @@
+# Android DirectShow video path
+
+## Scope
+
+The Android port contains a video-only implementation of the game's Windows
+Media ASF Reader. It is intended to support the files used during startup and
+in the frontend:
+
+- `atvi_logo.wmv`
+- `frontend_intro.wmv`
+- `frontend_loop.wmv`
+
+The implementation is source code only at this stage. It has **not** been
+compiled for Android or exercised against the game. Do not interpret the
+presence of this code as confirmation that the splash video, frontend, or
+gameplay works.
+
+## Current path
+
+1. The HLE COM registry exposes `CLSID_WMAsfReader`.
+2. The reader exposes `IBaseFilter` and `IFileSourceFilter`. `Load` resolves
+   the guest path through the HLE game-data mount and opens it with the
+   FFmpeg-backed ASF decoder.
+3. The source filter exposes one `IPin` named `Video` and enumerates one
+   `MEDIATYPE_Video / MEDIASUBTYPE_RGB24 / FORMAT_VideoInfo) media type.
+4. The source pin negotiates the downstream renderer's `IMemInputPin` and
+   allocator, requests four buffers, and commits/decommits the allocator with
+   the filter's Run/Stop transitions.
+5. A worker decodes WMV frames to BGR24, converts them to the bottom-up
+   RGB24 layout described by `VIDEOINFOHEADER`, timestamps them in
+   100-nanosecond units, and calls `IMemInputPin::Receive`.
+6. End of stream is forwarded to the connected pin and reported to the graph
+   through the game's `IFilterGraph / IMediaEventSink::Notify) vtable alias.
+
+The graph also routes `IGraphBuilder::RenderFile` and
+`IGraphBuilder::AddSourceFilter` through this reader. The RenderFile helper
+connects the source to an input pin already present in the graph; it is not a
+general DirectShow Intelligent Connect implementation. The game-specific
+source/renderer setup remains the primary target.
+
+## FFmpeg build
+
+Use [the Android build guide](ANDROID-BUILD.md#7-build-the-minimal-android-wmv-decoder)
+to build the pinned FFmpeg 9.1 subset. It enables the ASF demuxer, WMV1/2/3 and
+VC-1 decoders, the VC-1 parser, and the local-file protocol. FFmpeg is linked
+as shared LGPL libraries. No network protocols, command-line programs, or
+static FFmpeg libraries are enabled.
+
+## Deliberate limitations
+
+- Video only. WMV audio is not decoded or delivered.
+- No general Intelligent Connect, transform filters, renderer insertion, or
+  multi-pin graphs.
+- No seeking, rate changes, frame stepping, alternate RGB subtypes, or dynamic
+  media-type renegotiation.
+- No Windows Media profile manager, sync reader, or writer functionality.
+- The reader assumes the game's texture renderer accepts RGB24 and supports
+  the allocator/sample path used here.
+- The loop restart is filename-based and currently recognises
+  `frontend_loop` or `loop.wmv`.
+
+These constraints should be extended only when confirmed by the game's lifted
+call sites or runtime traces, not by adding speculative DirectShow stubs.
+
+## Validation still required
+
+Before calling the media path functional, verify on an ARM64 Android device:
+
+1. FFmpeg's shared libraries load and the linker resolves their SONAMEs.
+2. `CLSID_WMAsfReader` is instantiated and `IFileSourceFilter::Load` opens
+   the three WMV files from the installed game-data mount.
+3. The game's renderer accepts the advertised media type and allocator
+   properties.
+4. Frames arrive at the expected dimensions, orientation, cadence, and
+   colours; no stale frame or blank texture remains after completion.
+5. `frontend_intro.wmv` transitions to the loop without destroying the
+   reader or renderer, and pause/stop/run calls do not deadlock.
+6. The main menu accepts input and starts a new game; then verify an actual
+   gameplay session, not only the frontend.
+
+No APK build or device validation has been run for this implementation yet.
