@@ -34,6 +34,7 @@
 #define E_UNEXPECTED            0x8000FFFFu
 #define VFW_E_CANNOT_RENDER     0x80040218u
 #define VFW_E_NOT_CONNECTED     0x80040209u
+#define VFW_E_TIMEOUT            0x8004022Eu
 #define VFW_E_TYPE_NOT_ACCEPTED  0x8004022Au
 #define VFW_E_INVALID_DIRECTION  0x80040208u
 #define VFW_E_ALREADY_CONNECTED  0x80040204u
@@ -590,10 +591,15 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
     uint32_t get_args[4] = { sample_out_va, 0, 0, AM_GBF_NOWAIT };
     uint32_t hr = guest_call(r->allocator, 7, 4, get_args);
     uint32_t sample = guest_read32_locked(sample_out_va);
+    if (hr == VFW_E_TIMEOUT) {
+        guest_free_locked(time_va);
+        guest_free_locked(sample_out_va);
+        return 2;                                      /* retry when a renderer sample is freed */
+    }
     if (hr != S_OK || !sample) {
         guest_free_locked(time_va);
         guest_free_locked(sample_out_va);
-        return 2;                                      /* dropped frame: renderer busy */
+        return 0;                                      /* decommitted allocator or COM failure */
     }
 
     uint32_t pointer_out_va = guest_alloc_locked(4);
@@ -744,32 +750,33 @@ static void *reader_worker(void *opaque) {
                          REFERENCE_TIME_PER_SEC / frame_info.time_base_den)
             : (uint64_t)(r->avg_frame_seconds * (double)REFERENCE_TIME_PER_SEC);
         if (!duration) duration = 1;
-        int delivery = reader_deliver_frame(r, frame, r->sample_size, (int64_t)pts,
+        int delivery;
+        for (;;) {
+            delivery = reader_deliver_frame(r, frame, r->sample_size, (int64_t)pts,
                                             (int64_t)(pts + duration));
-        if (delivery == 0 &&
-            atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
+            if (delivery == 0 &&
+                atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
+                delivery = 2;                       /* BeginFlush cancelled Receive */
+            if (delivery != 2) break;
+            if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) break;
             while (atomic_load_explicit(&r->pin_flushing, memory_order_acquire) &&
                    !atomic_load_explicit(&r->stop_requested, memory_order_acquire))
                 usleep(5000);
             if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) break;
-            frame_number++;
-            continue;                               /* flush cancelled this sample */
+            /* AM_GBF_NOWAIT timed out or the peer was flushing. Wait
+             * interruptibly, then retry this exact decoded frame; do not
+             * advance the stream and silently lose it. */
+            usleep(5000);
         }
+        if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) break;
         if (delivery == 0) {
-            if (!atomic_load_explicit(&r->stop_requested, memory_order_acquire))
-                fprintf(stderr, "[dshow-reader] downstream rejected frame %llu\n",
-                        (unsigned long long)frame_number);
+            fprintf(stderr, "[dshow-reader] downstream rejected frame %llu\n",
+                    (unsigned long long)frame_number);
             stream_error = 1;
             break;
         }
-        if (delivery == 1) {
+        if (delivery == 1)
             atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
-        } else if (delivery == 2 &&
-                   atomic_load_explicit(&r->preroll_pending, memory_order_acquire)) {
-            /* Still waiting to cue the renderer, but remain interruptible by
-             * Stop/flush while the downstream allocator has no free sample. */
-            usleep(5000);
-        }
         frame_number++;
     }
 
