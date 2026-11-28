@@ -1511,7 +1511,8 @@ static void pin_QueryInternalConnections(void) {
 }
 static void pin_EndOfStream(void) {
     reader_t *r = reader_from_this("IPin::EndOfStream");
-    RET(reader_notify_end_of_stream(r), 1);
+    uint32_t generation = atomic_load_explicit(&r->flush_generation, memory_order_acquire);
+    RET(reader_notify_end_of_stream(r, generation), 1);
 }
 static void pin_BeginFlush(void) {
     reader_t *r = reader_from_this("IPin::BeginFlush");
