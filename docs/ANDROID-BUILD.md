@@ -251,7 +251,20 @@ python "$WORK/port/android-game/tools/patch_win32hle_input_trace.py" \
 
 Do not run this patcher a second time on the same checkout. If you need a clean re-application, restore or reclone the pinned pcrecomp revision first.
 
-## 7. Choose whether to include game data in the APK
+## 7. Build the minimal Android WMV decoder
+
+The game uses ASF/WMV files for the publisher logo, intro and menu background. The Android host therefore needs an actual video decoder before DirectShow can connect the game's texture renderer. Build the pinned FFmpeg 9.1 subset:
+
+~~~bash
+export FFMPEG_ROOT="$WORK/ffmpeg"
+bash "$WORK/port/android-game/tools/build_ffmpeg_android.sh" "$FFMPEG_ROOT"
+~~~
+
+The script downloads the official FFmpeg 9.1 release tarball and its detached PGP signature, checks the FFmpeg release-signing key fingerprint, and verifies the signature before extraction. It cross-compiles only the shared `avutil`, `avcodec`, `avformat` and `swscale` libraries for ARM64. Enabled media components are the ASF demuxer, WMV1/2/3 and VC-1 video decoders, the VC-1 parser and the local-file protocol. Programs, network protocols, autodetected dependencies and static libraries are disabled. The link uses 16-KB page alignment flags as an additional guard; NDK r28 also enables 16-KB alignment by default.
+
+This is a video-only decode path. It does not provide WMV audio, a DirectShow source filter, a DirectShow output pin or frame delivery to the game's renderer by itself. It is a dependency prerequisite, not evidence that the menu or game is playable. The FFmpeg binary licence text is copied by the build helper into the install prefix and must be included in the application package.
+
+## 8. Choose whether to include game data in the APK
 
 **Full APK with your own game data:** package the files extracted in step 3:
 
@@ -264,9 +277,9 @@ This creates game-data.tar and game-manifest.json locally under the app assets d
 
 **Slim APK:** skip this step. On first launch, the app asks you to select an already installed copy of the game containing Movies.exe and Data/. It copies that folder into app-private storage.
 
-## 8. Stage the native libraries and build
+## 9. Stage the native libraries and build
 
-Copy the four required ARM64 libraries into the Android application's JNI library directory:
+Copy the required ARM64 shared libraries into the Android application's JNI library directory:
 
 ~~~bash
 export LIBDIR="$WORK/port/android-game/app/src/main/jniLibs/arm64-v8a"
@@ -274,6 +287,11 @@ mkdir -p "$LIBDIR"
 cp "$SDL_LIB" "$LIBDIR/libSDL2.so"
 cp "$SDL2_TTF_LIB" "$LIBDIR/libSDL2_ttf.so"
 cp "$DXVK_LIB" "$LIBDIR/libdxvk_d3d9.so"
+for library in avutil avcodec avformat swscale; do
+  cp "$FFMPEG_ROOT/lib/lib${library}.so" "$LIBDIR/lib${library}.so"
+done
+mkdir -p "$WORK/port/android-game/app/src/main/assets/licenses"
+cp "$FFMPEG_ROOT/FFmpeg-COPYING.LGPLv2.1" "$WORK/port/android-game/app/src/main/assets/licenses/"
 cp "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" "$LIBDIR/"
 ~~~
 
@@ -289,6 +307,7 @@ gradle --no-daemon --max-workers=1 -p "$WORK/port/android-game" \
   -Psdl2TtfIncludeDir="$SDL2_TTF_INCLUDE" \
   -Psdl2TtfLibrary="$SDL2_TTF_LIB" \
   -PdxvkLibrary="$DXVK_LIB" \
+  -PffmpegRoot="$FFMPEG_ROOT" \
   :app:assembleDebug
 ~~~
 
@@ -300,7 +319,7 @@ $WORK/port/android-game/app/build/outputs/apk/debug/app-debug.apk
 
 The build targets arm64-v8a, Android API 24+, compile SDK 36 and target SDK 35. The CMake native compilation is intentionally serialized because the generated C source is large.
 
-## 9. Install
+## 10. Install
 
 Copy the APK to the Android device and install it using Android's package installer. For adb:
 
