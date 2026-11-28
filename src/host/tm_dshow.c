@@ -867,9 +867,18 @@ static uint32_t graph_connect_reader_output(uint32_t graph_va, uint32_t filter_v
         uint32_t fetched = MEM32(fetched_va);
         if (!fetched || !pin) break;
 
-        uint32_t direction = 0xFFFFFFFFu;
-        uint32_t direction_args[1] = { hle_va(&direction) };
+        uint32_t *direction_mem = (uint32_t *)hle_alloc(4);
+        if (!direction_mem) {
+            com_release(pin);
+            result = E_OUTOFMEMORY;
+            break;
+        }
+        uint32_t direction_va = hle_va(direction_mem);
+        MEM32(direction_va) = 0xFFFFFFFFu;
+        uint32_t direction_args[1] = { direction_va };
         uint32_t direction_hr = vcall(pin, 9, 1, direction_args);
+        uint32_t direction = MEM32(direction_va);
+        hle_free(direction_mem);
         if (!(direction_hr & 0x80000000u) && direction == 1) {
             result = graph_connect_output_pin(graph_va, pin);
             com_release(pin);
