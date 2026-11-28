@@ -69,7 +69,7 @@ java -version
 gradle --version
 ~~~
 
-Use JDK 17 and Gradle 8.11.1. The Android Gradle Plugin declared by the project is 8.10.1; that plugin's minimum supported Gradle version is 8.11.1. Official references: [Android command-line tools and package checksums](https://developer.android.com/studio), [Android SDK/NDK setup](https://developer.android.com/studio/projects/install-ndk), [Gradle 8.11.1 checksums](https://gradle.org/release-checksums/), and [Android Gradle Plugin compatibility](https://developer.android.com/build/releases/gradle-plugin).
+Use JDK 17 and Gradle 8.11.1. The Android Gradle Plugin declared by the project is 8.10.1; the official compatibility table lists Gradle 8.11.1 as its minimum. AGP 9.6.0 is now available (November 2026), but requires Gradle 9.8.2 and Build Tools 37.0.0; this recipe deliberately retains the 8.10.1/8.11.1 pair rather than mixing a major build-tool migration into the native port. Upgrade AGP, Gradle, compile SDK and Build Tools together only after a separate build validation. Official references: [Android command-line tools and package checksums](https://developer.android.com/studio), [Android SDK/NDK setup](https://developer.android.com/studio/projects/install-ndk), [Gradle 8.11.1 checksums](https://gradle.org/release-checksums/), [AGP compatibility table](https://developer.android.com/build/releases/about-agp), and [AGP 9.6.0 release notes](https://developer.android.com/build/releases/agp-9-6-0-release-notes).
 
 ## 2. Check out the source and pinned runtime
 
