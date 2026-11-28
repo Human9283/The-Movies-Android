@@ -13,6 +13,8 @@ uint32_t tm_dshow_reader_add_source_filter(uint32_t graph, uint32_t file_name,
 /* Read the loaded source's media properties without exposing decoder state. */
 int tm_dshow_reader_media_info(uint32_t filter, double *duration_seconds,
                                double *frame_seconds, int *width, int *height);
+/* Return the last successfully delivered source position in seconds. */
+int tm_dshow_reader_current_position(uint32_t filter, double *position_seconds);
 
 
 #endif
