@@ -149,6 +149,7 @@ typedef struct {
 } obj_t;
 #define MAX_OBJS 64
 static obj_t g_obj[MAX_OBJS];
+static uint32_t graph_render_file(obj_t *graph, uint32_t file_name);
 static int g_created[4], g_destroyed[4];
 static uint32_t g_vt[4];
 static uint32_t g_vt_event_sink, g_vt_media_control;
