@@ -901,7 +901,7 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
         g->last_event_param2 = param2;
         g->event_count++;
         if (g->event_count <= 16 || !(g->event_count & (g->event_count - 1)))
-            fprintf(stderr, "[dshow] FilterGraph::AddFilter-dispatch -> IMediaEventSink::Notify graph=0x%08X event=0x%08X p1=0x%08X p2=0x%08X count=%u\\n",
+            fprintf(stderr, "[dshow] FilterGraph::AddFilter-dispatch -> IMediaEventSink::Notify graph=0x%08X event=0x%08X p1=0x%08X p2=0x%08X count=%u\n",
                     va, event_code, param1, param2, g->event_count);
         RET(S_OK, 4);
     }
