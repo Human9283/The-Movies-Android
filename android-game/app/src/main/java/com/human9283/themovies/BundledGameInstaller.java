@@ -63,6 +63,7 @@ public final class BundledGameInstaller {
         }
 
         Map<String, ExpectedFile> expected = new HashMap<>();
+        Set<String> windowsPaths = new HashSet<>();
         long manifestBytes = 0;
         for (int i = 0; i < entries.length(); i++) {
             JSONObject item = entries.getJSONObject(i);
@@ -70,6 +71,7 @@ public final class BundledGameInstaller {
             long size = item.getLong("size");
             String hash = item.getString("sha256").toLowerCase(Locale.ROOT);
             if (!isSafeRelativePath(path) || size < 0 || !hash.matches("[0-9a-f]{64}")
+                    || !windowsPaths.add(path.toLowerCase(Locale.ROOT))
                     || expected.put(path, new ExpectedFile(size, hash)) != null) {
                 throw new IOException("Invalid or duplicate game manifest entry: " + path);
             }
@@ -82,13 +84,19 @@ public final class BundledGameInstaller {
         if (manifestBytes != expectedTotal) {
             throw new IOException("Game manifest total_bytes does not match the sum of its file sizes");
         }
+        final long requiredSpace;
+        try {
+            requiredSpace = Math.addExact(expectedTotal, EXTRA_SPACE_BYTES);
+        } catch (ArithmeticException overflow) {
+            throw new IOException("Game manifest size is too large", overflow);
+        }
 
         StatFs storage = new StatFs(context.getFilesDir().getAbsolutePath());
         long available = storage.getAvailableBytes();
-        if (available < expectedTotal + EXTRA_SPACE_BYTES) {
+        if (available < requiredSpace) {
             throw new IOException(String.format(Locale.US,
                 "Not enough free internal storage. Need at least %.2f GB free; available %.2f GB.",
-                (expectedTotal + EXTRA_SPACE_BYTES) / 1_000_000_000.0,
+                requiredSpace / 1_000_000_000.0,
                 available / 1_000_000_000.0));
         }
 
