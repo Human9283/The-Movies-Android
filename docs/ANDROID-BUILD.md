@@ -76,12 +76,12 @@ Use JDK 17 and Gradle 8.11.1. The Android Gradle Plugin declared by the project 
 ~~~bash
 git clone https://github.com/Human9283/The-Movies-Android "$WORK/port"
 git clone https://github.com/sp00nznet/pcrecomp "$WORK/pcrecomp"
-git -C "$WORK/pcrecomp" checkout 7c07a0b42059b6dc4313d9b4ebded6f7a72db8f3
+git -C "$WORK/pcrecomp" checkout 5f1d2f76873419bf0414de7a0a9aca34d8e720f9
 git clone https://github.com/sp00nznet/themovies "$WORK/themovies"
 git -C "$WORK/themovies" checkout 8e278f6b22d70095d0b1b10803370613b20862f5
 ~~~
 
-The pcrecomp and themovies revisions are pinned because the generated lift and host shims depend on their runtime interfaces.
+The pcrecomp and themovies revisions are pinned because the generated lift and host shims depend on their runtime interfaces. The pinned pcrecomp revision includes the opt-in `LIFT32_ABI` register-preservation analysis. This Android recipe deliberately leaves `LIFT32_ABI` unset: it requires a two-pass lift and validation of the generated call plan, and has not been qualified for this game build.
 
 ## 3. Install your copy of the game and generate the lift
 
@@ -169,10 +169,10 @@ export SDL_ROOT="$WORK/SDL"
 export SDL_PREFIX="$WORK/android-deps"
 ~~~
 
-Build SDL2 release 2.30.9:
+Build SDL2 release 2.32.10:
 
 ~~~bash
-git clone --depth 1 --branch release-2.30.9 \
+git clone --depth 1 --branch release-2.32.10 \
   https://github.com/libsdl-org/SDL.git "$SDL_ROOT"
 cmake -S "$SDL_ROOT" -B "$SDL_ROOT/build-android" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
@@ -192,10 +192,10 @@ export SDL2_CMAKE_DIR="$(dirname "$(find "$SDL_PREFIX" -name SDL2Config.cmake -p
 export SDL_LIB="$(find "$SDL_ROOT/build-android" -name libSDL2.so -print -quit)"
 ~~~
 
-Build SDL2_ttf release 2.22.0:
+Build SDL2_ttf release 2.24.0:
 
 ~~~bash
-git clone --depth 1 --branch release-2.22.0 \
+git clone --depth 1 --branch release-2.24.0 \
   https://github.com/libsdl-org/SDL_ttf.git "$WORK/SDL_ttf"
 git -C "$WORK/SDL_ttf" submodule update --init --depth 1
 cmake -S "$WORK/SDL_ttf" -B "$WORK/SDL_ttf/build-android" -G Ninja \
