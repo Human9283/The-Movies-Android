@@ -159,7 +159,6 @@ typedef struct {
     uint32_t graph;
     /* writer: the graph it joined (not referenced) and the name it was given */
     uint32_t joined;
-    uint32_t sync_source_va;
     uint16_t name[MAX_FILTER_NAME];
 } obj_t;
 #define MAX_OBJS 64
