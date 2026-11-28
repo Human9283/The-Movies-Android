@@ -1036,11 +1036,12 @@ void dev_Reset() {                                       /* (this, D3DPRESENT_PA
 
     HRESULT hr = d->Reset(&hp);
     if (SUCCEEDED(hr)) {
-        const uint32_t actual_width = hp.BackBufferWidth;
-        const uint32_t actual_height = hp.BackBufferHeight;
-        /* D3D9's Reset contract writes these fields back as zero;
-         * BackBufferFormat becomes UNKNOWN in windowed mode. Keep the actual
-         * dimensions separately for the host window/screen mapping. */
+        /* D3D9 writes width, height and back-buffer count back as zero,
+         * so preserve the requested full-screen dimensions before applying
+         * the API's output-parameter rules. Full-screen mode requires explicit
+         * nonzero dimensions; windowed mode follows the current display. */
+        const uint32_t requested_width = g[PP_W];
+        const uint32_t requested_height = g[PP_H];
         hp.BackBufferWidth = 0;
         hp.BackBufferHeight = 0;
         hp.BackBufferCount = 0;
@@ -1054,7 +1055,7 @@ void dev_Reset() {                                       /* (this, D3DPRESENT_PA
             if (back[k] != g[k]) MEM32(pp + 4u * (uint32_t)k) = back[k];
 
         if (!hp.Windowed)
-            hle_set_screen_size((int)actual_width, (int)actual_height);
+            hle_set_screen_size((int)requested_width, (int)requested_height);
     }
     fprintf(stderr, "[d3d9] IDirect3DDevice9::Reset(%ux%u, %s) -> 0x%08X\n",
             g[PP_W], g[PP_H], g[PP_WINDOWED] ? "windowed" : "full screen", (unsigned)hr);
