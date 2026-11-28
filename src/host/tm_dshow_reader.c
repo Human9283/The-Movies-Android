@@ -250,7 +250,14 @@ static void reader_destroy(reader_t *r) {
 static uint32_t reader_release_host(reader_t *r) {
     int refs = __atomic_sub_fetch(&r->refs, 1, __ATOMIC_ACQ_REL);
     if (refs < 0) hle_fatal("[dshow-reader] reference count underflow");
-    if (!refs) reader_destroy(r);
+    if (!refs) {
+        /* The last Release may be the worker's self-reference after an
+         * EC_COMPLETE callback removed the filter. Destruction frees guest
+         * interface storage, so it must run under the HLE machine lock. */
+        mach_enter();
+        reader_destroy(r);
+        mach_leave();
+    }
     return (uint32_t)refs;
 }
 
@@ -1033,10 +1040,8 @@ static void file_GetCurFile(void) {
             MEM32(name_out) = 0;
             RET(hr, 3);
         }
-        uint32_t format = MEM32(mt + 68);
         memcpy(hle_ptr(mt_out), hle_ptr(mt), 72);
         hle_free(hle_ptr(mt));                    /* format block now belongs to caller */
-        (void)format;
     }
     RET(S_OK, 3);
 }
