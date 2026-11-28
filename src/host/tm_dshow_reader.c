@@ -586,7 +586,7 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
     uint32_t get_args[4] = { sample_out_va, 0, 0, AM_GBF_NOWAIT };
     uint32_t hr = guest_call(r->allocator, 7, 4, get_args);
     uint32_t sample = guest_read32_locked(sample_out_va);
-    if ((hr & 0x80000000u) || !sample) {
+    if (hr != S_OK || !sample) {
         guest_free_locked(time_va);
         guest_free_locked(sample_out_va);
         return 2;                                      /* dropped frame: renderer busy */
@@ -604,19 +604,21 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
     hr = guest_call(sample, 3, 1, pointer_args);        /* IMediaSample::GetPointer */
     uint32_t buffer_va = guest_read32_locked(pointer_out_va);
     uint32_t max_size = guest_call(sample, 4, 0, NULL); /* IMediaSample::GetSize */
-    if (!(hr & 0x80000000u) && buffer_va && max_size >= size) {
+    if (hr == S_OK && buffer_va && max_size >= size) {
         guest_copy_locked(buffer_va, frame, size);
         uint64_t times[2] = { (uint64_t)start, (uint64_t)end };
         guest_copy_locked(time_va, times, sizeof(times));
         uint32_t set_time_args[2] = { time_va, time_va + 8 };
-        (void)guest_call(sample, 6, 2, set_time_args);  /* SetTime */
+        hr = guest_call(sample, 6, 2, set_time_args);  /* SetTime */
         uint32_t one[1] = { 1 }, zero[1] = { 0 }, actual[1] = { size };
-        (void)guest_call(sample, 8, 1, one);            /* SetSyncPoint */
-        (void)guest_call(sample, 10, 1, zero);          /* SetPreroll */
-        (void)guest_call(sample, 12, 1, actual);        /* SetActualDataLength */
-        (void)guest_call(sample, 16, 1, zero);          /* SetDiscontinuity */
-        uint32_t receive_args[1] = { sample };
-        hr = guest_call(r->peer_mem_input, 6, 1, receive_args); /* IMemInputPin::Receive (slot 6) */
+        if (hr == S_OK) hr = guest_call(sample, 8, 1, one);            /* SetSyncPoint */
+        if (hr == S_OK) hr = guest_call(sample, 10, 1, zero);          /* SetPreroll */
+        if (hr == S_OK) hr = guest_call(sample, 12, 1, actual);        /* SetActualDataLength */
+        if (hr == S_OK) hr = guest_call(sample, 16, 1, zero);          /* SetDiscontinuity */
+        if (hr == S_OK) {
+            uint32_t receive_args[1] = { sample };
+            hr = guest_call(r->peer_mem_input, 6, 1, receive_args); /* IMemInputPin::Receive (slot 6) */
+        }
     } else {
         hr = E_FAIL;
     }
@@ -678,7 +680,6 @@ static void *reader_worker(void *opaque) {
     uint8_t *frame = (uint8_t *)malloc(r->sample_size);
     if (!frame) {
         fprintf(stderr, "[dshow-reader] frame buffer allocation failed\n");
-        reader_notify_complete(r);
         atomic_store_explicit(&r->running, 0, memory_order_release);
         atomic_store_explicit(&r->worker_done, 1, memory_order_release);
         reader_release_host(r);                     /* drop worker-owned COM reference */
