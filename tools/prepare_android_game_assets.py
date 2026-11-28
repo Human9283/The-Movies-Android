@@ -87,13 +87,15 @@ def main() -> int:
         if not isinstance(size, int) or size < 0 or not isinstance(recorded_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", recorded_hash):
             raise SystemExit(f"Missing or invalid size/SHA-256: {relative}")
 
-        windows_key = relative.casefold()
-        previous_name = windows_names.get(windows_key)
-        if previous_name is not None and previous_name != relative:
-            raise SystemExit(
-                f"Windows case-insensitive path collision: {previous_name!r} and {relative!r}"
-            )
-        windows_names[windows_key] = relative
+        for depth in range(1, len(parts) + 1):
+            prefix = "/".join(parts[:depth])
+            windows_key = prefix.casefold()
+            previous_name = windows_names.get(windows_key)
+            if previous_name is not None and previous_name != prefix:
+                raise SystemExit(
+                    f"Windows case-insensitive path collision: {previous_name!r} and {prefix!r}"
+                )
+            windows_names[windows_key] = prefix
 
         previous = unique.get(relative)
         if previous is not None:
