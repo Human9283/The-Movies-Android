@@ -1585,6 +1585,12 @@ static void graph_RemoveFilter(void) {
         if (g->filter[i] == filter) { index = i; break; }
     if (index < 0) RET(E_FAIL, 2);
 
+    /* Cache the source-filter classification while the graph still owns the
+     * filter. The per-frame Stop compatibility path depends on an exact count;
+     * decrement only after removal has completed successfully. */
+    int is_asf_reader = filter_is_asf_reader(filter);
+    if (is_asf_reader < 0) RET(E_OUTOFMEMORY, 2);
+
     /* Match the Filter Graph Manager's removal sequence: enumerate this
      * filter's pins, disconnect both ends of each connection, then notify
      * the filter that it has left the graph. Disconnect can fail while a
@@ -1701,6 +1707,7 @@ static void graph_RemoveFilter(void) {
     g->filter[g->nf] = 0;
     g->fname[g->nf] = 0;
     g->graph_version++;
+    if (is_asf_reader && g->asf_readers > 0) g->asf_readers--;
     if (name) hle_free(hle_ptr(name));
     com_release(filter);                                /* drop the graph's reference */
     RET(S_OK, 2);
