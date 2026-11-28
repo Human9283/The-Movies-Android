@@ -613,7 +613,7 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
         (void)guest_call(sample, 12, 1, actual);        /* SetActualDataLength */
         (void)guest_call(sample, 16, 1, zero);          /* SetDiscontinuity */
         uint32_t receive_args[1] = { sample };
-        hr = guest_call(r->peer_mem_input, 7, 1, receive_args); /* Receive */
+        hr = guest_call(r->peer_mem_input, 6, 1, receive_args); /* IMemInputPin::Receive (slot 6) */
     } else {
         hr = E_FAIL;
     }
@@ -1010,6 +1010,13 @@ static void file_Release(void) {
     reader_t *r = reader_from_this("IFileSourceFilter::Release");
     RET(reader_release_host(r), 1);
 }
+static void file_GetClassID(void) {
+    reader_from_this("IFileSourceFilter::GetClassID");
+    uint32_t out = A32(1);
+    if (!out) RET(E_POINTER, 2);
+    memcpy(hle_ptr(out), CLSID_WMAsfReader, 16);
+    RET(S_OK, 2);
+}
 static void file_Load(void) {
     reader_t *r = reader_from_this("IFileSourceFilter::Load");
     uint32_t name = A32(1);
@@ -1384,10 +1391,13 @@ static const win32hle_shim filter_methods[] = {
     { "WMAsfReaderFilter::QueryVendorInfo", filter_QueryVendorInfo },
     { NULL, NULL }
 };
+/* IFileSourceFilter inherits IPersist: GetClassID is slot 3, Load slot 4,
+ * and GetCurFile slot 5. Keep the inherited method in the vtable. */
 static const win32hle_shim file_methods[] = {
     { "WMAsfReaderFileSource::QueryInterface", file_QueryInterface },
     { "WMAsfReaderFileSource::AddRef", file_AddRef },
     { "WMAsfReaderFileSource::Release", file_Release },
+    { "WMAsfReaderFileSource::GetClassID", file_GetClassID },
     { "WMAsfReaderFileSource::Load", file_Load },
     { "WMAsfReaderFileSource::GetCurFile", file_GetCurFile },
     { NULL, NULL }
@@ -1507,7 +1517,7 @@ uint32_t tm_dshow_reader_add_source_filter(uint32_t graph, uint32_t file_name,
     }
 
     uint32_t load_args[2] = { file_name, 0 };
-    hr = guest_call(file_source, 3, 2, load_args);       /* IFileSourceFilter::Load */
+    hr = guest_call(file_source, 4, 2, load_args);       /* IFileSourceFilter::Load (after IPersist::GetClassID) */
     guest_call(file_source, 2, 0, NULL);
     if (hr & 0x80000000u) {
         guest_call(filter, 2, 0, NULL);
