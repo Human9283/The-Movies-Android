@@ -1008,7 +1008,9 @@ static void file_GetCurFile(void) {
     memcpy(copy, r->current_path, (n + 1) * sizeof(uint16_t));
     MEM32(name_out) = hle_va(copy);
     if (mt_out) {
-        MEM32(mt_out) = 0;
+        /* pmt is an AM_MEDIA_TYPE structure, not AM_MEDIA_TYPE**. Copy the
+         * structure and transfer ownership of its format block to caller. */
+        memset(hle_ptr(mt_out), 0, 72);
         uint32_t mt = 0;
         uint32_t hr = media_type_clone(r, &mt);
         if (hr != S_OK) {
@@ -1016,7 +1018,10 @@ static void file_GetCurFile(void) {
             MEM32(name_out) = 0;
             RET(hr, 3);
         }
-        MEM32(mt_out) = mt;
+        uint32_t format = MEM32(mt + 68);
+        memcpy(hle_ptr(mt_out), hle_ptr(mt), 72);
+        hle_free(hle_ptr(mt));                    /* format block now belongs to caller */
+        (void)format;
     }
     RET(S_OK, 3);
 }
