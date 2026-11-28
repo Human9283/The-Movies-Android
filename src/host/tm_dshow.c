@@ -866,6 +866,7 @@ static uint32_t create_writer(const uint8_t *iid, uint32_t *out)  { return creat
  * renderer pins exist. Fail through HRESULT so callers can take a fallback. */
 static void builder_RenderStream(void) {                 /* (this, category, type, source, compressor, renderer) */
     self(OBJ_BUILDER, "RenderStream");
+    if (!A32(3)) RET(E_POINTER, 6);
     fprintf(stderr, "[dshow] CaptureGraphBuilder2::RenderStream: stream graph is unavailable\n");
     RET(VFW_E_CANNOT_RENDER, 6);
 }
