@@ -63,7 +63,11 @@ struct Proxy {
     Kind kind;
     uint32_t parent = 0;                                 /* a device: the guest IDirect3D9 that made it;
                                                             a texture's level: the texture */
-    uint32_t guest_window = 0;                            /* the guest HWND mapped to the SDL window */
+    uint32_t guest_window = 0;                            /* guest hDeviceWindow mapped to SDL */
+    uint32_t guest_focus_window = 0;                      /* original CreateDevice hFocusWindow */
+    uint32_t creation_adapter = 0;
+    uint32_t creation_type = 0;
+    uint32_t creation_flags = 0;
     uint32_t shadow = 0, shadow_size = 0;                /* guest VA and size, once locked */
     int locks = 0;
     uint32_t lock_off = 0, lock_size = 0, lock_flags = 0;
@@ -970,6 +974,10 @@ uint32_t create_device(uint32_t d3d, uint32_t adapter, uint32_t type, uint32_t f
     uint32_t va = wrap(dev, DEVICE);
     g_px[va].parent = d3d;
     g_px[va].guest_window = hwnd;
+    g_px[va].guest_focus_window = focus;
+    g_px[va].creation_adapter = adapter;
+    g_px[va].creation_type = type;
+    g_px[va].creation_flags = flags;
     MEM32(out) = va;
     fprintf(stderr, "[d3d9] CreateDevice(%ux%u %s, %s, %s depth, flags 0x%X) on DXVK -> IDirect3DDevice9 0x%08X, window 0x%08X\n",
             g[PP_W], g[PP_H], fmt_name(g[PP_FMT]), g[PP_WINDOWED] ? "windowed" : "full screen", fmt_name(g[PP_DSFMT]),
@@ -987,10 +995,11 @@ void dev_GetCreationParameters() {                     /* (this, D3DDEVICE_CREAT
     D3DDEVICE_CREATION_PARAMETERS p = {};
     HRESULT hr = d->GetCreationParameters(&p);
     if (SUCCEEDED(hr)) {
-        MEM32(out + 0) = p.AdapterOrdinal;
-        MEM32(out + 4) = (uint32_t)p.DeviceType;
-        MEM32(out + 8) = g_px[A32(0)].guest_window;
-        MEM32(out + 12) = p.BehaviorFlags;
+        const Proxy &proxy = g_px[A32(0)];
+        MEM32(out + 0) = proxy.creation_adapter;
+        MEM32(out + 4) = proxy.creation_type;
+        MEM32(out + 8) = proxy.guest_focus_window;
+        MEM32(out + 12) = proxy.creation_flags;
     }
     RET((uint32_t)hr, 2);
 }
