@@ -125,7 +125,7 @@ struct reader {
     atomic_int paused;
     atomic_int running;
     int looping;
-    int pin_flushing;
+    atomic_int pin_flushing;
 };
 
 struct pin_enum {
@@ -232,7 +232,7 @@ static void reader_disconnect(reader_t *r) {
         guest_call(r->peer_pin, 2, 0, NULL);
         r->peer_pin = 0;
     }
-    r->pin_flushing = 0;
+    atomic_store_explicit(&r->pin_flushing, 0, memory_order_release);
 }
 
 static void reader_destroy(reader_t *r) {
@@ -574,6 +574,7 @@ static void reader_notify_complete(reader_t *r) {
 
 static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size,
                                 int64_t start, int64_t end) {
+    if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) return 2;
     if (!r->peer_mem_input || !r->allocator) return 0;
     uint32_t sample_out_va = guest_alloc_locked(4);
     uint32_t time_va = guest_alloc_locked(16);
@@ -646,18 +647,26 @@ static uint64_t frame_pts_100ns(reader_t *r, const tm_asf_frame_info *frame,
 }
 
 static int reader_wait_unpaused(reader_t *r) {
-    while (atomic_load_explicit(&r->paused, memory_order_acquire) &&
-           !atomic_load_explicit(&r->stop_requested, memory_order_acquire)) {
-        if (atomic_load_explicit(&r->preroll_pending, memory_order_acquire))
-            return 1;                               /* allow one frame to cue the renderer */
+    for (;;) {
+        if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) return 0;
+        if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
+            usleep(5000);
+            continue;
+        }
+        if (!atomic_load_explicit(&r->paused, memory_order_acquire) ||
+            atomic_load_explicit(&r->preroll_pending, memory_order_acquire))
+            return 1;                               /* allow one cue sample while paused */
         usleep(5000);
     }
-    return !atomic_load_explicit(&r->stop_requested, memory_order_acquire);
 }
 
 static int reader_wait_until(reader_t *r, uint64_t due_100ns) {
     for (;;) {
         if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) return 0;
+        if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
+            usleep(5000);
+            continue;
+        }
         if (atomic_load_explicit(&r->paused, memory_order_acquire)) {
             if (atomic_load_explicit(&r->preroll_pending, memory_order_acquire))
                 return 1;
@@ -737,6 +746,15 @@ static void *reader_worker(void *opaque) {
         if (!duration) duration = 1;
         int delivery = reader_deliver_frame(r, frame, r->sample_size, (int64_t)pts,
                                             (int64_t)(pts + duration));
+        if (delivery == 0 &&
+            atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
+            while (atomic_load_explicit(&r->pin_flushing, memory_order_acquire) &&
+                   !atomic_load_explicit(&r->stop_requested, memory_order_acquire))
+                usleep(5000);
+            if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) break;
+            frame_number++;
+            continue;                               /* flush cancelled this sample */
+        }
         if (delivery == 0) {
             if (!atomic_load_explicit(&r->stop_requested, memory_order_acquire))
                 fprintf(stderr, "[dshow-reader] downstream rejected frame %llu\n",
@@ -787,7 +805,7 @@ static void reader_stop_worker(reader_t *r) {
         atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
         atomic_store_explicit(&r->pause_started_100ns, 0, memory_order_release);
         atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
-        if (r->pin_flushing && r->pin_va)
+        if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire) && r->pin_va)
             (void)guest_call(r->pin_va, 16, 0, NULL);  /* IPin::EndFlush */
         r->state = FILTER_STATE_STOPPED;
         return;
@@ -814,13 +832,13 @@ static void reader_stop_worker(reader_t *r) {
      * first, flush the peer to release Receive, then join before decommitting
      * the allocator. */
     atomic_store_explicit(&r->stop_requested, 1, memory_order_release);
-    if (r->pin_va && !r->pin_flushing) {
+    if (r->pin_va && !atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
         uint32_t hr = guest_call(r->pin_va, 15, 0, NULL); /* IPin::BeginFlush */
         if (hr & 0x80000000u)
             fprintf(stderr, "[dshow-reader] BeginFlush before Stop -> 0x%08X\n", hr);
     }
     (void)reader_join_worker(r, 1);
-    if (r->pin_flushing && r->pin_va)
+    if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire) && r->pin_va)
         (void)guest_call(r->pin_va, 16, 0, NULL);       /* IPin::EndFlush */
 
     atomic_store_explicit(&r->running, 0, memory_order_release);
@@ -1261,14 +1279,14 @@ static void pin_EndOfStream(void) {
 }
 static void pin_BeginFlush(void) {
     reader_t *r = reader_from_this("IPin::BeginFlush");
-    r->pin_flushing = 1;
+    atomic_store_explicit(&r->pin_flushing, 1, memory_order_release);
     if (r->peer_pin) guest_call(r->peer_pin, 15, 0, NULL);
     RET(S_OK, 1);
 }
 static void pin_EndFlush(void) {
     reader_t *r = reader_from_this("IPin::EndFlush");
-    r->pin_flushing = 0;
     if (r->peer_pin) guest_call(r->peer_pin, 16, 0, NULL);
+    atomic_store_explicit(&r->pin_flushing, 0, memory_order_release);
     RET(S_OK, 1);
 }
 static void pin_NewSegment(void) {
@@ -1559,6 +1577,7 @@ static uint32_t reader_create(const uint8_t *iid, uint32_t *out) {
     MEM32(r->file_va) = g_file_vt;
     MEM32(r->pin_va) = g_pin_vt;
     atomic_init(&r->stop_requested, 0);
+    atomic_init(&r->pin_flushing, 0);
     atomic_init(&r->paused, 0);
     atomic_init(&r->running, 0);
     atomic_init(&r->pause_shift_100ns, 0);
