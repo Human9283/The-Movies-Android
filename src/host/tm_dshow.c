@@ -1552,6 +1552,7 @@ static uint32_t graph_disconnect_filter_pins(uint32_t filter) {
     uint32_t hr = vcall(filter, 10, 1, enum_args);
     uint32_t enumerator = MEM32(pin_va);
     if (hr & 0x80000000u || !enumerator) {
+        if (enumerator) vcall(enumerator, 2, 0, NULL);
         hle_free(pin_mem);
         hle_free(fetched_mem);
         return (hr & 0x80000000u) ? hr : E_UNEXPECTED;
@@ -1750,8 +1751,9 @@ static void graph_RemoveFilter(void) {
             com_release(pin);
         }
         com_release(pin_enum);
-    } else if (!(hr & 0x80000000u)) {
-        hr = E_UNEXPECTED;
+    } else {
+        if (pin_enum) com_release(pin_enum);
+        if (!(hr & 0x80000000u)) hr = E_UNEXPECTED;
     }
 
     hle_free(pin_mem);
