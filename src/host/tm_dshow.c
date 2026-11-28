@@ -485,6 +485,27 @@ static void media_control_GetState(void) {               /* (this, timeout, FILT
     MEM32(state) = o->filter_state;
     RET(S_OK, 3);
 }
+
+/* IMediaControl's automation methods have a different ABI from the similarly
+ * named IGraphBuilder methods: RenderFile(BSTR) and AddSourceFilter(BSTR,
+ * IDispatch **). Keep their argument counts and output-pointer semantics
+ * separate so a call through the secondary interface cannot corrupt the
+ * guest stack. */
+static void media_control_RenderFile(void) {             /* (this, BSTR filename) */
+    media_control_owner(A32(0));
+    if (!A32(1)) RET(E_POINTER, 2);
+    fprintf(stderr, "[dshow] IMediaControl::RenderFile: no ASF reader/source filter is registered\n");
+    RET(VFW_E_CANNOT_RENDER, 2);
+}
+static void media_control_AddSourceFilter(void) {        /* (this, BSTR filename, IDispatch **out) */
+    media_control_owner(A32(0));
+    uint32_t out = A32(2);
+    if (!out) RET(E_POINTER, 3);
+    MEM32(out) = 0;
+    if (!A32(1)) RET(E_POINTER, 3);
+    fprintf(stderr, "[dshow] IMediaControl::AddSourceFilter: no source filter is registered\n");
+    RET(VFW_E_CANNOT_RENDER, 3);
+}
 static double media_position_argument(void) {
     union { uint64_t bits; double value; } v;
     v.bits = (uint64_t)A32(1) | ((uint64_t)A32(2) << 32);
@@ -929,6 +950,8 @@ static const win32hle_shim g_impl[] = {
     { "FilterGraph::ConnectDirect",                 graph_ConnectDirect },
     { "FilterGraph::RenderFile",                     graph_RenderFile },
     { "FilterGraph::AddSourceFilter",                graph_AddSourceFilter },
+    { "FilterGraphMediaControl::RenderFile",           media_control_RenderFile },
+    { "FilterGraphMediaControl::AddSourceFilter",      media_control_AddSourceFilter },
     { "CaptureGraphBuilder2::RenderStream",            builder_RenderStream },
     { "FilterGraph::Render",                        graph_Render },
     { "FilterGraphEventSink::QueryInterface",       event_sink_QueryInterface },
