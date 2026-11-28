@@ -69,6 +69,7 @@
 #define E_FAIL                 0x80004005u
 #define E_NOTIMPL               0x80004001u
 #define VFW_E_CANNOT_RENDER     0x80040218u
+#define VFW_E_NOT_CONNECTED     0x80040209u
 #define VFW_S_STATE_INTERMEDIATE 0x00040237u
 #define VFW_S_CANT_CUE          0x00040268u
 #define VFW_E_ENUM_OUT_OF_SYNC  0x80040203u
@@ -1428,27 +1429,35 @@ static void graph_RemoveFilter(void) {
             uint32_t peer_args[1] = { peer_va };
             uint32_t connected_hr = vcall(pin, 6, 1, peer_args); /* IPin::ConnectedTo */
             uint32_t peer = MEM32(peer_va);
-            if (connected_hr == S_OK && peer) {
+            if (connected_hr == S_OK) {
+                if (!peer) {
+                    com_release(pin);
+                    hr = E_UNEXPECTED;
+                    break;
+                }
                 uint32_t no_args[1] = { 0 };
-                uint32_t disconnect_hr = vcall(peer, 5, 0, no_args); /* IPin::Disconnect */
+                uint32_t disconnect_hr = vcall(peer, 5, 0, no_args); /* peer IPin::Disconnect */
                 com_release(peer);
                 if (disconnect_hr & 0x80000000u) {
                     com_release(pin);
                     hr = disconnect_hr;
                     break;
                 }
-                disconnect_hr = vcall(pin, 5, 0, no_args);
+                disconnect_hr = vcall(pin, 5, 0, no_args); /* this IPin::Disconnect */
                 if (disconnect_hr & 0x80000000u) {
                     com_release(pin);
                     hr = disconnect_hr;
                     break;
                 }
-            } else if (connected_hr != S_FALSE && (connected_hr & 0x80000000u)) {
+            } else if (connected_hr == VFW_E_NOT_CONNECTED) {
+                /* A pin with no peer is expected when removing a filter;
+                 * ConnectedTo documents VFW_E_NOT_CONNECTED for that case. */
+                if (peer) com_release(peer);
+            } else {
+                if (peer) com_release(peer);
                 com_release(pin);
                 hr = connected_hr;
                 break;
-            } else if (peer) {
-                com_release(peer);
             }
 
             com_release(pin);
