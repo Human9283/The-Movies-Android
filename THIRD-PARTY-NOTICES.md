@@ -85,7 +85,7 @@ Redistribution in binary form must provide a disclaimer stating that the
 software is based in part on the work of the FreeType Team in the
 distribution documentation. The project also asks that its use be
 acknowledged. The full licence is available at:
-https://gitlab.freedesktop.org/freetype/freetype/-/blob/VER-2-13-2-SDL/docs/FTL.TXT
+https://github.com/libsdl-org/freetype/blob/12c5e620858bd503731091e9371d06c0a3e7c967/docs/FTL.TXT
 
 ## pcrecomp / win32hle and The Movies lift driver — MIT licence
 
