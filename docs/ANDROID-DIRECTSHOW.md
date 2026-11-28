@@ -108,6 +108,22 @@ input pin already present in the graph; it is not a general DirectShow
 Intelligent Connect implementation. The game-specific source/renderer setup
 remains the primary target.
 
+
+Graph collection operations also protect against re-entrant guest COM callbacks.
+`RemoveFilter` holds temporary references to both the graph and target filter,
+and marks that filter as being removed until every exit path has completed.
+A nested removal of the same filter is rejected with
+`VFW_E_WRONG_STATE`; removals of other filters are revalidated against the
+current collection after callbacks return. Final graph `Release` uses a
+private teardown reference, stops child filters before disconnecting their
+pins, and calls `JoinFilterGraph(NULL)` only after disconnect succeeds.
+Graph mutation and state-transition calls are rejected while teardown is in
+progress. If Stop, pin disconnection, or JoinFilterGraph fails, the graph and
+its owning filter references are deliberately retained instead of freeing
+objects that may still be reachable from a streaming callback. A subsequent
+AddRef/Release cycle can retry the deferred teardown; if no owner retries, this
+safety fallback can leave a retained graph allocation.
+
 ## FFmpeg build
 
 Use [the Android build guide](ANDROID-BUILD.md#7-build-the-minimal-android-wmv-decoder)
