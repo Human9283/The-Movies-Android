@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import tarfile
 
 
@@ -71,23 +72,32 @@ def main() -> int:
         raise SystemExit("One or more extracted files do not match the MSI size table:\\n" + preview + suffix)
 
     unique: dict[str, dict] = {}
+    windows_names: dict[str, str] = {}
     duplicates = 0
     for item in source_rows:
         relative = item.get("path")
-        if not isinstance(relative, str) or not relative or relative.startswith(("/", "\\")):
+        if not isinstance(relative, str) or not relative or relative.startswith(("/", "\\")) or "\\" in relative:
             raise SystemExit(f"Invalid path in game manifest: {relative!r}")
-        parts = pathlib.PurePosixPath(relative.replace("\\", "/")).parts
-        if any(part in ("", ".", "..") for part in parts):
+        parts = relative.split("/")
+        if any(part in ("", ".", "..") or "\x00" in part for part in parts):
             raise SystemExit(f"Unsafe relative game path: {relative!r}")
 
         size = item.get("size")
         recorded_hash = item.get("sha256")
-        if not isinstance(size, int) or size < 0 or not isinstance(recorded_hash, str) or len(recorded_hash) != 64:
-            raise SystemExit(f"Missing size or SHA-256: {relative}")
+        if not isinstance(size, int) or size < 0 or not isinstance(recorded_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", recorded_hash):
+            raise SystemExit(f"Missing or invalid size/SHA-256: {relative}")
+
+        windows_key = relative.casefold()
+        previous_name = windows_names.get(windows_key)
+        if previous_name is not None and previous_name != relative:
+            raise SystemExit(
+                f"Windows case-insensitive path collision: {previous_name!r} and {relative!r}"
+            )
+        windows_names[windows_key] = relative
 
         previous = unique.get(relative)
         if previous is not None:
-            if previous["size"] != size or previous["sha256"] != recorded_hash:
+            if previous["size"] != size or previous["sha256"] != recorded_hash.lower():
                 raise SystemExit(f"Conflicting duplicate source entries: {relative}")
             duplicates += 1
         else:
