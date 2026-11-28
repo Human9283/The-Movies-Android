@@ -27,6 +27,7 @@ public final class SetupActivity extends Activity {
         super.onCreate(state);
         Diagnostics.init(this);
         gameDir = new File(getFilesDir(), "game");
+        recoverPreviousInstall();
         if (validInstall()) {
             showInstalledMenu();
         } else if (BundledGameInstaller.hasBundledGame(this)) {
@@ -76,6 +77,18 @@ public final class SetupActivity extends Activity {
                 });
             }
         }, "bundled-game-installer").start();
+    }
+
+    private void recoverPreviousInstall() {
+        File backup = new File(getFilesDir(), "game-previous");
+        if (!gameDir.exists() && new File(backup, "Movies.exe").isFile()
+                && new File(backup, "Data").isDirectory()) {
+            if (backup.renameTo(gameDir)) {
+                Diagnostics.log("Recovered previous game installation after an interrupted replacement");
+            } else {
+                Diagnostics.log("Could not restore previous game installation from " + backup);
+            }
+        }
     }
 
     private boolean validInstall() {
@@ -191,7 +204,10 @@ public final class SetupActivity extends Activity {
         if (!new File(staging, "Movies.exe").isFile() || !new File(staging, "Data").isDirectory())
             throw new Exception("В выбранной папке не найдены Movies.exe и Data/");
         File backup = new File(getFilesDir(), "game-previous");
-        deleteRecursively(backup);
+        if (backup.exists()) {
+            throw new Exception("Существует резервная копия предыдущей установки: " + backup.getAbsolutePath()
+                + ". Она сохранена; приложение не будет удалять её автоматически.");
+        }
         boolean hadInstall = gameDir.exists();
         if (hadInstall && !gameDir.renameTo(backup))
             throw new Exception("Не удалось сохранить предыдущую установку");
