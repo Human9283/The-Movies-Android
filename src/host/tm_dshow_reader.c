@@ -906,6 +906,14 @@ static void *reader_worker(void *opaque) {
         reader_notify_error(r, E_OUTOFMEMORY);
         atomic_store_explicit(&r->running, 0, memory_order_release);
         atomic_store_explicit(&r->worker_done, 1, memory_order_release);
+        if (atomic_exchange_explicit(&r->decommit_pending, 0, memory_order_acq_rel) &&
+            r->allocator && r->allocator_committed) {
+            uint32_t decommit_hr = guest_call(r->allocator, 6, 0, NULL);
+            if (!(decommit_hr & 0x80000000u))
+                r->allocator_committed = 0;
+            else
+                fprintf(stderr, "[dshow-reader] deferred allocator Decommit -> 0x%08X\n", decommit_hr);
+        }
         reader_release_host(r);                     /* drop worker-owned COM reference */
         return NULL;
     }
