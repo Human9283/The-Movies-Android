@@ -46,7 +46,7 @@ def main() -> int:
         "        if n >= 4 and n < len(data) and data[n] == 0 and not pushes and not ignore_ascii:",
         "ANSI string guard",
     )
-    old_utf16 = r"        if n >= 4 and data[2 * n:2 * n + 2] == b'\\0\\0':"
+    old_utf16 = r"        if n >= 4 and data[2 * n:2 * n + 2] == b'\0\0':"
     new_utf16 = old_utf16[:-1] + " and not ignore_ascii:"
     dis = replace_once(dis, old_utf16, new_utf16, "UTF-16 string guard")
     compile(dis, str(dis_path), "exec")
