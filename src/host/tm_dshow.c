@@ -1819,7 +1819,7 @@ static void graph_RemoveFilter(void) {
             } else {
                 if (peer) com_release(peer);
                 com_release(pin);
-                hr = connected_hr;
+                hr = (connected_hr & 0x80000000u) ? connected_hr : E_UNEXPECTED;
                 break;
             }
 
