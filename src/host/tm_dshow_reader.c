@@ -787,9 +787,12 @@ static void reader_stop_worker(reader_t *r) {
         atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
         atomic_store_explicit(&r->pause_started_100ns, 0, memory_order_release);
         atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
+        if (r->pin_flushing && r->pin_va)
+            (void)guest_call(r->pin_va, 16, 0, NULL);  /* IPin::EndFlush */
         r->state = FILTER_STATE_STOPPED;
         return;
     }
+
     if (pthread_equal(pthread_self(), r->worker)) {
         /* A downstream Receive/EC_COMPLETE callback can re-enter the graph
          * and remove this filter on the decoder thread itself. The worker
@@ -805,7 +808,21 @@ static void reader_stop_worker(reader_t *r) {
         r->state = FILTER_STATE_STOPPED;
         return;
     }
+
+    /* BeginFlush is the DirectShow cancellation path for a downstream
+     * Receive that is blocked waiting for presentation. Signal the worker
+     * first, flush the peer to release Receive, then join before decommitting
+     * the allocator. */
+    atomic_store_explicit(&r->stop_requested, 1, memory_order_release);
+    if (r->pin_va && !r->pin_flushing) {
+        uint32_t hr = guest_call(r->pin_va, 15, 0, NULL); /* IPin::BeginFlush */
+        if (hr & 0x80000000u)
+            fprintf(stderr, "[dshow-reader] BeginFlush before Stop -> 0x%08X\n", hr);
+    }
     (void)reader_join_worker(r, 1);
+    if (r->pin_flushing && r->pin_va)
+        (void)guest_call(r->pin_va, 16, 0, NULL);       /* IPin::EndFlush */
+
     atomic_store_explicit(&r->running, 0, memory_order_release);
     atomic_store_explicit(&r->paused, 0, memory_order_release);
     atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
