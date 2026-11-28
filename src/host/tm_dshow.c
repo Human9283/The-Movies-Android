@@ -633,6 +633,24 @@ static void graph_ConnectDirect(void) {                 /* (this, out, in, AM_ME
     RET(vcall(out_pin, 3, 2, args), 4);                  /* IPin::Connect */
 }
 
+/* The reader/source-filter path is not implemented yet. Return DirectShow's
+ * normal render failure instead of invoking a fatal placeholder vtable. */
+static void graph_RenderFile(void) {                    /* (this, file, playlist) */
+    self(OBJ_GRAPH, "RenderFile");
+    if (!A32(1)) RET(E_POINTER, 3);
+    fprintf(stderr, "[dshow] FilterGraph::RenderFile: no ASF reader/source filter is registered\\n");
+    RET(VFW_E_CANNOT_RENDER, 3);
+}
+static void graph_AddSourceFilter(void) {               /* (this, file, name, &filter) */
+    self(OBJ_GRAPH, "AddSourceFilter");
+    uint32_t out = A32(3);
+    if (!out) RET(E_POINTER, 4);
+    MEM32(out) = 0;
+    if (!A32(1)) RET(E_POINTER, 4);
+    fprintf(stderr, "[dshow] FilterGraph::AddSourceFilter: no source filter is registered\\n");
+    RET(VFW_E_CANNOT_RENDER, 4);
+}
+
 /* IGraphBuilder::Render walks the graph's filters and tries their input pins.
  * The filters and enumerators are COM objects owned by the guest, so the host
  * does not assume a pin count, pin name, or media-type layout. */
@@ -844,6 +862,14 @@ static uint32_t create_graph(const uint8_t *iid, uint32_t *out)   { return creat
 static uint32_t create_builder(const uint8_t *iid, uint32_t *out) { return create(OBJ_BUILDER, iid, out); }
 static uint32_t create_writer(const uint8_t *iid, uint32_t *out)  { return create(OBJ_WRITER, iid, out); }
 
+/* CaptureGraphBuilder2 cannot connect a stream until an ASF reader and
+ * renderer pins exist. Fail through HRESULT so callers can take a fallback. */
+static void builder_RenderStream(void) {                 /* (this, category, type, source, compressor, renderer) */
+    self(OBJ_BUILDER, "RenderStream");
+    fprintf(stderr, "[dshow] CaptureGraphBuilder2::RenderStream: stream graph is unavailable\\n");
+    RET(VFW_E_CANNOT_RENDER, 6);
+}
+
 /* ---- vtables: implemented methods, and self-naming stubs for the rest ---- */
 static const char *const graph_methods[] = {
     "QueryInterface", "AddRef", "Release",
@@ -900,6 +926,9 @@ static const win32hle_shim g_impl[] = {
     { "FilterGraph::AddFilter",                    graph_AddFilter },
     { "FilterGraph::Connect",                      graph_Connect },
     { "FilterGraph::ConnectDirect",                 graph_ConnectDirect },
+    { "FilterGraph::RenderFile",                     graph_RenderFile },
+    { "FilterGraph::AddSourceFilter",                graph_AddSourceFilter },
+    { "CaptureGraphBuilder2::RenderStream",            builder_RenderStream },
     { "FilterGraph::Render",                        graph_Render },
     { "FilterGraphEventSink::QueryInterface",       event_sink_QueryInterface },
     { "FilterGraphEventSink::AddRef",               event_sink_AddRef },
