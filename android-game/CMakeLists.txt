@@ -87,6 +87,7 @@ set(TM_RUNTIME_SOURCES
     "${TM_ROOT}/src/host/tm_vfs.c"
     "${TM_ROOT}/src/host/tm_wmvcore.c"
     "${TM_ROOT}/src/host/tm_dshow.c"
+    "${TM_ROOT}/src/host/tm_dshow_reader.c"
     "${TM_ROOT}/src/host/tm_asf_decoder.c"
     "${TM_ROOT}/src/host/tm_d3d9.c"
     "${TM_ROOT}/src/host/tm_ole32.c"
