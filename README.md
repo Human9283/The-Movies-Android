@@ -6,7 +6,7 @@ An unofficial ARM64 Android port of *The Movies* (2005), targeting the Russian C
 
 ## Build
 
-Follow **[Build the Android APK](docs/ANDROID-BUILD.md)**. The guide covers the required tools, dependencies, local game-file preparation and Gradle build command.
+Follow **[Build the Android APK](docs/ANDROID-BUILD.md)**. The guide covers the required tools, dependencies, local game-file preparation and Gradle build command. It also documents recovery of runtime-proven indirect-call targets from native logs.
 
 You must provide your own legally obtained copy of the original game. This repository does not distribute the game executable, disc images, proprietary game data or generated code derived from the executable.
 
