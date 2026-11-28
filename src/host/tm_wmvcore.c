@@ -12,13 +12,13 @@
  *   WMCreateSyncReader      the audio engine's WMA reader (task D): not
  *                           implemented
  *
- * Both are listed as exports of the real DLL with no implementation, so
- * GetProcAddress gives no address for them (ERROR_PROC_NOT_FOUND) and says
- * which task each belongs to. The game reaches them only through its delay-
- * load helper, which then raises 0xC06D007F (dliFailGetProc); tm_except.c
- * decodes and reports it. No COM object, profile or decoder is made here.
+ * Both exports are now present as explicit failure stubs: GetProcAddress
+ * succeeds, but each call returns E_NOTIMPL and clears its output pointer.
+ * No COM object, profile or decoder is made here.
  */
 #include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
 #include "win32hle.h"
 #include "tm_loader.h"
 #include "tm_wmvcore.h"
