@@ -19,16 +19,43 @@
  * decodes and reports it. No COM object, profile or decoder is made here.
  */
 #include <stddef.h>
+#include "win32hle.h"
 #include "tm_loader.h"
 #include "tm_wmvcore.h"
 
+/* These entry points fail as HRESULTs rather than triggering delay-load
+ * exceptions. This does not provide a WMA reader or profile manager; it lets
+ * the game detect the unsupported feature through the documented API. */
+static void wmv_WMCreateProfileManager(void) {            /* (IWMProfileManager **) */
+    uint32_t out = A32(0);
+    if (!out) RET(0x80004003u, 1);                       /* E_POINTER */
+    MEM32(out) = 0;
+    fprintf(stderr, "[wmvcore] WMCreateProfileManager: profile manager unavailable\\n");
+    RET(0x80004001u, 1);                                 /* E_NOTIMPL */
+}
+static void wmv_WMCreateSyncReader(void) {                /* (cert, rights, IWMSyncReader **) */
+    uint32_t out = A32(2);
+    if (!out) RET(0x80004003u, 3);                       /* E_POINTER */
+    MEM32(out) = 0;
+    fprintf(stderr, "[wmvcore] WMCreateSyncReader: synchronous ASF reader unavailable\\n");
+    RET(0x80004001u, 3);                                 /* E_NOTIMPL */
+}
+
+static const win32hle_shim g_shims[] = {
+    { "wmvcore.dll!WMCreateProfileManager", wmv_WMCreateProfileManager },
+    { "wmvcore.dll!WMCreateSyncReader", wmv_WMCreateSyncReader },
+    { NULL, NULL }
+};
 static const tm_host_export g_exports[] = {
-    { "WMCreateProfileManager", NULL, "the profile manager (film export) is not implemented" },
-    { "WMCreateSyncReader",     NULL, "the synchronous ASF reader (WMA music) is not implemented" },
+    { "WMCreateProfileManager", "wmvcore.dll!WMCreateProfileManager", "returns E_NOTIMPL; film export is unavailable" },
+    { "WMCreateSyncReader",     "wmvcore.dll!WMCreateSyncReader", "returns E_NOTIMPL; WMA music playback is unavailable" },
     { 0, 0, 0 }
 };
 static const tm_host_dll g_dll = {
     .name = "wmvcore.dll", .dir = TM_SYSTEM_DIR, .visible = 1, .loadable = 1, .exports = g_exports,
 };
 
-void tm_wmvcore_init(void) { tm_loader_add(&g_dll); }
+void tm_wmvcore_init(void) {
+    win32hle_register(g_shims);
+    tm_loader_add(&g_dll);
+}
