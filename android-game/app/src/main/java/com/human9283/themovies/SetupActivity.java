@@ -213,6 +213,7 @@ public final class SetupActivity extends Activity {
         Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId);
         String[] projection = { DocumentsContract.Document.COLUMN_DOCUMENT_ID,
             DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE };
+        Set<String> namesInDirectory = new HashSet<>();
         try (Cursor c = getContentResolver().query(children, projection, null, null, null)) {
             if (c == null) throw new Exception("Проводник не вернул содержимое папки");
             while (c.moveToNext()) {
@@ -222,6 +223,8 @@ public final class SetupActivity extends Activity {
                         || name.contains("\\") || name.indexOf('\0') >= 0) {
                     throw new Exception("Проводник вернул недопустимое имя или идентификатор файла");
                 }
+                if (!namesInDirectory.add(name.toLowerCase(Locale.ROOT)))
+                    throw new Exception("В папке есть конфликт имён без учёта регистра Windows: " + name);
                 File out = new File(destination, name);
                 if (out.exists()) throw new Exception("В папке есть повторяющееся имя: " + name);
                 if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
