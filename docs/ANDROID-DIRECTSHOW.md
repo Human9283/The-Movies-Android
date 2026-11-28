@@ -46,10 +46,13 @@ gameplay works.
    the graph has no usable clock.
 8. Before the first sample, and again after reopening a looped file, the source
    calls downstream `IPin::NewSegment(0, duration, 1.0)`. The first sample of
-   each segment is marked discontinuous. `NewSegment` is serialized against
-   `BeginFlush`/`EndFlush`; it runs on the same worker as `Receive`, while a
-   separate recursive control mutex orders it against graph-thread flushes
-   without preventing `BeginFlush` from cancelling a blocked `Receive`.
+   each segment is marked discontinuous. The single reader worker serializes
+   `NewSegment`, `Receive`, and `EndOfStream` in source order. The HLE machine
+   lock serializes their guest-COM dispatch against graph-thread control
+   callbacks. No native mutex is held across guest COM calls: doing so would
+   invert the HLE machine-lock order and could deadlock a worker callback
+   against `BeginFlush`. `BeginFlush` remains a concurrent cancellation call
+   so it can release a blocked downstream `Receive`.
 9. End of stream is forwarded to the connected pin and reported to the graph
    through the game's `IFilterGraph` / `IMediaEventSink::Notify` vtable alias.
 
