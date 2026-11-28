@@ -63,7 +63,7 @@ public final class BundledGameInstaller {
         }
 
         Map<String, ExpectedFile> expected = new HashMap<>();
-        Set<String> windowsPaths = new HashSet<>();
+        Map<String, String> windowsPaths = new HashMap<>();
         long manifestBytes = 0;
         for (int i = 0; i < entries.length(); i++) {
             JSONObject item = entries.getJSONObject(i);
@@ -71,10 +71,22 @@ public final class BundledGameInstaller {
             long size = item.getLong("size");
             String hash = item.getString("sha256").toLowerCase(Locale.ROOT);
             if (!isSafeRelativePath(path) || size < 0 || !hash.matches("[0-9a-f]{64}")
-                    || !windowsPaths.add(path.toLowerCase(Locale.ROOT))
-                    || expected.put(path, new ExpectedFile(size, hash)) != null) {
+                    || expected.containsKey(path)) {
                 throw new IOException("Invalid or duplicate game manifest entry: " + path);
             }
+            StringBuilder prefix = new StringBuilder();
+            for (String component : path.split("/")) {
+                if (prefix.length() > 0) prefix.append('/');
+                prefix.append(component);
+                String actualPrefix = prefix.toString();
+                String key = actualPrefix.toLowerCase(Locale.ROOT);
+                String previousPrefix = windowsPaths.putIfAbsent(key, actualPrefix);
+                if (previousPrefix != null && !previousPrefix.equals(actualPrefix)) {
+                    throw new IOException("Windows case-insensitive path collision: "
+                        + previousPrefix + " and " + actualPrefix);
+                }
+            }
+            expected.put(path, new ExpectedFile(size, hash));
             try {
                 manifestBytes = Math.addExact(manifestBytes, size);
             } catch (ArithmeticException overflow) {
