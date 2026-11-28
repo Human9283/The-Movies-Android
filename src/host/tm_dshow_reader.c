@@ -225,6 +225,15 @@ static uint64_t reader_reference_time(reader_t *r) {
     return (hr == S_OK || hr == S_FALSE) ? value : fallback;
 }
 
+/* reader_wait_until adds pause_shift_100ns to every target. When a segment
+ * is rebased while the graph is already running, store the new clock anchor
+ * with that accumulated shift subtracted so it is not counted twice. */
+static uint64_t reader_scheduling_anchor(reader_t *r) {
+    uint64_t now = reader_reference_time(r);
+    uint64_t shift = atomic_load_explicit(&r->pause_shift_100ns, memory_order_acquire);
+    return now >= shift ? now - shift : 0;
+}
+
 static reader_t *reader_by_interface(uint32_t va) {
     if (!va) return NULL;
     for (int i = 0; i < MAX_READER_OBJECTS; i++) {
@@ -964,7 +973,7 @@ static void *reader_worker(void *opaque) {
                     break;
                 }
                 segment_pts_base = pts;
-                segment_clock_anchor = reader_reference_time(r);
+                segment_clock_anchor = reader_scheduling_anchor(r);
                 discontinuity_pending = 1;
             }
             uint64_t sample_pts = pts >= segment_pts_base ? pts - segment_pts_base : 0;
