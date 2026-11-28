@@ -122,7 +122,7 @@ struct reader {
     int allocator_committed;
     pthread_t worker;
     uint32_t worker_tid;
-    int worker_started;
+    atomic_int worker_started;
     atomic_int stop_requested;
     atomic_int paused;
     atomic_int running;
@@ -279,7 +279,7 @@ static uint32_t reader_disconnect(reader_t *r) {
      * case the worker has only been asked to stop; it still owns the sample
      * and allocator until Receive unwinds. Keep the connection intact and
      * let the caller retry after the streaming thread exits. */
-    if (r->worker_started) return VFW_E_WRONG_STATE;
+    if (atomic_load_explicit(&r->worker_started, memory_order_acquire)) return VFW_E_WRONG_STATE;
     if (r->allocator) {
         if (r->allocator_committed) {
             (void)guest_call(r->allocator, 6, 0, NULL);  /* IMemAllocator::Decommit */
@@ -327,9 +327,9 @@ static uint32_t reader_release_host(reader_t *r) {
         /* If the worker owns the final reference, it is now past every
          * streaming callback and will not touch the reader again. Detach here,
          * not from a re-entrant Stop/Disconnect inside Receive. */
-        if (r->worker_started && pthread_equal(pthread_self(), r->worker)) {
+        if (atomic_load_explicit(&r->worker_started, memory_order_acquire) && pthread_equal(pthread_self(), r->worker)) {
             (void)pthread_detach(pthread_self());
-            r->worker_started = 0;
+            atomic_store_explicit(&r->worker_started, 0, memory_order_release);
         }
         /* Destruction frees guest interface storage, so it must run under
          * the HLE machine lock. */
@@ -1061,7 +1061,7 @@ static void *reader_worker(void *opaque) {
 }
 
 static uint32_t reader_join_worker(reader_t *r, int stopping) {
-    if (!r->worker_started) return S_OK;
+    if (!atomic_load_explicit(&r->worker_started, memory_order_acquire)) return S_OK;
     if (stopping) atomic_store_explicit(&r->stop_requested, 1, memory_order_release);
     if (pthread_equal(pthread_self(), r->worker)) return E_UNEXPECTED;
     if (stopping && !atomic_load_explicit(&r->stop_requested, memory_order_acquire))
@@ -1069,12 +1069,12 @@ static uint32_t reader_join_worker(reader_t *r, int stopping) {
     hle_block_begin();
     int rc = pthread_join(r->worker, NULL);
     hle_block_end();
-    r->worker_started = 0;
+    atomic_store_explicit(&r->worker_started, 0, memory_order_release);
     return rc == 0 ? S_OK : E_FAIL;
 }
 
 static uint32_t reader_stop_worker(reader_t *r) {
-    if (!r->worker_started) {
+    if (!atomic_load_explicit(&r->worker_started, memory_order_acquire)) {
         atomic_store_explicit(&r->running, 0, memory_order_release);
         atomic_store_explicit(&r->paused, 0, memory_order_release);
         atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
@@ -1207,7 +1207,7 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time, int start_
         reader_release_host(r);                     /* pthread_create failed */
         return E_FAIL;
     }
-    r->worker_started = 1;
+    atomic_store_explicit(&r->worker_started, 1, memory_order_release);
     return S_OK;
 }
 
@@ -1250,7 +1250,7 @@ static void filter_GetClassID(void) {
 static void filter_Stop(void) {
     reader_t *r = reader_from_this("IMediaFilter::Stop");
     uint32_t stop_hr = reader_stop_worker(r);
-    if (r->worker_started) RET(stop_hr, 1);
+    if (atomic_load_explicit(&r->worker_started, memory_order_acquire)) RET(stop_hr, 1);
     if (r->allocator && r->allocator_committed) {
         (void)guest_call(r->allocator, 6, 0, NULL);      /* IMemAllocator::Decommit */
         r->allocator_committed = 0;
@@ -1361,7 +1361,7 @@ static void filter_JoinFilterGraph(void) {
     if (!graph) {
         uint32_t stop_hr = reader_stop_worker(r);
         if (stop_hr & 0x80000000u) RET(stop_hr, 3);
-        if (r->worker_started) RET(VFW_E_WRONG_STATE, 3);
+        if (atomic_load_explicit(&r->worker_started, memory_order_acquire)) RET(VFW_E_WRONG_STATE, 3);
         r->graph_va = 0;
         r->filter_name[0] = 0;
     } else {
