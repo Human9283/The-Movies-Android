@@ -553,13 +553,18 @@ static uint32_t graph_filter_transition(obj_t *o, int method, int new_state,
          : incomplete ? 1u /* S_FALSE */ : S_OK;
 }
 
-static uint32_t graph_run(obj_t *o) {
+static uint32_t graph_run_at(obj_t *o, uint64_t start_time) {
     if (o->filter_state == 2) return S_OK;
     uint32_t pause_hr = graph_filter_transition(o, 5, 1, 0, 0);
     if (pause_hr & 0x80000000u) return pause_hr;
-    uint64_t start = hle_mono_ns() / 100u + 1000000u;
-    uint32_t run_hr = graph_filter_transition(o, 6, 2, (uint32_t)start, (uint32_t)(start >> 32));
+    uint32_t run_hr = graph_filter_transition(o, 6, 2,
+                                              (uint32_t)start_time,
+                                              (uint32_t)(start_time >> 32));
     return (run_hr & 0x80000000u) ? run_hr : pause_hr;
+}
+static uint32_t graph_run(obj_t *o) {
+    uint64_t start = hle_mono_ns() / 100u + 1000000u;
+    return graph_run_at(o, start);
 }
 static uint32_t graph_pause(obj_t *o) {
     return graph_filter_transition(o, 5, 1, 0, 0);
@@ -573,7 +578,7 @@ static uint32_t graph_stop(obj_t *o) {
 }
 
 static uint32_t graph_get_state(obj_t *o, uint32_t timeout_ms, uint32_t state_out) {               /* (this, timeout, FILTER_STATE *) */
-    if (!state_out) RET(E_POINTER, 3);
+    if (!state_out) return E_POINTER;
     MEM32(state_out) = o->filter_state;
 
     uint32_t graph_va = o->va;
@@ -682,7 +687,8 @@ static void media_filter_Pause(void) {
 }
 static void media_filter_Run(void) {
     obj_t *o = media_filter_owner(A32(0));
-    RET(graph_run(o), 1);
+    uint64_t start = (uint64_t)A32(1) | ((uint64_t)A32(2) << 32);
+    RET(graph_run_at(o, start), 3);
 }
 
 /* Propagate a selected graph clock to every child. If one filter rejects the
@@ -1752,6 +1758,22 @@ static void writer_Release(void) {
     }
     RET((uint32_t)n, 1);
 }
+static void writer_SetSyncSource(void) {
+    obj_t *o = self(OBJ_WRITER, "SetSyncSource");
+    uint32_t clock = A32(1);
+    if (clock) com_addref(clock);
+    if (o->sync_source_va) com_release(o->sync_source_va);
+    o->sync_source_va = clock;
+    RET(S_OK, 2);
+}
+static void writer_GetSyncSource(void) {
+    obj_t *o = self(OBJ_WRITER, "GetSyncSource");
+    uint32_t out = A32(1);
+    if (!out) RET(E_POINTER, 2);
+    MEM32(out) = o->sync_source_va;
+    if (o->sync_source_va) com_addref(o->sync_source_va);
+    RET(S_OK, 2);
+}
 static void writer_GetClassID(void) {                   /* (this, CLSID *) */
     self(OBJ_WRITER, "GetClassID");
     if (!A32(1)) RET(E_POINTER, 2);
@@ -1977,6 +1999,8 @@ static const win32hle_shim g_impl[] = {
     { "WMAsfWriter::Release",                      writer_Release },
     { "WMAsfWriter::GetClassID",                   writer_GetClassID },
     { "WMAsfWriter::GetState",                     writer_GetState },
+    { "WMAsfWriter::SetSyncSource",                writer_SetSyncSource },
+    { "WMAsfWriter::GetSyncSource",                writer_GetSyncSource },
     { "WMAsfWriter::SetSyncSource",                writer_SetSyncSource },
     { "WMAsfWriter::GetSyncSource",                writer_GetSyncSource },
     { "WMAsfWriter::JoinFilterGraph",              writer_JoinFilterGraph },
