@@ -1435,6 +1435,65 @@ static uint32_t reader_create(const uint8_t *iid, uint32_t *out) {
     return S_OK;
 }
 
+uint32_t tm_dshow_reader_add_source_filter(uint32_t graph, uint32_t file_name,
+                                           uint32_t filter_name, uint32_t *out_filter) {
+    if (!graph || !file_name || !out_filter) return E_POINTER;
+    *out_filter = 0;
+
+    uint32_t filter = 0;
+    uint32_t hr = reader_create(IID_IBaseFilter, &filter);
+    if (hr & 0x80000000u) return hr;
+
+    uint8_t *iid = (uint8_t *)hle_alloc(16);
+    uint32_t *file_out = (uint32_t *)hle_alloc(4);
+    if (!iid || !file_out) {
+        if (iid) hle_free(iid);
+        if (file_out) hle_free(file_out);
+        guest_call(filter, 2, 0, NULL);
+        return E_OUTOFMEMORY;
+    }
+    memcpy(iid, IID_IFileSourceFilter, 16);
+    MEM32(hle_va(file_out)) = 0;
+    uint32_t qi_args[2] = { hle_va(iid), hle_va(file_out) };
+    hr = guest_call(filter, 0, 2, qi_args);
+    uint32_t file_source = MEM32(hle_va(file_out));
+    hle_free(file_out);
+    hle_free(iid);
+    if ((hr & 0x80000000u) || !file_source) {
+        guest_call(filter, 2, 0, NULL);
+        return (hr & 0x80000000u) ? hr : E_NOINTERFACE;
+    }
+
+    uint32_t load_args[2] = { file_name, 0 };
+    hr = guest_call(file_source, 3, 2, load_args);       /* IFileSourceFilter::Load */
+    guest_call(file_source, 2, 0, NULL);
+    if (hr & 0x80000000u) {
+        guest_call(filter, 2, 0, NULL);
+        return hr;
+    }
+
+    uint32_t add_args[2] = { filter, filter_name };
+    hr = guest_call(graph, 3, 2, add_args);              /* IFilterGraph::AddFilter */
+    if (hr & 0x80000000u) {
+        guest_call(filter, 2, 0, NULL);
+        return hr;
+    }
+
+    *out_filter = filter;                               /* transfer initial caller reference */
+    return hr;
+}
+
+int tm_dshow_reader_media_info(uint32_t filter, double *duration_seconds,
+                               double *frame_seconds, int *width, int *height) {
+    reader_t *r = reader_by_interface(filter);
+    if (!r || !r->decoder) return 0;
+    if (duration_seconds) *duration_seconds = r->duration_seconds;
+    if (frame_seconds) *frame_seconds = r->avg_frame_seconds;
+    if (width) *width = r->width;
+    if (height) *height = r->height;
+    return 1;
+}
+
 void tm_dshow_reader_init(void) {
     if (g_filter_vt) return;
     g_filter_vt = hle_com_vtable(filter_methods);
