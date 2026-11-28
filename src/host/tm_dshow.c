@@ -442,9 +442,9 @@ static uint32_t graph_release(uint32_t va) {
         int count = o->nf;
         memcpy(filters, o->filter, (size_t)count * sizeof(filters[0]));
         memcpy(names, o->fname, (size_t)count * sizeof(names[0]));
-        for (int i = 0; i < count; i++) com_addref(filters[i]);
         o->tearing_down = 1;
         o->teardown_failed = 0;
+        for (int i = 0; i < count; i++) com_addref(filters[i]);
         uint32_t failure = S_OK;
         for (int i = count - 1; i >= 0; i--) {
             uint32_t hr = vcall(filters[i], 4, 0, NULL);
@@ -1640,14 +1640,10 @@ static void graph_RemoveFilter(void) {
     if (g->tearing_down || g->teardown_failed) RET(VFW_E_WRONG_STATE, 2);
     for (uint32_t k = 0; k < g->removing_count; k++)
         if (g->removing_filter[k] == filter) RET(VFW_E_WRONG_STATE, 2);
+    if (g->removing_count >= MAX_FILTERS) RET(E_OUTOFMEMORY, 2);
     g->refs++;
-    com_addref(filter);
-    if (g->removing_count >= MAX_FILTERS) {
-        com_release(filter);
-        graph_release(graph_va);
-        RET(E_OUTOFMEMORY, 2);
-    }
     g->removing_filter[g->removing_count++] = filter;
+    com_addref(filter);
 #define REMOVE_FILTER_RET(value) do { \
         uint32_t _remove_hr = (value); \
         obj_t *_remove_graph = obj_of(graph_va, OBJ_GRAPH); \
