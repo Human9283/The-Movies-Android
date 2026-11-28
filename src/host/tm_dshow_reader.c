@@ -96,7 +96,7 @@ struct reader {
     uint32_t file_va;
     uint32_t pin_va;
     uint32_t graph_va;
-    uint32_t clock_va;
+    atomic_uint clock_va;
     int refs;
     int width, height, stride;
     uint32_t sample_size;
@@ -192,6 +192,27 @@ static uint32_t guest_call(uint32_t object, uint32_t slot, int nargs, const uint
     return hle_call_guest(method, nargs + 1, call_args);
 }
 
+/* Read the graph-selected DirectShow reference clock. The temporary
+ * AddRef protects the object if another thread changes the graph clock. */
+static uint64_t reader_reference_time(reader_t *r) {
+    uint64_t fallback = hle_mono_ns() / 100u;
+    uint32_t clock = atomic_load_explicit(&r->clock_va, memory_order_acquire);
+    if (!clock) return fallback;
+
+    guest_call(clock, 1, 0, NULL);                 /* IReferenceClock::AddRef */
+    uint32_t time_va = guest_alloc_locked(8);
+    if (!time_va) {
+        guest_call(clock, 2, 0, NULL);
+        return fallback;
+    }
+    uint32_t args[1] = { time_va };
+    uint32_t hr = guest_call(clock, 3, 1, args);   /* IReferenceClock::GetTime */
+    uint64_t value = guest_read64_locked(time_va);
+    guest_free_locked(time_va);
+    guest_call(clock, 2, 0, NULL);
+    return (hr == S_OK || hr == S_FALSE) ? value : fallback;
+}
+
 static reader_t *reader_by_interface(uint32_t va) {
     if (!va) return NULL;
     for (int i = 0; i < MAX_READER_OBJECTS; i++) {
@@ -238,7 +259,8 @@ static void reader_disconnect(reader_t *r) {
 
 static void reader_destroy(reader_t *r) {
     reader_disconnect(r);
-    if (r->clock_va) guest_call(r->clock_va, 2, 0, NULL);
+    uint32_t clock = atomic_load_explicit(&r->clock_va, memory_order_acquire);
+    if (clock) guest_call(clock, 2, 0, NULL);
     if (r->decoder) tm_asf_decoder_close(r->decoder);
     if (r->media_type_va) hle_free(hle_ptr(r->media_type_va));
     if (r->format_va) hle_free(hle_ptr(r->format_va));
@@ -679,7 +701,7 @@ static int reader_wait_until(reader_t *r, uint64_t due_100ns) {
             usleep(5000);
             continue;
         }
-        uint64_t now = hle_mono_ns() / 100u;
+        uint64_t now = reader_reference_time(r);
         uint64_t shift = atomic_load_explicit(&r->pause_shift_100ns, memory_order_acquire);
         uint64_t target = due_100ns + shift;
         if (now >= target) return 1;
@@ -864,7 +886,7 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time, int start_
         if (!atomic_load_explicit(&r->worker_done, memory_order_acquire)) {
             if (start_paused) {
                 if (!atomic_load_explicit(&r->paused, memory_order_acquire)) {
-                    atomic_store_explicit(&r->pause_started_100ns, hle_mono_ns() / 100u,
+                    atomic_store_explicit(&r->pause_started_100ns, reader_reference_time(r),
                                           memory_order_release);
                     atomic_store_explicit(&r->preroll_pending, 1, memory_order_release);
                 }
@@ -875,7 +897,7 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time, int start_
                 if (atomic_load_explicit(&r->paused, memory_order_acquire)) {
                     uint64_t paused_at = atomic_load_explicit(&r->pause_started_100ns,
                                                               memory_order_acquire);
-                    uint64_t now = hle_mono_ns() / 100u;
+                    uint64_t now = reader_reference_time(r);
                     /* The source must queue samples before tStart: the
                      * renderer uses tStart + sample PTS for presentation and
                      * may need time to prepare the next frame. The graph passes
@@ -914,7 +936,7 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time, int start_
     atomic_store_explicit(&r->preroll_pending, start_paused, memory_order_release);
     atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
     atomic_store_explicit(&r->pause_started_100ns,
-                          start_paused ? hle_mono_ns() / 100u : 0,
+                          start_paused ? reader_reference_time(r) : 0,
                           memory_order_release);
     r->run_start_100ns = start_time;
     r->worker_tid = hle_thread_id_new();
@@ -1008,16 +1030,17 @@ static void filter_SetSyncSource(void) {
     reader_t *r = reader_from_this("IMediaFilter::SetSyncSource");
     uint32_t clock = A32(1);
     if (clock) guest_call(clock, 1, 0, NULL);
-    if (r->clock_va) guest_call(r->clock_va, 2, 0, NULL);
-    r->clock_va = clock;
+    uint32_t previous = atomic_exchange_explicit(&r->clock_va, clock, memory_order_acq_rel);
+    if (previous) guest_call(previous, 2, 0, NULL);
     RET(S_OK, 2);
 }
 static void filter_GetSyncSource(void) {
     reader_t *r = reader_from_this("IMediaFilter::GetSyncSource");
     uint32_t out = A32(1);
     if (!out) RET(E_POINTER, 2);
-    MEM32(out) = r->clock_va;
-    if (r->clock_va) guest_call(r->clock_va, 1, 0, NULL);
+    uint32_t clock = atomic_load_explicit(&r->clock_va, memory_order_acquire);
+    MEM32(out) = clock;
+    if (clock) guest_call(clock, 1, 0, NULL);
     RET(S_OK, 2);
 }
 static void filter_EnumPins(void) {
@@ -1589,6 +1612,7 @@ static uint32_t reader_create(const uint8_t *iid, uint32_t *out) {
     MEM32(r->filter_va) = g_filter_vt;
     MEM32(r->file_va) = g_file_vt;
     MEM32(r->pin_va) = g_pin_vt;
+    atomic_init(&r->clock_va, 0);
     atomic_init(&r->stop_requested, 0);
     atomic_init(&r->pin_flushing, 0);
     atomic_init(&r->paused, 0);
