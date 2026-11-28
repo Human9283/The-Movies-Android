@@ -24,8 +24,8 @@ gameplay works.
 3. The source filter exposes one `IPin` named `Video` and enumerates one
    `MEDIATYPE_Video / MEDIASUBTYPE_RGB24 / FORMAT_VideoInfo) media type.
 4. The source pin negotiates the downstream renderer's `IMemInputPin` and
-   allocator, requests four buffers, and commits/decommits the allocator with
-   the filter's Run/Stop transitions. `IFileSourceFilter` preserves its
+   allocator, requests four buffers, and commits/decommits it with the
+   filter's Pause/Run/Stop transitions. `IFileSourceFilter` preserves its
    inherited `IPersist::GetClassID` vtable slot before `Load` and `GetCurFile`.
 5. The file source starts its streaming worker during the stopped-to-paused
    transition and sends one frame to cue the renderer. The renderer may block
@@ -35,7 +35,9 @@ gameplay works.
    RGB24 layout described by `VIDEOINFOHEADER`, timestamps them in
    100-nanosecond units, and calls the single-sample
    `IMemInputPin::Receive` method (not `ReceiveMultiple`). A downstream
-   `S_FALSE` or failure stops further sample delivery.
+   `S_FALSE` rejects that sample; ordinary receive failures stop the stream,
+   while an in-progress pin flush cancels the current sample and resumes only
+   after `EndFlush`.
 7. End of stream is forwarded to the connected pin and reported to the graph
    through the game's `IFilterGraph` / `IMediaEventSink::Notify` vtable alias.
 
@@ -43,11 +45,14 @@ The graph also routes `IGraphBuilder::RenderFile` and
 `IGraphBuilder::AddSourceFilter` through this reader. Graph state changes run
 through the filters downstream-first so the renderer is ready before the
 source starts pushing samples. `IMediaControl::GetState` polls child filter
-states using the caller's timeout, including `VFW_S_STATE_INTERMEDIATE` and
-`VFW_S_CANT_CUE`. The RenderFile helper connects the source to an input pin
-already present in the graph; it is not a general DirectShow Intelligent
-Connect implementation. The game-specific source/renderer setup remains the
-primary target.
+states using the caller's timeout, including nonblocking zero-timeout polls,
+`VFW_S_STATE_INTERMEDIATE`, and `VFW_S_CANT_CUE`. The source forwards
+`BeginFlush`/`EndFlush` to the downstream pin; `Stop` signals the worker,
+flushes the peer to release a blocked `Receive`, joins the worker, then
+releases allocator resources. The RenderFile helper connects the source to an
+input pin already present in the graph; it is not a general DirectShow
+Intelligent Connect implementation. The game-specific source/renderer setup
+remains the primary target.
 
 ## FFmpeg build
 
@@ -86,6 +91,8 @@ Before calling the media path functional, verify on an ARM64 Android device:
    colours; no stale frame or blank texture remains after completion.
 5. Stopped-to-paused produces a first frame for the renderer; Run resumes the
    worker with the paused time excluded from presentation timing. Verify that
+   `BeginFlush` cancels a pending `Receive`, that `EndFlush` resumes streaming,
+   and that Stop joins the worker without deadlock. Verify that
    `frontend_intro.wmv` transitions to the loop without destroying the reader
    or renderer, and that repeated pause/stop/run calls do not deadlock.
 6. The main menu accepts input and starts a new game; then verify an actual
