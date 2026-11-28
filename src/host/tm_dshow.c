@@ -513,6 +513,11 @@ static uint32_t graph_filter_transition(obj_t *o, int method, int new_state,
 
 static void media_control_Run(void) {                    /* (this) */
     obj_t *o = media_control_owner(A32(0));
+    /* The game calls Run repeatedly from its presentation loop. Once the
+     * graph is running, another Run must not pause/restart the source. Stop
+     * deliberately clears the graph state without stopping WMAsfReader. */
+    if (o->filter_state == 2) RET(S_OK, 1);
+
     /* IMediaControl::Run has no arguments. The graph supplies the future
      * absolute reference time passed to each IMediaFilter::Run(tStart).
      * Use the same monotonic 100-ns time base as the host's clocks, with
