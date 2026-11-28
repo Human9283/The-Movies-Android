@@ -560,7 +560,7 @@ static uint32_t reader_build_output_pin_connection(reader_t *r, uint32_t peer, u
     r->peer_pin = peer;
     r->peer_mem_input = mem_input;
     r->allocator = allocator;
-    r->state = FILTER_STATE_PAUSED;
+    r->state = FILTER_STATE_STOPPED;
     fprintf(stderr, "[dshow-reader] connected RGB24 %dx%d sample=%u allocator=%u x %u\n",
             r->width, r->height, r->sample_size, actual_buffers, actual_size);
     return S_OK;
@@ -709,6 +709,7 @@ static void *reader_worker(void *opaque) {
                     first_pts = INT64_MIN;
                     frame_number = 0;
                     run_start = hle_mono_ns() / 100u + 1000u;
+                    atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
                     continue;
                 }
                 fprintf(stderr, "[dshow-reader] loop reopen failed: %s (%d)\n", error, rc);
@@ -770,7 +771,15 @@ static uint32_t reader_join_worker(reader_t *r, int stopping) {
 }
 
 static void reader_stop_worker(reader_t *r) {
-    if (!r->worker_started) return;
+    if (!r->worker_started) {
+        atomic_store_explicit(&r->running, 0, memory_order_release);
+        atomic_store_explicit(&r->paused, 0, memory_order_release);
+        atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
+        atomic_store_explicit(&r->pause_started_100ns, 0, memory_order_release);
+        atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
+        r->state = FILTER_STATE_STOPPED;
+        return;
+    }
     if (pthread_equal(pthread_self(), r->worker)) {
         /* A downstream Receive/EC_COMPLETE callback can re-enter the graph
          * and remove this filter on the decoder thread itself. The worker
@@ -785,7 +794,10 @@ static void reader_stop_worker(reader_t *r) {
     }
     (void)reader_join_worker(r, 1);
     atomic_store_explicit(&r->running, 0, memory_order_release);
+    atomic_store_explicit(&r->paused, 0, memory_order_release);
     atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
+    atomic_store_explicit(&r->pause_started_100ns, 0, memory_order_release);
+    atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
     r->state = FILTER_STATE_STOPPED;
 }
 
