@@ -70,9 +70,17 @@ gameplay works.
    loop-reopen, segment-negotiation, downstream-delivery, and terminal
    `EndOfStream` failures report `EC_ERRORABORT` with the corresponding
    HRESULT. A Stop/flush cancellation does not masquerade as a media failure.
-   Downstream `BeginFlush`/`EndFlush` HRESULTs are propagated; a failed
-   `EndFlush` leaves the source in its flushing state rather than admitting
-   frames into a renderer that did not resume.
+   Downstream `BeginFlush`, worker-join, and `EndFlush` HRESULTs are
+   propagated. A failed `BeginFlush` does not lead to an unbounded join of a
+   worker that may still be blocked in `Receive`; a failed `EndFlush` leaves
+   the source in its flushing state rather than admitting frames into a
+   renderer that did not resume. If a streaming callback re-enters Stop or
+   Disconnect on the reader's own worker, the source requests termination but
+   does not detach the thread or release its allocator while `Receive` is
+   still on the stack. Stop reports an intermediate result; Disconnect/graph
+   removal is rejected until the worker can be joined from another thread.
+   The worker detaches itself only when its final COM reference is released
+   from that worker, after streaming callbacks have unwound.
 
 The exposed reader pin is an output pin. Its incoming `EndOfStream`,
 `BeginFlush`, `EndFlush`, and `NewSegment` methods therefore return
