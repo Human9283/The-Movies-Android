@@ -914,7 +914,7 @@ static void *reader_worker(void *opaque) {
                 if (atomic_load_explicit(&r->stop_requested, memory_order_acquire)) break;
                 segment_hr = reader_notify_new_segment(r, pts, &segment_generation);
                 if (segment_hr & 0x80000000u) {
-                    fprintf(stderr, "[dshow-reader] post-flush NewSegment -> 0x%08X\\n", segment_hr);
+                    fprintf(stderr, "[dshow-reader] post-flush NewSegment -> 0x%08X\n", segment_hr);
                     stream_error = 1;
                     break;
                 }
