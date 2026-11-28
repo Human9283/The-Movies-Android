@@ -123,6 +123,31 @@ python "$WORK/pcrecomp/tools/disasm/disasm32.py" \
   --seed-functions "$WORK/work/seeds.json"
 ~~~
 
+### Recover runtime-only indirect-call targets (when a run log exists)
+
+The static sweep cannot always identify a function reached only through a
+stored callback or computed branch. If a previous native run stopped with
+`ICALL: unresolved VA` or `ITAIL: unresolved VA`, preserve that log and add
+its runtime-proven targets to the seed list before lifting:
+
+~~~bash
+python "$WORK/port/tools/patch_runtime_dispatch_seeds.py" "$WORK/pcrecomp"
+python "$WORK/pcrecomp/tools/disasm/seed_from_log.py" \
+  "$WORK/native.log" "$WORK/game/Movies.exe" \
+  --seeds "$WORK/work/seeds.json" \
+  --functions "$WORK/work/functions.json"
+python "$WORK/pcrecomp/tools/disasm/seed_from_log.py" --selftest
+python "$WORK/pcrecomp/tools/disasm/disasm32.py" \
+  "$WORK/game/Movies.exe" -o "$WORK/work/functions.json" \
+  --seed-functions "$WORK/work/seeds.json"
+~~~
+
+The patch bypasses only the ASCII-string heuristic for runtime-observed
+indirect calls and tail calls. Executable-section validation, instruction
+decoding and pointer-table rejection remain active. Do not add arbitrary
+addresses as seeds: a runtime trace is evidence of a dispatch destination,
+not a substitute for validating the executable and the generated lift.
+
 Run the static lift using the pinned themovies driver:
 
 ~~~bash
