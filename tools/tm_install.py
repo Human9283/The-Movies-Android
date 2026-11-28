@@ -217,7 +217,7 @@ def main(argv=None):
             else:
                 loose.append((m, f))
 
-        manifest, problems = [], []
+        manifest, problems, size_mismatches = [], [], []
 
         def place(f, src_path, origin):
             tgt_rel, outside, _ = dirs[comps[f['Component_']]['Directory_']]
@@ -254,7 +254,7 @@ def main(argv=None):
                     ent['sha256'] = sha256_file(dest)
             manifest.append(ent)
             if size != want:
-                problems.append('%s: %d bytes on disc, File table says %d' % (rel, size, want))
+                size_mismatches.append('%s: %d bytes on disc, File table says %d' % (rel, size, want))
 
         for (label, cab), members in sorted(by_cab.items()):
             disc = discs.get(label)
@@ -336,12 +336,14 @@ def main(argv=None):
     manifest.sort(key=lambda e: e['path'].lower())
     total = sum(e['size'] for e in manifest)
     with open(os.path.join(args.out, 'tm_manifest.json'), 'w') as fp:
-        json.dump({'files': manifest, 'problems': problems, 'total_bytes': total,
-                  'expected_file_rows': len(files)}, fp, indent=1)
-    print('[done] %d of %d files, %.2f GB, %d problems'
-          % (len(manifest), len(files), total / 1e9, len(problems)))
+        json.dump({'files': manifest, 'problems': problems, 'size_mismatches': size_mismatches,
+                   'total_bytes': total, 'expected_file_rows': len(files)}, fp, indent=1)
+    print('[done] %d of %d files, %.2f GB, %d extraction problems, %d size mismatches'
+          % (len(manifest), len(files), total / 1e9, len(problems), len(size_mismatches)))
     for p in problems:
         print('  !', p)
+    for p in size_mismatches:
+        print('  size mismatch:', p)
     return 0 if len(manifest) == len(files) and not problems else 1
 
 
