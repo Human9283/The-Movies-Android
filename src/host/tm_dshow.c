@@ -69,6 +69,8 @@
 #define E_FAIL                 0x80004005u
 #define E_NOTIMPL               0x80004001u
 #define VFW_E_CANNOT_RENDER     0x80040218u
+#define VFW_S_STATE_INTERMEDIATE 0x00040237u
+#define VFW_S_CANT_CUE          0x00040268u
 #define VFW_E_ENUM_OUT_OF_SYNC  0x80040203u
 #define VFW_E_NOT_FOUND         0x80040216u
 #define VFW_S_DUPLICATE_NAME    0x0004022Du
@@ -489,15 +491,23 @@ static void media_control_Release(void) {
 
 static uint32_t graph_filter_transition(obj_t *o, int method, int new_state,
                                             uint32_t start_low, uint32_t start_high) {
+    uint32_t graph_va = o->va;
     uint32_t filters[MAX_FILTERS];
     int count = o->nf;
     memcpy(filters, o->filter, (size_t)count * sizeof filters[0]);
-    uint32_t first_failure = S_OK;
 
-    /* DirectShow transitions downstream filters before upstream filters:
-     * renderers/consumers must be ready before a source begins delivering
-     * samples. The native game graph adds its source before its renderer,
-     * so Run/Pause walk the snapshot backwards. Stop remains source-first. */
+    /* Keep every filter alive for the full transition. A guest callback can
+     * re-enter the graph and remove a filter while the state change is in
+     * progress. */
+    for (int i = 0; i < count; i++) com_addref(filters[i]);
+
+    uint32_t first_failure = S_OK;
+    int incomplete = 0;
+
+    /* DirectShow prepares downstream filters first. The native game graph
+     * inserts the source before the renderer, so walk backwards for Run and
+     * Pause. On Stop, keep the source-first order for non-ASF legacy graphs;
+     * the WMV reader graph handles its game-specific Stop/Run tick separately. */
     int i = method == 4 ? 0 : count - 1;
     int step = method == 4 ? 1 : -1;
     for (; i >= 0 && i < count; i += step) {
@@ -505,10 +515,18 @@ static uint32_t graph_filter_transition(obj_t *o, int method, int new_state,
         uint32_t hr = vcall(filters[i], method, method == 6 ? 2 : 0, method == 6 ? args : NULL);
         if ((hr & 0x80000000u) && first_failure == S_OK)
             first_failure = hr;
+        else if (hr == 1u)                               /* S_FALSE: asynchronous state change */
+            incomplete = 1;
     }
+
+    for (int k = 0; k < count; k++) com_release(filters[k]);
+
+    o = obj_of(graph_va, OBJ_GRAPH);
+    if (!o) return E_UNEXPECTED;
     if (!(first_failure & 0x80000000u))
         o->filter_state = (uint32_t)new_state;
-    return first_failure;
+    return (first_failure & 0x80000000u) ? first_failure
+         : incomplete ? 1u /* S_FALSE */ : S_OK;
 }
 
 static void media_control_Run(void) {                    /* (this) */
@@ -544,10 +562,68 @@ static void media_control_Stop(void) {                   /* (this) */
 }
 static void media_control_GetState(void) {               /* (this, timeout, FILTER_STATE *) */
     obj_t *o = media_control_owner(A32(0));
-    uint32_t state = A32(2);
-    if (!state) RET(E_POINTER, 3);
-    MEM32(state) = o->filter_state;
-    RET(S_OK, 3);
+    uint32_t timeout_ms = A32(1), state_out = A32(2);
+    if (!state_out) RET(E_POINTER, 3);
+    MEM32(state_out) = o->filter_state;
+
+    uint32_t graph_va = o->va;
+    uint32_t filters[MAX_FILTERS];
+    int count = o->nf;
+    memcpy(filters, o->filter, (size_t)count * sizeof filters[0]);
+    for (int i = 0; i < count; i++) com_addref(filters[i]);
+
+    const uint64_t started_ns = hle_mono_ns();
+    const uint64_t deadline_ns = timeout_ms == 0xFFFFFFFFu
+        ? UINT64_MAX
+        : started_ns + (uint64_t)timeout_ms * 1000000ull;
+    uint32_t result = S_OK;
+
+    /* Ask each child filter for its actual state. A graph can report Paused
+     * while a renderer is still waiting for its first sample; in that case
+     * GetState must report the intermediate transition rather than claiming
+     * the video has already been cued. */
+    for (int i = count - 1; i >= 0; i--) {
+        uint32_t *child_state = (uint32_t *)hle_alloc(4);
+        if (!child_state) {
+            result = E_OUTOFMEMORY;
+            break;
+        }
+        MEM32(hle_va(child_state)) = 0xFFFFFFFFu;
+
+        uint32_t remaining_ms = 0xFFFFFFFFu;
+        if (deadline_ns != UINT64_MAX) {
+            uint64_t now = hle_mono_ns();
+            if (now >= deadline_ns) {
+                hle_free(child_state);
+                result = VFW_S_STATE_INTERMEDIATE;
+                break;
+            }
+            uint64_t remaining_ns = deadline_ns - now;
+            uint64_t rounded_ms = (remaining_ns + 999999ull) / 1000000ull;
+            remaining_ms = rounded_ms > 0xFFFFFFFEu ? 0xFFFFFFFEu : (uint32_t)rounded_ms;
+        }
+
+        uint32_t args[2] = { remaining_ms, hle_va(child_state) };
+        uint32_t hr = vcall(filters[i], 7, 2, args);      /* IMediaFilter::GetState */
+        hle_free(child_state);
+
+        if (hr & 0x80000000u) {
+            result = hr;
+            break;
+        }
+        if (hr == VFW_S_CANT_CUE) {
+            result = VFW_S_CANT_CUE;
+            break;
+        }
+        if (hr == VFW_S_STATE_INTERMEDIATE)
+            result = VFW_S_STATE_INTERMEDIATE;
+        if (result == VFW_S_STATE_INTERMEDIATE)
+            break;                                      /* child consumed the remaining timeout */
+    }
+
+    for (int i = 0; i < count; i++) com_release(filters[i]);
+    if (!obj_of(graph_va, OBJ_GRAPH)) result = E_UNEXPECTED;
+    RET(result, 3);
 }
 
 /* IMediaControl's automation methods have a different ABI from the similarly
