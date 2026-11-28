@@ -2,7 +2,7 @@
 
 An unofficial ARM64 Android port of *The Movies* (2005), targeting the Russian CD release 1.1.
 
-> **Experimental — the game is not yet confirmed playable.** The current build reaches the animated intro but has not reached the main menu. A successful APK build or installation does not mean the game works.
+> **Experimental — the game is not yet confirmed playable.** An older device-tested APK reached the animated intro but did not reach the main menu. The current source revision includes later native-code changes and has not yet been rebuilt or tested on a device, so the older result must not be treated as the current revision's behaviour. A successful APK build or installation does not mean the game works.
 
 ## Build
 
