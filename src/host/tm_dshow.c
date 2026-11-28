@@ -1527,6 +1527,7 @@ void tm_dshow_init(void) {
     hle_com_register_class(CLSID_FilterGraph_, create_graph);
     hle_com_register_class(CLSID_CaptureGraphBuilder2_, create_builder);
     hle_com_register_class(CLSID_WMAsfWriter_, create_writer);
+    tm_dshow_reader_init();
 }
 
 int tm_dshow_live(void) {
