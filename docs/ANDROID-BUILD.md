@@ -14,7 +14,7 @@ Use Ubuntu 24.04 x86-64. Install a JDK 17, Git, Python, CMake, Ninja, Meson, gls
 sudo apt-get update
 sudo apt-get install -y git curl unzip zip openjdk-17-jdk \
   build-essential cmake ninja-build glslang-tools ccache patch pkg-config \
-  python3-venv msitools cabextract
+  gnupg xz-utils python3-venv msitools cabextract
 ~~~
 
 Create a Python environment for the lift and build tools:
