@@ -606,7 +606,7 @@ static uint32_t reader_notify_end_of_stream(reader_t *r) {
     pthread_mutex_lock(&r->stream_mutex);
     uint32_t hr = S_OK;
     if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
-        hr = VFW_E_NOT_CONNECTED; /* A flush owns the downstream stream boundary. */
+        hr = S_FALSE; /* A flush owns the downstream stream boundary. */
     else if (r->peer_pin)
         hr = guest_call(r->peer_pin, 14, 0, NULL);           /* IPin::EndOfStream */
     else
