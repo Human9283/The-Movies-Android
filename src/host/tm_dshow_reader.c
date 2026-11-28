@@ -116,6 +116,7 @@ struct reader {
     uint32_t allocator;
     int allocator_committed;
     pthread_t worker;
+    uint32_t worker_tid;
     int worker_started;
     atomic_int stop_requested;
     atomic_int paused;
@@ -662,7 +663,7 @@ static int reader_wait_until(reader_t *r, uint64_t due_100ns, uint64_t *clock_sh
 
 static void *reader_worker(void *opaque) {
     reader_t *r = (reader_t *)opaque;
-    hle_thread_id_adopt(hle_thread_id_new());
+    hle_thread_id_adopt(r->worker_tid);
 
     uint8_t *frame = (uint8_t *)malloc(r->sample_size);
     if (!frame) {
@@ -781,6 +782,7 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time) {
     atomic_store_explicit(&r->running, 1, memory_order_release);
     atomic_store_explicit(&r->worker_done, 0, memory_order_release);
     r->run_start_100ns = start_time;
+    r->worker_tid = hle_thread_id_new();
     r->state = FILTER_STATE_RUNNING;
     int rc = pthread_create(&r->worker, NULL, reader_worker, r);
     if (rc != 0) {
