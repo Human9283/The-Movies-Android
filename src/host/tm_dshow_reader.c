@@ -1069,7 +1069,8 @@ static uint32_t reader_join_worker(reader_t *r, int stopping) {
     hle_block_begin();
     int rc = pthread_join(r->worker, NULL);
     hle_block_end();
-    atomic_store_explicit(&r->worker_started, 0, memory_order_release);
+    if (rc == 0)
+        atomic_store_explicit(&r->worker_started, 0, memory_order_release);
     return rc == 0 ? S_OK : E_FAIL;
 }
 
@@ -1139,7 +1140,7 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time, int start_
     if (!r->decoder || !r->peer_mem_input || !r->allocator)
         return VFW_E_NOT_CONNECTED;
 
-    if (r->worker_started) {
+    if (atomic_load_explicit(&r->worker_started, memory_order_acquire)) {
         if (!atomic_load_explicit(&r->worker_done, memory_order_acquire)) {
             if (start_paused) {
                 if (!atomic_load_explicit(&r->paused, memory_order_acquire)) {
@@ -1198,8 +1199,10 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time, int start_
     r->run_start_100ns = start_time;
     r->worker_tid = hle_thread_id_new();
     r->state = start_paused ? FILTER_STATE_PAUSED : FILTER_STATE_RUNNING;
+    atomic_store_explicit(&r->worker_started, 1, memory_order_release);
     int rc = pthread_create(&r->worker, NULL, reader_worker, r);
     if (rc != 0) {
+        atomic_store_explicit(&r->worker_started, 0, memory_order_release);
         atomic_store_explicit(&r->running, 0, memory_order_release);
         atomic_store_explicit(&r->paused, 0, memory_order_release);
         atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
@@ -1207,7 +1210,6 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time, int start_
         reader_release_host(r);                     /* pthread_create failed */
         return E_FAIL;
     }
-    atomic_store_explicit(&r->worker_started, 1, memory_order_release);
     return S_OK;
 }
 
