@@ -80,6 +80,7 @@ typedef uint8_t guid_t[16];
 static const guid_t CLSID_FilterGraph_          = G(0xE436EBB3, 0x524F, 0x11CE, 0x9F,0x53,0x00,0x20,0xAF,0x0B,0xA7,0x70);
 static const guid_t CLSID_CaptureGraphBuilder2_ = G(0xBF87B6E1, 0x8C27, 0x11D0, 0xB3,0xF0,0x00,0xAA,0x00,0x37,0x61,0xC5);
 static const guid_t CLSID_WMAsfWriter_          = G(0x7C23220E, 0x55BB, 0x11D3, 0x8B,0x16,0x00,0xC0,0x4F,0xB6,0xBD,0x3D);
+static const guid_t CLSID_WMAsfReader_          = G(0x187463A0, 0x5BB7, 0x11D3, 0xAC,0xBE,0x00,0x80,0xC7,0x5E,0x24,0x6E);
 
 static const guid_t IID_IUnknown_        = G(0x00000000, 0x0000, 0x0000, 0xC0,0,0,0,0,0,0,0x46);
 static const guid_t IID_IPersist_        = G(0x0000010C, 0x0000, 0x0000, 0xC0,0,0,0,0,0,0,0x46);
@@ -126,6 +127,7 @@ typedef struct {
     int      kind, refs;
     /* graph: its filters, each referenced, with its name (guest WCHARs) */
     int      nf;
+    int      asf_readers;                  /* video sources whose Stop is a per-frame tick */
     uint32_t name_index;                   /* DirectShow's generated-name sequence, 0000..9999 */
     uint32_t graph_version;                /* invalidates IEnumFilters snapshots on mutation */
     uint32_t filter[MAX_FILTERS], fname[MAX_FILTERS];
@@ -508,8 +510,10 @@ static void media_control_Run(void) {                    /* (this) */
      * absolute reference time passed to each IMediaFilter::Run(tStart).
      * Use the same monotonic 100-ns time base as the host's clocks, with
      * 100 ms of lead for filters to enter their running state. */
+    uint32_t pause_hr = graph_filter_transition(o, 5, 1, 0, 0);
     uint64_t start = hle_mono_ns() / 100u + 1000000u;
-    RET(graph_filter_transition(o, 6, 2, (uint32_t)start, (uint32_t)(start >> 32)), 1);
+    uint32_t run_hr = graph_filter_transition(o, 6, 2, (uint32_t)start, (uint32_t)(start >> 32));
+    RET((run_hr & 0x80000000u) ? run_hr : pause_hr, 1);
 }
 static void media_control_Pause(void) {                  /* (this) */
     obj_t *o = media_control_owner(A32(0));
@@ -517,6 +521,13 @@ static void media_control_Pause(void) {                  /* (this) */
 }
 static void media_control_Stop(void) {                   /* (this) */
     obj_t *o = media_control_owner(A32(0));
+    if (o->asf_readers > 0) {
+        /* The game's video path issues Stop/Run as a presentation tick.
+         * Stopping the reader here would tear down its decode pump on every
+         * frame. Pause/Run provides the required frame-boundary hand-off. */
+        o->filter_state = 0;
+        RET(S_OK, 1);
+    }
     RET(graph_filter_transition(o, 4, 0, 0, 0), 1);
 }
 static void media_control_GetState(void) {               /* (this, timeout, FILTER_STATE *) */
@@ -862,6 +873,17 @@ static int generated_filter_name(obj_t *g, const uint16_t *base, uint16_t *out) 
     return 0;
 }
 
+static int filter_is_asf_reader(uint32_t filter) {
+    uint8_t *clsid = (uint8_t *)hle_alloc(16);
+    if (!clsid) return -1;
+    uint32_t clsid_va = hle_va(clsid);
+    uint32_t args[1] = { clsid_va };
+    uint32_t hr = vcall(filter, 3, 1, args);             /* IPersist::GetClassID */
+    int is_reader = !(hr & 0x80000000u) && !memcmp(clsid, CLSID_WMAsfReader_, 16);
+    hle_free(clsid);
+    return is_reader;
+}
+
 static void graph_AddFilter(void) {                     /* (this, IBaseFilter *filter, LPCWSTR name) */
     obj_t *g = self(OBJ_GRAPH, "AddFilter");
     uint32_t f = A32(1), pname = A32(2), va = g->va;
@@ -915,6 +937,12 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
     if (!keep) RET(E_OUTOFMEMORY, 3);
     memcpy(keep, w, (wlen(w) + 1) * 2);
     com_addref(f);
+    int is_asf_reader = filter_is_asf_reader(f);
+    if (is_asf_reader < 0) {
+        com_release(f);
+        hle_free(keep);
+        RET(E_OUTOFMEMORY, 3);
+    }
     uint32_t join[2] = { va, hle_va(keep) };
     uint32_t jr = vcall(f, 13, 2, join);                /* IBaseFilter::JoinFilterGraph(graph, name) */
     g = obj_of(va, OBJ_GRAPH);
@@ -925,6 +953,7 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
         RET(g ? jr : E_UNEXPECTED, 3);
     }
     g->filter[g->nf] = f, g->fname[g->nf] = hle_va(keep), g->nf++;
+    if (is_asf_reader) g->asf_readers++;
     g->graph_version++;
     uint32_t result = renamed ? VFW_S_DUPLICATE_NAME : S_OK;
     fprintf(stderr, "[dshow] FilterGraph 0x%08X: AddFilter(0x%08X, \"%s\") -> 0x%08X, %d filter%s\n",
@@ -1157,6 +1186,8 @@ static void graph_RemoveFilter(void) {                  /* (this, IBaseFilter *f
         if (g->filter[i] == filter) { index = i; break; }
     if (index < 0) RET(E_FAIL, 2);
 
+    int is_asf_reader = filter_is_asf_reader(filter);
+    if (is_asf_reader < 0) RET(E_OUTOFMEMORY, 2);
     uint32_t hr = graph_disconnect_filter_pins(filter);
     if (hr & 0x80000000u) RET(hr, 2);
 
@@ -1180,6 +1211,7 @@ static void graph_RemoveFilter(void) {                  /* (this, IBaseFilter *f
     g->filter[g->nf] = 0;
     g->fname[g->nf] = 0;
     g->graph_version++;
+    if (is_asf_reader && g->asf_readers > 0) g->asf_readers--;
     if (name) hle_free(hle_ptr(name));
     com_release(filter);
     RET(S_OK, 2);
