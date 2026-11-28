@@ -64,6 +64,8 @@
 #define E_FAIL                 0x80004005u
 #define E_NOTIMPL               0x80004001u
 #define VFW_E_CANNOT_RENDER     0x80040218u
+#define VFW_E_ENUM_OUT_OF_SYNC  0x80040203u
+#define VFW_E_NOT_FOUND         0x80040216u
 #define VFW_S_DUPLICATE_NAME    0x0004022Du
 #define VFW_E_DUPLICATE_NAME    0x8004022Du
 #define E_UNEXPECTED           0x8000FFFFu
@@ -91,6 +93,7 @@ static const guid_t IID_IMediaPosition_  = G(0x56A868B2, 0x0AD4, 0x11CE, 0xB0,0x
 static const guid_t IID_IBasicAudio_     = G(0x56A868B3, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70);
 static const guid_t IID_IBasicVideo_     = G(0x56A868B5, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70);
 static const guid_t IID_ICaptureGraphBuilder2_ = G(0x93E5A4E0, 0x2D50, 0x11D2, 0xAB,0xFA,0x00,0xA0,0xC9,0xC6,0xE3,0x8D);
+static const guid_t IID_IEnumFilters_ = G(0x56A86893, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70);
 
 /* Interfaces the real objects have and these do not: asking for one stops
  * the run, naming it (all of these GUIDs are in Movies.exe). */
@@ -124,6 +127,7 @@ typedef struct {
     /* graph: its filters, each referenced, with its name (guest WCHARs) */
     int      nf;
     uint32_t name_index;                   /* DirectShow's generated-name sequence, 0000..9999 */
+    uint32_t graph_version;                /* invalidates IEnumFilters snapshots on mutation */
     uint32_t filter[MAX_FILTERS], fname[MAX_FILTERS];
     /* IMediaEventSink is a distinct COM interface pointer with its own vtable. */
     uint32_t event_sink_va, last_event_code, last_event_param1, last_event_param2;
@@ -145,6 +149,18 @@ static int g_created[4], g_destroyed[4];
 static uint32_t g_vt[4];
 static uint32_t g_vt_event_sink, g_vt_media_control;
 static uint32_t g_vt_media_position, g_vt_basic_audio, g_vt_basic_video;
+static uint32_t g_vt_enum_filters;
+
+#define MAX_ENUM_FILTERS 64
+typedef struct {
+    uint32_t va;
+    int refs;
+    uint32_t graph;
+    uint32_t version;
+    uint32_t count, cursor;
+    uint32_t filters[MAX_FILTERS];
+} enum_filters_t;
+static enum_filters_t g_enum_filters[MAX_ENUM_FILTERS];
 
 static obj_t *obj_of(uint32_t va, int kind) {
     for (int i = 0; i < MAX_OBJS; i++) if (va && g_obj[i].va == va && g_obj[i].kind == kind) return &g_obj[i];
@@ -827,10 +843,219 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
         RET(g ? jr : E_UNEXPECTED, 3);
     }
     g->filter[g->nf] = f, g->fname[g->nf] = hle_va(keep), g->nf++;
+    g->graph_version++;
     uint32_t result = renamed ? VFW_S_DUPLICATE_NAME : S_OK;
     fprintf(stderr, "[dshow] FilterGraph 0x%08X: AddFilter(0x%08X, \"%s\") -> 0x%08X, %d filter%s\n",
             va, f, nm, result, g->nf, g->nf == 1 ? "" : "s");
     RET(result, 3);
+}
+
+/* ---- IEnumFilters and the remaining IFilterGraph collection methods ---- */
+static enum_filters_t *enum_filters_of(uint32_t va) {
+    for (int i = 0; i < MAX_ENUM_FILTERS; i++)
+        if (va && g_enum_filters[i].va == va) return &g_enum_filters[i];
+    return NULL;
+}
+
+static enum_filters_t *enum_filters_self(const char *method) {
+    enum_filters_t *e = enum_filters_of(A32(0));
+    if (!e)
+        hle_fatal("[dshow] IEnumFilters::%s on 0x%08X: not a live enumerator", method, A32(0));
+    return e;
+}
+
+static uint32_t enum_filters_refresh(enum_filters_t *e) {
+    obj_t *g = obj_of(e->graph, OBJ_GRAPH);
+    if (!g) return E_UNEXPECTED;
+    e->count = (uint32_t)g->nf;
+    e->cursor = 0;
+    e->version = g->graph_version;
+    if (e->count) memcpy(e->filters, g->filter, e->count * sizeof(e->filters[0]));
+    if (e->count < MAX_FILTERS)
+        memset(e->filters + e->count, 0, (MAX_FILTERS - e->count) * sizeof(e->filters[0]));
+    return S_OK;
+}
+
+static enum_filters_t *enum_filters_new(obj_t *g, const enum_filters_t *source) {
+    make_vtables();
+    uint32_t *memory = (uint32_t *)hle_alloc(4);
+    if (!memory) return NULL;
+    enum_filters_t *e = NULL;
+    for (int i = 0; i < MAX_ENUM_FILTERS; i++)
+        if (!g_enum_filters[i].va) { e = &g_enum_filters[i]; break; }
+    if (!e) { hle_free(memory); return NULL; }
+
+    memset(e, 0, sizeof(*e));
+    e->va = hle_va(memory);
+    e->refs = 1;
+    e->graph = g->va;
+    g->refs++;
+    *memory = g_vt_enum_filters;
+    if (source) {
+        e->version = source->version;
+        e->count = source->count;
+        e->cursor = source->cursor;
+        if (e->count) memcpy(e->filters, source->filters, e->count * sizeof(e->filters[0]));
+    } else if (enum_filters_refresh(e) != S_OK) {
+        uint32_t va = e->va;
+        memset(e, 0, sizeof(*e));
+        hle_free(hle_ptr(va));
+        graph_release(g->va);
+        return NULL;
+    }
+    return e;
+}
+
+static uint32_t enum_filters_release(uint32_t va) {
+    enum_filters_t *e = enum_filters_of(va);
+    if (!e) hle_fatal("[dshow] IEnumFilters::Release on 0x%08X: not a live enumerator", va);
+    if (e->refs <= 0) hle_fatal("[dshow] IEnumFilters 0x%08X: reference count underflow", va);
+    int refs = --e->refs;
+    if (!refs) {
+        uint32_t graph = e->graph;
+        memset(e, 0, sizeof(*e));
+        hle_free(hle_ptr(va));
+        graph_release(graph);
+    }
+    return (uint32_t)refs;
+}
+
+static void enum_filters_QueryInterface(void) {
+    enum_filters_t *e = enum_filters_self("QueryInterface");
+    uint32_t iid = A32(1), out = A32(2);
+    if (!out) RET(E_POINTER, 3);
+    MEM32(out) = 0;
+    if (!iid) RET(E_POINTER, 3);
+    if (memcmp(hle_ptr(iid), IID_IUnknown_, 16) &&
+        memcmp(hle_ptr(iid), IID_IEnumFilters_, 16))
+        RET(E_NOINTERFACE, 3);
+    e->refs++;
+    MEM32(out) = e->va;
+    RET(S_OK, 3);
+}
+static void enum_filters_AddRef(void) {
+    enum_filters_t *e = enum_filters_self("AddRef");
+    RET((uint32_t)++e->refs, 1);
+}
+static void enum_filters_Release(void) {
+    RET(enum_filters_release(A32(0)), 1);
+}
+static void enum_filters_Next(void) {
+    enum_filters_t *e = enum_filters_self("Next");
+    uint32_t requested = A32(1), out = A32(2), fetched_out = A32(3);
+    if (requested && !out) RET(E_POINTER, 4);
+    if (requested != 1 && !fetched_out) RET(E_POINTER, 4);
+    if (fetched_out) MEM32(fetched_out) = 0;
+
+    obj_t *g = obj_of(e->graph, OBJ_GRAPH);
+    if (!g) RET(E_UNEXPECTED, 4);
+    if (e->version != g->graph_version) RET(VFW_E_ENUM_OUT_OF_SYNC, 4);
+
+    uint32_t available = e->cursor < e->count ? e->count - e->cursor : 0;
+    uint32_t take = requested < available ? requested : available;
+    for (uint32_t i = 0; i < take; i++) {
+        uint32_t filter = e->filters[e->cursor++];
+        com_addref(filter);
+        MEM32(out + 4u * i) = filter;
+    }
+    if (fetched_out) MEM32(fetched_out) = take;
+    RET(take == requested ? S_OK : 1u, 4);
+}
+static void enum_filters_Skip(void) {
+    enum_filters_t *e = enum_filters_self("Skip");
+    obj_t *g = obj_of(e->graph, OBJ_GRAPH);
+    if (!g) RET(E_UNEXPECTED, 2);
+    if (e->version != g->graph_version) RET(VFW_E_ENUM_OUT_OF_SYNC, 2);
+    uint32_t requested = A32(1);
+    uint32_t available = e->cursor < e->count ? e->count - e->cursor : 0;
+    if (requested > available) {
+        e->cursor = e->count;
+        RET(1u, 2);
+    }
+    e->cursor += requested;
+    RET(S_OK, 2);
+}
+static void enum_filters_Reset(void) {
+    enum_filters_t *e = enum_filters_self("Reset");
+    RET(enum_filters_refresh(e), 1);
+}
+static void enum_filters_Clone(void) {
+    enum_filters_t *e = enum_filters_self("Clone");
+    uint32_t out = A32(1);
+    if (!out) RET(E_POINTER, 2);
+    MEM32(out) = 0;
+    obj_t *g = obj_of(e->graph, OBJ_GRAPH);
+    if (!g) RET(E_UNEXPECTED, 2);
+    enum_filters_t *clone = enum_filters_new(g, e);
+    if (!clone) RET(E_OUTOFMEMORY, 2);
+    MEM32(out) = clone->va;
+    RET(S_OK, 2);
+}
+
+static void graph_RemoveFilter(void) {
+    obj_t *g = self(OBJ_GRAPH, "RemoveFilter");
+    uint32_t graph_va = g->va, filter = A32(1);
+    if (!filter) RET(E_POINTER, 2);
+    int index = -1;
+    for (int i = 0; i < g->nf; i++)
+        if (g->filter[i] == filter) { index = i; break; }
+    if (index < 0) RET(E_FAIL, 2);
+
+    uint32_t none[2] = { 0, 0 };
+    uint32_t hr = vcall(filter, 13, 2, none);
+    if (hr & 0x80000000u) RET(hr, 2);
+
+    g = obj_of(graph_va, OBJ_GRAPH);
+    if (!g) RET(E_UNEXPECTED, 2);
+    index = -1;
+    for (int i = 0; i < g->nf; i++)
+        if (g->filter[i] == filter) { index = i; break; }
+    if (index < 0) RET(S_OK, 2);
+
+    uint32_t name = g->fname[index];
+    for (int i = index; i + 1 < g->nf; i++) {
+        g->filter[i] = g->filter[i + 1];
+        g->fname[i] = g->fname[i + 1];
+    }
+    g->nf--;
+    g->filter[g->nf] = 0;
+    g->fname[g->nf] = 0;
+    g->graph_version++;
+    if (name) hle_free(hle_ptr(name));
+    com_release(filter);
+    RET(S_OK, 2);
+}
+
+static void graph_EnumFilters(void) {
+    obj_t *g = self(OBJ_GRAPH, "EnumFilters");
+    uint32_t out = A32(1);
+    if (!out) RET(E_POINTER, 2);
+    MEM32(out) = 0;
+    enum_filters_t *e = enum_filters_new(g, NULL);
+    if (!e) RET(E_OUTOFMEMORY, 2);
+    MEM32(out) = e->va;
+    RET(S_OK, 2);
+}
+
+static void graph_FindFilterByName(void) {
+    obj_t *g = self(OBJ_GRAPH, "FindFilterByName");
+    uint32_t pname = A32(1), out = A32(2);
+    if (!out) RET(E_POINTER, 3);
+    MEM32(out) = 0;
+    if (!pname) RET(E_POINTER, 3);
+    const uint16_t *wanted = (const uint16_t *)hle_ptr(pname);
+    for (int i = 0; i < g->nf; i++) {
+        const uint16_t *name = (const uint16_t *)hle_ptr(g->fname[i]);
+        size_t j = 0;
+        while (name[j] && wanted[j] && name[j] == wanted[j]) j++;
+        if (!name[j] && !wanted[j]) {
+            uint32_t filter = g->filter[i];
+            com_addref(filter);
+            MEM32(out) = filter;
+            RET(S_OK, 3);
+        }
+    }
+    RET(VFW_E_NOT_FOUND, 3);
 }
 
 /* ---- the capture graph builder: ICaptureGraphBuilder2 ---- */
@@ -954,6 +1179,8 @@ static const char *const builder_methods[] = {
     "QueryInterface", "AddRef", "Release",
     "SetFiltergraph", "GetFiltergraph", "SetOutputFileName", "FindInterface", "RenderStream", "ControlStream",
     "AllocCapFile", "CopyCaptureFile", "FindPin", NULL };
+static const char *const enum_filters_methods[] = {
+    "QueryInterface", "AddRef", "Release", "Next", "Skip", "Reset", "Clone", NULL };
 static const char *const event_sink_methods[] = {
     "QueryInterface", "AddRef", "Release", "Notify", NULL };
 static const char *const media_control_methods[] = {
@@ -997,6 +1224,9 @@ static const win32hle_shim g_impl[] = {
     { "FilterGraph::AddRef",                       graph_AddRef },
     { "FilterGraph::Release",                      graph_Release },
     { "FilterGraph::AddFilter",                    graph_AddFilter },
+    { "FilterGraph::RemoveFilter",                 graph_RemoveFilter },
+    { "FilterGraph::EnumFilters",                  graph_EnumFilters },
+    { "FilterGraph::FindFilterByName",             graph_FindFilterByName },
     { "FilterGraph::Connect",                      graph_Connect },
     { "FilterGraph::ConnectDirect",                 graph_ConnectDirect },
     { "FilterGraph::RenderFile",                     graph_RenderFile },
@@ -1005,6 +1235,13 @@ static const win32hle_shim g_impl[] = {
     { "FilterGraphMediaControl::AddSourceFilter",      media_control_AddSourceFilter },
     { "CaptureGraphBuilder2::RenderStream",            builder_RenderStream },
     { "FilterGraph::Render",                        graph_Render },
+    { "FilterGraphEnumFilters::QueryInterface",    enum_filters_QueryInterface },
+    { "FilterGraphEnumFilters::AddRef",            enum_filters_AddRef },
+    { "FilterGraphEnumFilters::Release",           enum_filters_Release },
+    { "FilterGraphEnumFilters::Next",              enum_filters_Next },
+    { "FilterGraphEnumFilters::Skip",              enum_filters_Skip },
+    { "FilterGraphEnumFilters::Reset",              enum_filters_Reset },
+    { "FilterGraphEnumFilters::Clone",              enum_filters_Clone },
     { "FilterGraphEventSink::QueryInterface",       event_sink_QueryInterface },
     { "FilterGraphEventSink::AddRef",               event_sink_AddRef },
     { "FilterGraphEventSink::Release",              event_sink_Release },
@@ -1081,6 +1318,7 @@ static void make_vtables(void) {
     g_vt[OBJ_GRAPH] = make_vtable("FilterGraph", graph_methods);
     g_vt[OBJ_BUILDER] = make_vtable("CaptureGraphBuilder2", builder_methods);
     g_vt[OBJ_WRITER] = make_vtable("WMAsfWriter", writer_methods);
+    g_vt_enum_filters = make_vtable("FilterGraphEnumFilters", enum_filters_methods);
     g_vt_event_sink = make_vtable("FilterGraphEventSink", event_sink_methods);
     g_vt_media_control = make_vtable("FilterGraphMediaControl", media_control_methods);
     g_vt_media_position = make_vtable("FilterGraphMediaPosition", media_position_methods);
