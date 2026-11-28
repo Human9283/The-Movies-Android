@@ -484,7 +484,14 @@ static uint32_t graph_filter_transition(obj_t *o, int method, int new_state,
     int count = o->nf;
     memcpy(filters, o->filter, (size_t)count * sizeof filters[0]);
     uint32_t first_failure = S_OK;
-    for (int i = 0; i < count; i++) {
+
+    /* DirectShow transitions downstream filters before upstream filters:
+     * renderers/consumers must be ready before a source begins delivering
+     * samples. The native game graph adds its source before its renderer,
+     * so Run/Pause walk the snapshot backwards. Stop remains source-first. */
+    int i = method == 4 ? 0 : count - 1;
+    int step = method == 4 ? 1 : -1;
+    for (; i >= 0 && i < count; i += step) {
         uint32_t args[2] = { start_low, start_high };
         uint32_t hr = vcall(filters[i], method, method == 6 ? 2 : 0, method == 6 ? args : NULL);
         if ((hr & 0x80000000u) && first_failure == S_OK)
