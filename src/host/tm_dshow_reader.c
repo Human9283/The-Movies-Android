@@ -715,10 +715,22 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
         return 2;                                      /* retry when a renderer sample is freed */
     }
     if (hr != S_OK || !sample) {
+        int interrupted = atomic_load_explicit(&r->flush_generation, memory_order_acquire) != flush_generation ||
+                          atomic_load_explicit(&r->pin_flushing, memory_order_acquire) ||
+                          atomic_load_explicit(&r->stop_requested, memory_order_acquire);
         guest_free_locked(time_va);
         guest_free_locked(sample_out_va);
         mach_leave();
-        return 0;                                      /* decommitted allocator or COM failure */
+        return interrupted ? 2 : 0;                    /* flush cancellation vs allocator failure */
+    }
+    if (atomic_load_explicit(&r->flush_generation, memory_order_acquire) != flush_generation ||
+        atomic_load_explicit(&r->pin_flushing, memory_order_acquire) ||
+        atomic_load_explicit(&r->stop_requested, memory_order_acquire)) {
+        guest_call(sample, 2, 0, NULL);
+        guest_free_locked(time_va);
+        guest_free_locked(sample_out_va);
+        mach_leave();
+        return 2;
     }
 
     uint32_t pointer_out_va = guest_alloc_locked(4);
