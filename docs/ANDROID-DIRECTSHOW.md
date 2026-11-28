@@ -74,6 +74,12 @@ gameplay works.
    `EndFlush` leaves the source in its flushing state rather than admitting
    frames into a renderer that did not resume.
 
+The exposed reader pin is an output pin. Its incoming `EndOfStream`,
+`BeginFlush`, `EndFlush`, and `NewSegment` methods therefore return
+`E_UNEXPECTED`; the source performs those operations internally on its
+connected downstream input pin. This keeps the public `IPin` direction contract
+separate from the source's own streaming control path.
+
 The graph also routes `IGraphBuilder::RenderFile` and
 `IGraphBuilder::AddSourceFilter` through this reader. Graph state changes run
 through the filters downstream-first so the renderer is ready before the
