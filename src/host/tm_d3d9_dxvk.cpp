@@ -63,6 +63,7 @@ struct Proxy {
     Kind kind;
     uint32_t parent = 0;                                 /* a device: the guest IDirect3D9 that made it;
                                                             a texture's level: the texture */
+    uint32_t guest_window = 0;                            /* the guest HWND mapped to the SDL window */
     uint32_t shadow = 0, shadow_size = 0;                /* guest VA and size, once locked */
     int locks = 0;
     uint32_t lock_off = 0, lock_size = 0, lock_flags = 0;
@@ -623,6 +624,9 @@ void cube_GetCubeMapSurface() {                         /* (this, face, level, I
 struct Impl { Kind k; const char *name; recomp_func_t fn; };
 const Impl k_impl[] = {
     { DEVICE, "GetDeviceCaps", dev_GetDeviceCaps },
+    { DEVICE, "GetCreationParameters", dev_GetCreationParameters },
+    { DEVICE, "Reset", dev_Reset },
+    FWD(DEVICE, IDirect3DDevice9, ProcessVertices),
     FWD(DEVICE, IDirect3DDevice9, GetRenderTarget),
     FWD(DEVICE, IDirect3DDevice9, GetDepthStencilSurface),
     FWD(DEVICE, IDirect3DDevice9, GetAvailableTextureMem),
@@ -965,11 +969,77 @@ uint32_t create_device(uint32_t d3d, uint32_t adapter, uint32_t type, uint32_t f
     }
     uint32_t va = wrap(dev, DEVICE);
     g_px[va].parent = d3d;
+    g_px[va].guest_window = hwnd;
     MEM32(out) = va;
     fprintf(stderr, "[d3d9] CreateDevice(%ux%u %s, %s, %s depth, flags 0x%X) on DXVK -> IDirect3DDevice9 0x%08X, window 0x%08X\n",
             g[PP_W], g[PP_H], fmt_name(g[PP_FMT]), g[PP_WINDOWED] ? "windowed" : "full screen", fmt_name(g[PP_DSFMT]),
             flags, va, hwnd);
     return (uint32_t)hr;
+}
+
+/* D3DDEVICE_CREATION_PARAMETERS contains a pointer-sized HWND on the
+ * host, but the guest's 32-bit structure stores a four-byte HWND. */
+void dev_GetCreationParameters() {                     /* (this, D3DDEVICE_CREATION_PARAMETERS *) */
+    IDirect3DDevice9 *d = self<IDirect3DDevice9>(DEVICE, "GetCreationParameters");
+    uint32_t out = A32(1);
+    if (!out) RET(D3DERR_INVALIDCALL_, 2);
+
+    D3DDEVICE_CREATION_PARAMETERS p = {};
+    HRESULT hr = d->GetCreationParameters(&p);
+    if (SUCCEEDED(hr)) {
+        MEM32(out + 0) = p.AdapterOrdinal;
+        MEM32(out + 4) = (uint32_t)p.DeviceType;
+        MEM32(out + 8) = g_px[A32(0)].guest_window;
+        MEM32(out + 12) = p.BehaviorFlags;
+    }
+    RET((uint32_t)hr, 2);
+}
+
+/* Reset uses the same 14-dword guest layout as CreateDevice. Convert the
+ * embedded guest HWND to the one SDL window; do not pass the 32-bit handle as
+ * a host pointer on ARM64. */
+void dev_Reset() {                                       /* (this, D3DPRESENT_PARAMETERS *) */
+    IDirect3DDevice9 *d = self<IDirect3DDevice9>(DEVICE, "Reset");
+    uint32_t pp = A32(1);
+    if (!pp) RET(D3DERR_INVALIDCALL_, 2);
+
+    uint32_t g[PP_N];
+    for (int k = 0; k < PP_N; k++) g[k] = MEM32(pp + 4u * (uint32_t)k);
+    const uint32_t original_window = g_px[A32(0)].guest_window;
+    const uint32_t guest_window = g[PP_HWND] ? g[PP_HWND] : original_window;
+    if (!guest_window || guest_window != original_window ||
+        !hle_window_class(guest_window) || hle_window_parent(guest_window)) {
+        fprintf(stderr, "[d3d9] Reset: guest HWND 0x%08X cannot be mapped to the existing SDL window\n",
+                guest_window);
+        RET(D3DERR_INVALIDCALL_, 2);
+    }
+
+    SDL_Window *win = hle_screen_sdl_window();
+    if (!win) RET(D3DERR_INVALIDCALL_, 2);
+
+    D3DPRESENT_PARAMETERS hp = {};
+    hp.BackBufferWidth = g[PP_W], hp.BackBufferHeight = g[PP_H], hp.BackBufferFormat = (D3DFORMAT)g[PP_FMT];
+    hp.BackBufferCount = g[PP_COUNT], hp.MultiSampleType = (D3DMULTISAMPLE_TYPE)g[PP_MS];
+    hp.MultiSampleQuality = g[PP_MSQ], hp.SwapEffect = (D3DSWAPEFFECT)g[PP_SWAP], hp.hDeviceWindow = (HWND)win;
+    hp.Windowed = (BOOL)g[PP_WINDOWED], hp.EnableAutoDepthStencil = (BOOL)g[PP_AUTODS];
+    hp.AutoDepthStencilFormat = (D3DFORMAT)g[PP_DSFMT], hp.Flags = g[PP_FLAGS];
+    hp.FullScreen_RefreshRateInHz = g[PP_REFRESH], hp.PresentationInterval = g[PP_INTERVAL];
+
+    HRESULT hr = d->Reset(&hp);
+    if (SUCCEEDED(hr)) {
+        uint32_t back[PP_N] = { hp.BackBufferWidth, hp.BackBufferHeight, (uint32_t)hp.BackBufferFormat, hp.BackBufferCount,
+                                (uint32_t)hp.MultiSampleType, hp.MultiSampleQuality, (uint32_t)hp.SwapEffect, g[PP_HWND],
+                                (uint32_t)hp.Windowed, (uint32_t)hp.EnableAutoDepthStencil, (uint32_t)hp.AutoDepthStencilFormat,
+                                hp.Flags, hp.FullScreen_RefreshRateInHz, hp.PresentationInterval };
+        for (int k = 0; k < PP_N; k++)
+            if (back[k] != g[k]) MEM32(pp + 4u * (uint32_t)k) = back[k];
+
+        if (!hp.Windowed)
+            hle_set_screen_size((int)hp.BackBufferWidth, (int)hp.BackBufferHeight);
+    }
+    fprintf(stderr, "[d3d9] IDirect3DDevice9::Reset(%ux%u, %s) -> 0x%08X\n",
+            g[PP_W], g[PP_H], g[PP_WINDOWED] ? "windowed" : "full screen", (unsigned)hr);
+    RET((uint32_t)hr, 2);
 }
 
 void d3d_destroyed(uint32_t d3d) {
