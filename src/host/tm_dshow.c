@@ -548,6 +548,7 @@ static void media_control_Release(void) {
 static uint32_t graph_filter_transition(obj_t *o, int method, int new_state,
                                             uint32_t start_low, uint32_t start_high) {
     uint32_t graph_va = o->va;
+    o->refs++;                                  /* hold graph across child callbacks */
     uint32_t filters[MAX_FILTERS];
     int count = o->nf;
     memcpy(filters, o->filter, (size_t)count * sizeof filters[0]);
@@ -578,21 +579,41 @@ static uint32_t graph_filter_transition(obj_t *o, int method, int new_state,
     for (int k = 0; k < count; k++) com_release(filters[k]);
 
     o = obj_of(graph_va, OBJ_GRAPH);
-    if (!o) return E_UNEXPECTED;
+    if (!o) {
+        graph_release(graph_va);
+        return E_UNEXPECTED;
+    }
     if (!(first_failure & 0x80000000u))
         o->filter_state = (uint32_t)new_state;
-    return (first_failure & 0x80000000u) ? first_failure
-         : incomplete ? 1u /* S_FALSE */ : S_OK;
+    uint32_t result = (first_failure & 0x80000000u) ? first_failure
+                    : incomplete ? 1u /* S_FALSE */ : S_OK;
+    graph_release(graph_va);
+    return result;
 }
 
 static uint32_t graph_run_at(obj_t *o, uint64_t start_time) {
-    if (o->filter_state == 2) return S_OK;
+    uint32_t graph_va = o->va;
+    o->refs++;
+    if (o->filter_state == 2) {
+        graph_release(graph_va);
+        return S_OK;
+    }
     uint32_t pause_hr = graph_filter_transition(o, 5, 1, 0, 0);
-    if (pause_hr & 0x80000000u) return pause_hr;
+    if (pause_hr & 0x80000000u) {
+        graph_release(graph_va);
+        return pause_hr;
+    }
+    o = obj_of(graph_va, OBJ_GRAPH);
+    if (!o) {
+        graph_release(graph_va);
+        return E_UNEXPECTED;
+    }
     uint32_t run_hr = graph_filter_transition(o, 6, 2,
                                               (uint32_t)start_time,
                                               (uint32_t)(start_time >> 32));
-    return (run_hr & 0x80000000u) ? run_hr : pause_hr;
+    uint32_t result = (run_hr & 0x80000000u) ? run_hr : pause_hr;
+    graph_release(graph_va);
+    return result;
 }
 static uint64_t graph_reference_time(obj_t *o) {
     if (o->sync_source_va) {
@@ -612,8 +633,12 @@ static uint64_t graph_reference_time(obj_t *o) {
 }
 
 static uint32_t graph_run(obj_t *o) {
+    uint32_t graph_va = o->va;
+    o->refs++;
     uint64_t start = graph_reference_time(o) + 1000000u;
-    return graph_run_at(o, start);
+    uint32_t hr = graph_run_at(o, start);
+    graph_release(graph_va);
+    return hr;
 }
 static uint32_t graph_pause(obj_t *o) {
     return graph_filter_transition(o, 5, 1, 0, 0);
@@ -631,6 +656,7 @@ static uint32_t graph_get_state(obj_t *o, uint32_t timeout_ms, uint32_t state_ou
     MEM32(state_out) = o->filter_state;
 
     uint32_t graph_va = o->va;
+    o->refs++;
     uint32_t filters[MAX_FILTERS];
     int count = o->nf;
     memcpy(filters, o->filter, (size_t)count * sizeof filters[0]);
@@ -683,6 +709,7 @@ static uint32_t graph_get_state(obj_t *o, uint32_t timeout_ms, uint32_t state_ou
 
     for (int i = 0; i < count; i++) com_release(filters[i]);
     if (!obj_of(graph_va, OBJ_GRAPH)) result = E_UNEXPECTED;
+    graph_release(graph_va);
     return result;
 }
 
@@ -805,6 +832,7 @@ static void graph_SetDefaultSyncSource(void) {
     obj_t *o = self(OBJ_GRAPH, "SetDefaultSyncSource");
     if (o->filter_state != 0) RET(VFW_E_NOT_STOPPED, 1);
     uint32_t graph_va = o->va;
+    o->refs++;
     uint32_t filters[MAX_FILTERS];
     int count = o->nf;
     memcpy(filters, o->filter, (size_t)count * sizeof(filters[0]));
@@ -816,6 +844,7 @@ static void graph_SetDefaultSyncSource(void) {
         if (iid) hle_free(iid);
         if (out) hle_free(out);
         for (int i = 0; i < count; i++) com_release(filters[i]);
+        graph_release(graph_va);
         RET(E_OUTOFMEMORY, 1);
     }
     memcpy(iid, IID_IReferenceClock_, 16);
@@ -838,10 +867,12 @@ static void graph_SetDefaultSyncSource(void) {
     o = obj_of(graph_va, OBJ_GRAPH);
     if (!o) {
         if (selected) com_release(selected);
+        graph_release(graph_va);
         RET(E_UNEXPECTED, 1);
     }
     uint32_t hr = graph_set_sync_source(o, selected);
     if (selected) com_release(selected);
+    graph_release(graph_va);
     RET(hr, 1);
 }
 
@@ -1343,12 +1374,14 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
     uint16_t *keep = (uint16_t *)hle_alloc(MAX_FILTER_NAME * 2);
     if (!keep) RET(E_OUTOFMEMORY, 3);
     memcpy(keep, w, (wlen(w) + 1) * 2);
+    g->refs++;
+#define ADD_FILTER_RET(value) do { uint32_t _add_hr = (value); graph_release(va); RET(_add_hr, 3); } while (0)
     com_addref(f);
     int is_asf_reader = filter_is_asf_reader(f);
     if (is_asf_reader < 0) {
         com_release(f);
         hle_free(keep);
-        RET(E_OUTOFMEMORY, 3);
+        ADD_FILTER_RET(E_OUTOFMEMORY);
     }
     uint32_t join[2] = { va, hle_va(keep) };
     uint32_t jr = vcall(f, 13, 2, join);                /* IBaseFilter::JoinFilterGraph(graph, name) */
@@ -1357,7 +1390,7 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
         com_release(f);
         hle_free(keep);
         fprintf(stderr, "[dshow] FilterGraph::AddFilter(0x%08X, \"%s\"): JoinFilterGraph -> 0x%08X\n", f, nm, jr);
-        RET(g ? jr : E_UNEXPECTED, 3);
+        ADD_FILTER_RET(g ? jr : E_UNEXPECTED);
     }
     if (g->sync_source_va) {
         uint32_t clock_args[1] = { g->sync_source_va };
@@ -1367,7 +1400,7 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
             (void)vcall(f, 13, 2, none);
             com_release(f);
             hle_free(keep);
-            RET(clock_hr, 3);
+            ADD_FILTER_RET(clock_hr);
         }
     }
     g->filter[g->nf] = f, g->fname[g->nf] = hle_va(keep), g->nf++;
@@ -1389,7 +1422,8 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
     uint32_t result = renamed ? VFW_S_DUPLICATE_NAME : S_OK;
     fprintf(stderr, "[dshow] FilterGraph 0x%08X: AddFilter(0x%08X, \"%s\") -> 0x%08X, %d filter%s\n",
             va, f, nm, result, g->nf, g->nf == 1 ? "" : "s");
-    RET(result, 3);
+    ADD_FILTER_RET(result);
+#undef ADD_FILTER_RET
 }
 
 /* ---- IEnumFilters and the remaining IFilterGraph collection methods ---- */
