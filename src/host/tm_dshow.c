@@ -1073,7 +1073,8 @@ static int name_used(const obj_t *g, const uint16_t *w) {
 /* IGraphBuilder::Connect delegates media-type negotiation to the
  * output pin. A NULL AM_MEDIA_TYPE asks the pin pair to negotiate. */
 static void graph_Connect(void) {                       /* (this, IPin *out, IPin *in) */
-    self(OBJ_GRAPH, "Connect");
+    obj_t *g = self(OBJ_GRAPH, "Connect");
+    if (g->tearing_down || g->teardown_failed) RET(VFW_E_WRONG_STATE, 3);
     uint32_t out_pin = A32(1), in_pin = A32(2);
     if (!out_pin || !in_pin) RET(E_POINTER, 3);
     uint32_t args[2] = { in_pin, 0 };
@@ -1081,7 +1082,8 @@ static void graph_Connect(void) {                       /* (this, IPin *out, IPi
 }
 
 static void graph_ConnectDirect(void) {                 /* (this, out, in, AM_MEDIA_TYPE *) */
-    self(OBJ_GRAPH, "ConnectDirect");
+    obj_t *g = self(OBJ_GRAPH, "ConnectDirect");
+    if (g->tearing_down || g->teardown_failed) RET(VFW_E_WRONG_STATE, 4);
     uint32_t out_pin = A32(1), in_pin = A32(2), media_type = A32(3);
     if (!out_pin || !in_pin) RET(E_POINTER, 4);
     uint32_t args[2] = { in_pin, media_type };
@@ -1089,14 +1091,16 @@ static void graph_ConnectDirect(void) {                 /* (this, out, in, AM_ME
 }
 
 static void graph_Disconnect(void) {                    /* (this, IPin *pin) */
-    self(OBJ_GRAPH, "Disconnect");
+    obj_t *g = self(OBJ_GRAPH, "Disconnect");
+    if (g->tearing_down || g->teardown_failed) RET(VFW_E_WRONG_STATE, 2);
     uint32_t pin = A32(1);
     if (!pin) RET(E_POINTER, 2);
     RET(vcall(pin, 5, 0, NULL), 2);                      /* IPin::Disconnect */
 }
 
 static void graph_Reconnect(void) {                     /* (this, IPin *pin) */
-    self(OBJ_GRAPH, "Reconnect");
+    obj_t *g = self(OBJ_GRAPH, "Reconnect");
+    if (g->tearing_down || g->teardown_failed) RET(VFW_E_WRONG_STATE, 2);
     uint32_t pin = A32(1);
     if (!pin) RET(E_POINTER, 2);
 
@@ -1335,6 +1339,7 @@ static void graph_AddSourceFilter(void) {               /* (this, file, name, &f
  * does not assume a pin count, pin name, or media-type layout. */
 static void graph_Render(void) {                        /* (this, IPin *out) */
     obj_t *o = self(OBJ_GRAPH, "Render");
+    if (o->tearing_down || o->teardown_failed) RET(VFW_E_WRONG_STATE, 2);
     uint32_t out_pin = A32(1);
     if (!out_pin) RET(E_POINTER, 2);
     RET(graph_connect_output_pin(o->va, out_pin), 2);
