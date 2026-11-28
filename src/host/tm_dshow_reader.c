@@ -1063,7 +1063,7 @@ static void *reader_worker(void *opaque) {
         if (!(decommit_hr & 0x80000000u))
             r->allocator_committed = 0;
         else
-            fprintf(stderr, "[dshow-reader] deferred allocator Decommit -> 0x%08X\\n", decommit_hr);
+            fprintf(stderr, "[dshow-reader] deferred allocator Decommit -> 0x%08X\n", decommit_hr);
     }
     reader_release_host(r);                         /* worker reference: no reader access after this */
     return NULL;
@@ -1898,6 +1898,8 @@ static uint32_t reader_create(const uint8_t *iid, uint32_t *out) {
     atomic_init(&r->pause_started_100ns, 0);
     atomic_init(&r->preroll_pending, 0);
     atomic_init(&r->worker_done, 1);
+    atomic_init(&r->worker_started, 0);
+    atomic_init(&r->decommit_pending, 0);
     g_readers[slot] = r;
 
     *out = !memcmp(iid, IID_IFileSourceFilter, 16) ? r->file_va : r->filter_va;
