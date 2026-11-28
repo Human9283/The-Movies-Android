@@ -140,6 +140,9 @@ typedef struct {
     uint32_t name_index;                   /* DirectShow's generated-name sequence, 0000..9999 */
     uint32_t graph_version;                /* invalidates IEnumFilters snapshots on mutation */
     uint32_t filter[MAX_FILTERS], fname[MAX_FILTERS];
+    uint32_t removing_filter[MAX_FILTERS];
+    uint32_t removing_count;
+    int tearing_down, teardown_failed;
     /* IMediaEventSink is a distinct COM interface pointer with its own vtable. */
     uint32_t event_sink_va, last_event_code, last_event_param1, last_event_param2;
     uint32_t media_control_va, media_position_va, basic_audio_va, basic_video_va;
@@ -427,36 +430,63 @@ static void graph_AddRef(void) { obj_t *o = self(OBJ_GRAPH, "AddRef"); RET((uint
 static uint32_t graph_release(uint32_t va) {
     obj_t *o = obj_of(va, OBJ_GRAPH);
     if (!o) hle_fatal("[dshow] Release on 0x%08X: not a live FilterGraph", va);
+    if (o->tearing_down) {
+        if (o->refs > 1) o->refs--;
+        return (uint32_t)o->refs;
+    }
     int n = --o->refs;
     if (n < 0) hle_fatal("[dshow] FilterGraph 0x%08X: reference count underflow", va);
-    if (!n) {
-        while (o->nf > 0) {
-            /* Detach the entry before calling external COM code: a filter's
-             * JoinFilterGraph/Release may re-enter the graph. */
-            int k = --o->nf;
-            uint32_t filter = o->filter[k], name = o->fname[k];
-            o->filter[k] = 0;
-            o->fname[k] = 0;
-            o->graph_version++;
-
-            uint32_t clock_args[1] = { 0 };
-            uint32_t clock_hr = vcall(filter, 8, 1, clock_args);
-            if (clock_hr & 0x80000000u)
-                fprintf(stderr, "[dshow] child SetSyncSource(NULL) during final Release -> 0x%08X\n", clock_hr);
-            uint32_t hr = graph_disconnect_filter_pins(filter);
-            if (hr & 0x80000000u)
-                fprintf(stderr, "[dshow] FilterGraph 0x%08X: disconnect filter 0x%08X during final Release -> 0x%08X\n",
-                        va, filter, hr);
-
+    if (n == 0) o->refs = 1;
+    if (n == 0 || (n == 1 && o->teardown_failed)) {
+        uint32_t filters[MAX_FILTERS], names[MAX_FILTERS];
+        int count = o->nf;
+        memcpy(filters, o->filter, (size_t)count * sizeof(filters[0]));
+        memcpy(names, o->fname, (size_t)count * sizeof(names[0]));
+        for (int i = 0; i < count; i++) com_addref(filters[i]);
+        o->tearing_down = 1;
+        o->teardown_failed = 0;
+        uint32_t failure = S_OK;
+        for (int i = count - 1; i >= 0; i--) {
+            uint32_t hr = vcall(filters[i], 4, 0, NULL);
+            if (hr & 0x80000000u) { failure = hr; break; }
+        }
+        for (int i = count - 1; !(failure & 0x80000000u) && i >= 0; i--) {
+            uint32_t hr = graph_disconnect_filter_pins(filters[i]);
+            if (hr & 0x80000000u) { failure = hr; break; }
             uint32_t none[2] = { 0, 0 };
-            hr = vcall(filter, 13, 2, none);              /* IBaseFilter::JoinFilterGraph(NULL, NULL) */
-            if (hr & 0x80000000u)
-                fprintf(stderr, "[dshow] FilterGraph 0x%08X: JoinFilterGraph(NULL) during final Release -> 0x%08X\n",
-                        va, hr);
-            com_release(filter);
-            if (name) hle_free(hle_ptr(name));
+            hr = vcall(filters[i], 13, 2, none);
+            if (hr & 0x80000000u) { failure = hr; break; }
+        }
+        if (failure & 0x80000000u) {
+            for (int i = 0; i < count; i++) com_release(filters[i]);
             o = obj_of(va, OBJ_GRAPH);
-            if (!o) hle_fatal("[dshow] FilterGraph 0x%08X vanished while removing its filters", va);
+            if (o) {
+                o->tearing_down = 0;
+                o->teardown_failed = 1;
+                if (o->refs < 1) o->refs = 1;
+            }
+            fprintf(stderr, "[dshow] FilterGraph 0x%08X: final teardown deferred -> 0x%08X\n", va, failure);
+            return o ? (uint32_t)o->refs : 0;
+        }
+        o = obj_of(va, OBJ_GRAPH);
+        if (!o) hle_fatal("[dshow] FilterGraph 0x%08X vanished during final teardown", va);
+        o->nf = 0;
+        o->asf_readers = 0;
+        o->graph_version++;
+        for (int i = 0; i < count; i++) {
+            o->filter[i] = 0;
+            o->fname[i] = 0;
+            if (names[i]) hle_free(hle_ptr(names[i]));
+            com_release(filters[i]);
+            com_release(filters[i]);
+        }
+        o = obj_of(va, OBJ_GRAPH);
+        if (!o) hle_fatal("[dshow] FilterGraph 0x%08X vanished while releasing filters", va);
+        if (o->refs > 1) {
+            o->tearing_down = 0;
+            o->teardown_failed = 0;
+            o->refs--;
+            return (uint32_t)o->refs;
         }
         if (o->event_sink_va) hle_free(hle_ptr(o->event_sink_va));
         if (o->media_control_va) hle_free(hle_ptr(o->media_control_va));
@@ -465,7 +495,9 @@ static uint32_t graph_release(uint32_t va) {
         if (o->basic_video_va) hle_free(hle_ptr(o->basic_video_va));
         if (o->media_filter_va) hle_free(hle_ptr(o->media_filter_va));
         if (o->sync_source_va) com_release(o->sync_source_va);
+        o->refs = 0;
         obj_free(o);
+        return 0;
     }
     return (uint32_t)n;
 }
@@ -1261,6 +1293,7 @@ static int filter_is_asf_reader(uint32_t filter) {
 static void graph_AddFilter(void) {                     /* (this, IBaseFilter *filter, LPCWSTR name) */
     obj_t *g = self(OBJ_GRAPH, "AddFilter");
     uint32_t f = A32(1), pname = A32(2), va = g->va;
+    if (g->tearing_down || g->teardown_failed) RET(VFW_E_WRONG_STATE, 3);
 
     /* NULL is still an invalid AddFilter argument. The game's
      * TEXTURERENDERER invokes IMediaEventSink::Notify through its
@@ -1584,12 +1617,40 @@ static void graph_RemoveFilter(void) {
     for (int i = 0; i < g->nf; i++)
         if (g->filter[i] == filter) { index = i; break; }
     if (index < 0) RET(E_FAIL, 2);
+    if (g->tearing_down || g->teardown_failed) RET(VFW_E_WRONG_STATE, 2);
+    for (uint32_t k = 0; k < g->removing_count; k++)
+        if (g->removing_filter[k] == filter) RET(VFW_E_WRONG_STATE, 2);
+    g->refs++;
+    com_addref(filter);
+    if (g->removing_count >= MAX_FILTERS) {
+        com_release(filter);
+        graph_release(graph_va);
+        RET(E_OUTOFMEMORY, 2);
+    }
+    g->removing_filter[g->removing_count++] = filter;
+#define REMOVE_FILTER_RET(value) do { \
+        uint32_t _remove_hr = (value); \
+        obj_t *_remove_graph = obj_of(graph_va, OBJ_GRAPH); \
+        if (_remove_graph) { \
+            for (uint32_t _k = 0; _k < _remove_graph->removing_count; _k++) { \
+                if (_remove_graph->removing_filter[_k] == filter) { \
+                    for (uint32_t _j = _k; _j + 1 < _remove_graph->removing_count; _j++) \
+                        _remove_graph->removing_filter[_j] = _remove_graph->removing_filter[_j + 1]; \
+                    _remove_graph->removing_filter[--_remove_graph->removing_count] = 0; \
+                    break; \
+                } \
+            } \
+        } \
+        com_release(filter); \
+        graph_release(graph_va); \
+        RET(_remove_hr, 2); \
+    } while (0)
 
     /* Cache the source-filter classification while the graph still owns the
      * filter. The per-frame Stop compatibility path depends on an exact count;
      * decrement only after removal has completed successfully. */
     int is_asf_reader = filter_is_asf_reader(filter);
-    if (is_asf_reader < 0) RET(E_OUTOFMEMORY, 2);
+    if (is_asf_reader < 0) REMOVE_FILTER_RET(E_OUTOFMEMORY);
 
     /* Match the Filter Graph Manager's removal sequence: enumerate this
      * filter's pins, disconnect both ends of each connection, then notify
@@ -1602,7 +1663,7 @@ static void graph_RemoveFilter(void) {
         if (pin_mem) hle_free(pin_mem);
         if (fetched_mem) hle_free(fetched_mem);
         if (peer_mem) hle_free(peer_mem);
-        RET(E_OUTOFMEMORY, 2);
+        REMOVE_FILTER_RET(E_OUTOFMEMORY);
     }
 
     uint32_t pin_va = hle_va(pin_mem);
@@ -1673,30 +1734,30 @@ static void graph_RemoveFilter(void) {
     hle_free(pin_mem);
     hle_free(fetched_mem);
     hle_free(peer_mem);
-    if (hr & 0x80000000u) RET(hr, 2);
+    if (hr & 0x80000000u) REMOVE_FILTER_RET(hr);
 
     /* A guest method may re-enter the graph; re-find the entry before
      * mutating the host-side collection. */
     g = obj_of(graph_va, OBJ_GRAPH);
-    if (!g) RET(E_UNEXPECTED, 2);
+    if (!g) REMOVE_FILTER_RET(E_UNEXPECTED);
     index = -1;
     for (int i = 0; i < g->nf; i++)
         if (g->filter[i] == filter) { index = i; break; }
-    if (index < 0) RET(S_OK, 2);
+    if (index < 0) REMOVE_FILTER_RET(S_OK);
 
     uint32_t clock_args[1] = { 0 };
     uint32_t clock_hr = vcall(filter, 8, 1, clock_args); /* IMediaFilter::SetSyncSource(NULL) */
-    if (clock_hr & 0x80000000u) RET(clock_hr, 2);
+    if (clock_hr & 0x80000000u) REMOVE_FILTER_RET(clock_hr);
     uint32_t none[2] = { 0, 0 };
     hr = vcall(filter, 13, 2, none);                    /* IBaseFilter::JoinFilterGraph(NULL, NULL) */
-    if (hr & 0x80000000u) RET(hr, 2);
+    if (hr & 0x80000000u) REMOVE_FILTER_RET(hr);
 
     g = obj_of(graph_va, OBJ_GRAPH);
-    if (!g) RET(E_UNEXPECTED, 2);
+    if (!g) REMOVE_FILTER_RET(E_UNEXPECTED);
     index = -1;
     for (int i = 0; i < g->nf; i++)
         if (g->filter[i] == filter) { index = i; break; }
-    if (index < 0) RET(S_OK, 2);
+    if (index < 0) REMOVE_FILTER_RET(S_OK);
 
     uint32_t name = g->fname[index];
     for (int i = index; i + 1 < g->nf; i++) {
@@ -1710,7 +1771,8 @@ static void graph_RemoveFilter(void) {
     if (is_asf_reader && g->asf_readers > 0) g->asf_readers--;
     if (name) hle_free(hle_ptr(name));
     com_release(filter);                                /* drop the graph's reference */
-    RET(S_OK, 2);
+    REMOVE_FILTER_RET(S_OK);
+#undef REMOVE_FILTER_RET
 }
 
 static void graph_EnumFilters(void) {
