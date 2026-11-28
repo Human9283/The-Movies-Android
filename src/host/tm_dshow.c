@@ -858,6 +858,25 @@ static int generated_filter_name(obj_t *g, const uint16_t *base, uint16_t *out) 
 static void graph_AddFilter(void) {                     /* (this, IBaseFilter *filter, LPCWSTR name) */
     obj_t *g = self(OBJ_GRAPH, "AddFilter");
     uint32_t f = A32(1), pname = A32(2), va = g->va;
+
+    /* The game's TEXTURERENDERER invokes IMediaEventSink::Notify through
+     * its IFilterGraph pointer. Both interfaces place their third method
+     * at vtable slot 3, so Notify(EC_COMPLETE, p1, p2) arrives here with
+     * the event code in the nominal IBaseFilter* argument. A small value
+     * cannot be a valid guest COM object address; route it as an event and
+     * preserve Notify's four-argument stdcall cleanup. */
+    if (f < 0x10000u) {
+        uint32_t event_code = f, param1 = pname, param2 = A32(3);
+        g->last_event_code = event_code;
+        g->last_event_param1 = param1;
+        g->last_event_param2 = param2;
+        g->event_count++;
+        if (g->event_count <= 16 || !(g->event_count & (g->event_count - 1)))
+            fprintf(stderr, "[dshow] FilterGraph::AddFilter-dispatch -> IMediaEventSink::Notify graph=0x%08X event=0x%08X p1=0x%08X p2=0x%08X count=%u\\n",
+                    va, event_code, param1, param2, g->event_count);
+        RET(S_OK, 4);
+    }
+
     if (!f) RET(E_POINTER, 3);
     for (int k = 0; k < g->nf; k++)
         if (g->filter[k] == f) RET(E_FAIL, 3);
