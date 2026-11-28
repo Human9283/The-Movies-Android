@@ -41,6 +41,7 @@
 #define VFW_E_ENUM_OUT_OF_SYNC   0x80040203u
 #define VFW_E_NOT_STOPPED        0x80040224u
 #define EC_COMPLETE              0x00000001u
+#define EC_ERRORABORT            0x00000003u
 #define AM_GBF_NOWAIT            0x00000004u
 #define PINDIR_OUTPUT            1
 #define FILTER_STATE_STOPPED     0u
@@ -608,6 +609,12 @@ static void reader_notify_complete(reader_t *r) {
     (void)guest_call(r->graph_va, 3, 3, args);              /* IFilterGraph slot aliases Notify */
 }
 
+static void reader_notify_error(reader_t *r, uint32_t error_hr) {
+    if (!r->graph_va) return;
+    uint32_t args[3] = { EC_ERRORABORT, error_hr, 0 };
+    (void)guest_call(r->graph_va, 3, 3, args);              /* IMediaEventSink::Notify */
+}
+
 static uint32_t reader_notify_end_of_stream(reader_t *r) {
     mach_enter();
     uint32_t generation = atomic_load_explicit(&r->flush_generation, memory_order_acquire);
@@ -843,6 +850,7 @@ static void *reader_worker(void *opaque) {
     uint8_t *frame = (uint8_t *)malloc(r->sample_size);
     if (!frame) {
         fprintf(stderr, "[dshow-reader] frame buffer allocation failed\n");
+        reader_notify_error(r, E_OUTOFMEMORY);
         atomic_store_explicit(&r->running, 0, memory_order_release);
         atomic_store_explicit(&r->worker_done, 1, memory_order_release);
         reader_release_host(r);                     /* drop worker-owned COM reference */
@@ -858,6 +866,7 @@ static void *reader_worker(void *opaque) {
     char error[256];
     int reached_eof = 0;
     int stream_error = 0;
+    uint32_t stream_error_hr = E_FAIL;
     int discontinuity_pending = 1;
     uint64_t segment_pts_base = 0;
     uint32_t segment_generation = 0;
@@ -866,6 +875,7 @@ static void *reader_worker(void *opaque) {
     if (segment_hr & 0x80000000u) {
         fprintf(stderr, "[dshow-reader] initial NewSegment -> 0x%08X\n", segment_hr);
         stream_error = 1;
+        stream_error_hr = segment_hr;
     }
 
     while (!stream_error &&
@@ -898,6 +908,9 @@ static void *reader_worker(void *opaque) {
                     continue;
                 }
                 fprintf(stderr, "[dshow-reader] loop reopen failed: %s (%d)\n", error, rc);
+                stream_error = 1;
+                stream_error_hr = VFW_E_CANNOT_RENDER;
+                break;
             }
             reached_eof = 1;
             break;
@@ -905,6 +918,7 @@ static void *reader_worker(void *opaque) {
         if (result == TM_ASF_READ_ERROR) {
             fprintf(stderr, "[dshow-reader] decode failed: %s\n", error);
             stream_error = 1;
+            stream_error_hr = VFW_E_CANNOT_RENDER;
             break;
         }
         if (first_pts == INT64_MIN && frame_info.pts != INT64_MIN)
@@ -928,6 +942,7 @@ static void *reader_worker(void *opaque) {
                 if (segment_hr & 0x80000000u) {
                     fprintf(stderr, "[dshow-reader] post-flush NewSegment -> 0x%08X\n", segment_hr);
                     stream_error = 1;
+                    stream_error_hr = segment_hr;
                     break;
                 }
                 segment_pts_base = pts;
@@ -957,6 +972,7 @@ static void *reader_worker(void *opaque) {
             fprintf(stderr, "[dshow-reader] downstream rejected frame %llu\n",
                     (unsigned long long)frame_number);
             stream_error = 1;
+            stream_error_hr = E_FAIL;
             break;
         }
         if (delivery == 1) {
@@ -969,11 +985,14 @@ static void *reader_worker(void *opaque) {
     free(frame);
     atomic_store_explicit(&r->running, 0, memory_order_release);
     atomic_store_explicit(&r->worker_done, 1, memory_order_release);
-    if (!atomic_load_explicit(&r->stop_requested, memory_order_acquire) &&
-        reached_eof && !stream_error && !r->looping) {
-        uint32_t eos_hr = reader_notify_end_of_stream(r);
-        if (eos_hr == S_OK) reader_notify_complete(r);
-        else fprintf(stderr, "[dshow-reader] EndOfStream skipped/failed -> 0x%08X\n", eos_hr);
+    if (!atomic_load_explicit(&r->stop_requested, memory_order_acquire)) {
+        if (stream_error) {
+            reader_notify_error(r, stream_error_hr);
+        } else if (reached_eof && !r->looping) {
+            uint32_t eos_hr = reader_notify_end_of_stream(r);
+            if (eos_hr == S_OK) reader_notify_complete(r);
+            else fprintf(stderr, "[dshow-reader] EndOfStream skipped/failed -> 0x%08X\n", eos_hr);
+        }
     }
     reader_release_host(r);                         /* worker reference: no reader access after this */
     return NULL;
