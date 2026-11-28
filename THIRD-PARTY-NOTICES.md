@@ -14,6 +14,17 @@ source tree or prebuilt dependency library is vendored in this repository.
 | DXVK Native Android fork | `f2c7207b3d8bc848fe3a27cef34ee5e67aeec552` | zlib/libpng; packaged as `libdxvk_d3d9.so` |
 | pcrecomp / win32hle | `5f1d2f76873419bf0414de7a0a9aca34d8e720f9` | MIT; build-time runtime and source of the patches/table noted below |
 | The Movies lift driver | `8e278f6b22d70095d0b1b10803370613b20862f5` | MIT for the driver's own files; build-time tool only |
+| FFmpeg | `9.1` (official release tarball, PGP-verified by `android-game/tools/build_ffmpeg_android.sh`) | LGPL-2.1-or-later; shared `libavutil`, `libavcodec`, `libavformat` and `libswscale` libraries |
+
+The FFmpeg Android build is deliberately limited to LGPL components. It
+disables GPL, nonfree and network-enabled components and links FFmpeg as shared
+libraries rather than incorporating its object code into `libmain.so`. The
+LGPL-2.1 licence text is included at
+[`licenses/FFmpeg-COPYING.LGPLv2.1`](licenses/FFmpeg-COPYING.LGPLv2.1) and is
+also staged in the APK's `assets/licenses/` directory by the private build
+workflow. The corresponding release source is downloaded from FFmpeg's
+official release archive and its detached PGP signature is verified before
+building.
 
 The SDL2_ttf build in the guide enables its vendored FreeType dependency and
 disables HarfBuzz. FreeType is statically linked into the SDL2_ttf shared
