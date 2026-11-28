@@ -787,7 +787,10 @@ static void reader_stop_worker(reader_t *r) {
          * final Release until after this call unwinds. */
         atomic_store_explicit(&r->stop_requested, 1, memory_order_release);
         atomic_store_explicit(&r->running, 0, memory_order_release);
+        atomic_store_explicit(&r->paused, 0, memory_order_release);
         atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
+        atomic_store_explicit(&r->pause_started_100ns, 0, memory_order_release);
+        atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
         r->worker_started = 0;
         r->state = FILTER_STATE_STOPPED;
         return;
