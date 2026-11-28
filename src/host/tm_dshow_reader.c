@@ -583,7 +583,13 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
         return 0;
     }
     guest_write32_locked(sample_out_va, 0);
-    uint32_t get_args[4] = { sample_out_va, 0, 0, AM_GBF_NOWAIT };
+    /* During Pause, the renderer must receive one poster frame before
+     * the graph can finish cueing. Wait for that first allocator sample;
+     * keep the running path nonblocking so a slow renderer cannot stall
+     * the decoder indefinitely. */
+    uint32_t get_flags = atomic_load_explicit(&r->preroll_pending, memory_order_acquire)
+        ? 0u : AM_GBF_NOWAIT;
+    uint32_t get_args[4] = { sample_out_va, 0, 0, get_flags };
     uint32_t hr = guest_call(r->allocator, 7, 4, get_args);
     uint32_t sample = guest_read32_locked(sample_out_va);
     if (hr != S_OK || !sample) {
