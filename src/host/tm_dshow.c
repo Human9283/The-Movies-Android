@@ -1536,7 +1536,7 @@ static void enum_filters_Clone(void) {
 
 static uint32_t graph_disconnect_filter_pins(uint32_t filter) {
     /* The local WMAsfWriter is only a graph-lifetime probe and exposes no
-       pins. Its unimplemented EnumPins/SetSyncSource slots must not be called. */
+       pins. Its unimplemented EnumPins slot must not be called. */
     if (obj_of(filter, OBJ_WRITER)) return S_OK;
 
     uint32_t *pin_mem = (uint32_t *)hle_alloc(4);
@@ -1549,7 +1549,7 @@ static uint32_t graph_disconnect_filter_pins(uint32_t filter) {
     uint32_t pin_va = hle_va(pin_mem), fetched_va = hle_va(fetched_mem);
     uint32_t enum_args[1] = { pin_va };
     MEM32(pin_va) = 0;
-    uint32_t hr = vcall(filter, 10, 1, enum_args);       /* IBaseFilter::EnumPins */
+    uint32_t hr = vcall(filter, 10, 1, enum_args);
     uint32_t enumerator = MEM32(pin_va);
     if (hr & 0x80000000u || !enumerator) {
         hle_free(pin_mem);
@@ -1562,11 +1562,20 @@ static uint32_t graph_disconnect_filter_pins(uint32_t filter) {
         MEM32(pin_va) = 0;
         MEM32(fetched_va) = 0;
         uint32_t next_args[3] = { 1, pin_va, fetched_va };
-        hr = vcall(enumerator, 3, 3, next_args);          /* IEnumPins::Next */
+        hr = vcall(enumerator, 3, 3, next_args);
         uint32_t pin = MEM32(pin_va);
         uint32_t fetched = MEM32(fetched_va);
+        if (hr & 0x80000000u) {
+            if (pin) vcall(pin, 2, 0, NULL);
+            result = hr;
+            break;
+        }
         if (!fetched) {
-            if (hr & 0x80000000u) result = hr;
+            if (pin) vcall(pin, 2, 0, NULL);
+            break;
+        }
+        if (!pin) {
+            result = E_UNEXPECTED;
             break;
         }
 
@@ -1579,35 +1588,45 @@ static uint32_t graph_disconnect_filter_pins(uint32_t filter) {
         uint32_t peer_va = hle_va(peer_mem);
         MEM32(peer_va) = 0;
         uint32_t connected_args[1] = { peer_va };
-        uint32_t connected_hr = vcall(pin, 6, 1, connected_args); /* IPin::ConnectedTo */
+        uint32_t connected_hr = vcall(pin, 6, 1, connected_args);
         uint32_t peer = MEM32(peer_va);
         hle_free(peer_mem);
 
-        if (!(connected_hr & 0x80000000u) && peer) {
+        if (connected_hr == S_OK) {
+            if (!peer) {
+                result = E_UNEXPECTED;
+                vcall(pin, 2, 0, NULL);
+                break;
+            }
             uint32_t disconnect_hr = vcall(pin, 5, 0, NULL);
             if (!(disconnect_hr & 0x80000000u))
                 disconnect_hr = vcall(peer, 5, 0, NULL);
-            vcall(peer, 2, 0, NULL);                     /* ConnectedTo returned an AddRef */
+            vcall(peer, 2, 0, NULL);
             if (disconnect_hr & 0x80000000u) {
                 result = disconnect_hr;
                 vcall(pin, 2, 0, NULL);
                 break;
             }
+        } else if (connected_hr == VFW_E_NOT_CONNECTED) {
+            if (peer) vcall(peer, 2, 0, NULL);
+        } else {
+            if (peer) vcall(peer, 2, 0, NULL);
+            result = (connected_hr & 0x80000000u) ? connected_hr : E_UNEXPECTED;
+            vcall(pin, 2, 0, NULL);
+            break;
         }
-        vcall(pin, 2, 0, NULL);                          /* release Next's reference */
+        vcall(pin, 2, 0, NULL);
     }
 
-    vcall(enumerator, 2, 0, NULL);                       /* IEnumPins::Release */
+    vcall(enumerator, 2, 0, NULL);
     hle_free(pin_mem);
     hle_free(fetched_mem);
     if (result & 0x80000000u) return result;
 
     uint32_t no_clock[1] = { 0 };
-    hr = vcall(filter, 8, 1, no_clock);                  /* IMediaFilter::SetSyncSource(NULL) */
-    if (hr & 0x80000000u) return hr;
-    return S_OK;
+    hr = vcall(filter, 8, 1, no_clock);
+    return (hr & 0x80000000u) ? hr : S_OK;
 }
-
 static void graph_RemoveFilter(void) {
     obj_t *g = self(OBJ_GRAPH, "RemoveFilter");
     uint32_t graph_va = g->va, filter = A32(1);
@@ -1683,10 +1702,14 @@ static void graph_RemoveFilter(void) {
             uint32_t pin = MEM32(pin_va);
 
             if (hr == 1u || (!fetched && !(hr & 0x80000000u))) {
+                if (pin) com_release(pin);
                 hr = S_OK;                              /* end of enumeration */
                 break;
             }
-            if (hr & 0x80000000u) break;
+            if (hr & 0x80000000u) {
+                if (pin) com_release(pin);
+                break;
+            }
             if (!pin) { hr = E_UNEXPECTED; break; }
 
             MEM32(peer_va) = 0;
