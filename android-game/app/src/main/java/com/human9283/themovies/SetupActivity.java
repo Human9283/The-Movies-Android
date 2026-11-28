@@ -219,7 +219,7 @@ public final class SetupActivity extends Activity {
                 String id = c.getString(0), name = c.getString(1), mime = c.getString(2);
                 if (id == null || id.isEmpty() || name == null || name.isEmpty()
                         || name.equals(".") || name.equals("..") || name.contains("/")
-                        || name.contains("\\\\") || name.indexOf('\0') >= 0) {
+                        || name.contains("\\") || name.indexOf('\0') >= 0) {
                     throw new Exception("Проводник вернул недопустимое имя или идентификатор файла");
                 }
                 File out = new File(destination, name);
