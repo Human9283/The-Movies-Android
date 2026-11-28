@@ -683,12 +683,13 @@ static uint32_t reader_notify_new_segment(reader_t *r, uint64_t segment_start,
 
 static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size,
                                 int64_t start, int64_t end, int discontinuity,
-                                uint32_t expected_generation) {
+                                uint32_t expected_generation, uint32_t *failure_hr) {
     /* Keep sample setup and the final pin-flushing check in one HLE machine
      * turn. Otherwise BeginFlush could run between the first flag check and
      * Receive, allowing a new sample to enter an already-flushing renderer.
      * Receive itself may yield through HLE blocking APIs; BeginFlush remains
      * able to enter then and cancel the in-flight downstream call. */
+    if (failure_hr) *failure_hr = E_FAIL;
     mach_enter();
     uint32_t flush_generation = atomic_load_explicit(&r->flush_generation, memory_order_acquire);
     if (flush_generation != expected_generation ||
@@ -697,6 +698,7 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
         return 2;
     }
     if (!r->peer_mem_input || !r->allocator) {
+        if (failure_hr) *failure_hr = VFW_E_NOT_CONNECTED;
         mach_leave();
         return 0;
     }
@@ -706,6 +708,7 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
     if (!sample_out_va || !time_va) {
         guest_free_locked(sample_out_va);
         guest_free_locked(time_va);
+        if (failure_hr) *failure_hr = E_OUTOFMEMORY;
         mach_leave();
         return 0;
     }
@@ -728,6 +731,7 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
                           atomic_load_explicit(&r->stop_requested, memory_order_acquire);
         guest_free_locked(time_va);
         guest_free_locked(sample_out_va);
+        if (failure_hr) *failure_hr = hr == S_OK ? E_UNEXPECTED : hr;
         mach_leave();
         return interrupted ? 2 : 0;                    /* flush cancellation vs allocator failure */
     }
@@ -746,6 +750,7 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
         guest_call(sample, 2, 0, NULL);
         guest_free_locked(time_va);
         guest_free_locked(sample_out_va);
+        if (failure_hr) *failure_hr = E_OUTOFMEMORY;
         mach_leave();
         return 0;
     }
@@ -790,6 +795,7 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
     int flushing = atomic_load_explicit(&r->pin_flushing, memory_order_acquire);
     mach_leave();
     if (flush_interrupted || stopping || flushing) return 2;
+    if (hr != S_OK && failure_hr) *failure_hr = hr == S_FALSE ? E_FAIL : hr;
     return hr == S_OK ? 1 : 0;
 }
 
@@ -933,6 +939,7 @@ static void *reader_worker(void *opaque) {
             : (uint64_t)(r->avg_frame_seconds * (double)REFERENCE_TIME_PER_SEC);
         if (!duration) duration = 1;
         int delivery;
+        uint32_t delivery_hr = E_FAIL;
         for (;;) {
             uint32_t current_generation = atomic_load_explicit(&r->flush_generation, memory_order_acquire);
             if (current_generation != segment_generation) {
@@ -953,7 +960,7 @@ static void *reader_worker(void *opaque) {
             uint64_t sample_pts = pts >= segment_pts_base ? pts - segment_pts_base : 0;
             delivery = reader_deliver_frame(r, frame, r->sample_size, (int64_t)sample_pts,
                                             (int64_t)(sample_pts + duration), discontinuity_pending,
-                                            segment_generation);
+                                            segment_generation, &delivery_hr);
             if (delivery == 0 &&
                 atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
                 delivery = 2;                       /* BeginFlush cancelled Receive */
@@ -974,7 +981,7 @@ static void *reader_worker(void *opaque) {
             fprintf(stderr, "[dshow-reader] downstream rejected frame %llu\n",
                     (unsigned long long)frame_number);
             stream_error = 1;
-            stream_error_hr = E_FAIL;
+            stream_error_hr = delivery_hr;
             break;
         }
         if (delivery == 1) {
