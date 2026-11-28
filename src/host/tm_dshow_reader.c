@@ -141,6 +141,35 @@ static pin_enum_t g_pin_enums[MAX_PIN_ENUMS];
 static type_enum_t g_type_enums[MAX_TYPE_ENUMS];
 static uint32_t g_filter_vt, g_file_vt, g_pin_vt, g_pin_enum_vt, g_type_enum_vt;
 
+static uint32_t guest_alloc_locked(uint32_t size) {
+    mach_enter();
+    void *p = hle_alloc(size);
+    uint32_t va = p ? hle_va(p) : 0;
+    mach_leave();
+    return va;
+}
+static void guest_free_locked(uint32_t va) {
+    if (!va) return;
+    mach_enter();
+    hle_free(hle_ptr(va));
+    mach_leave();
+}
+static uint32_t guest_read32_locked(uint32_t va) {
+    mach_enter();
+    uint32_t value = MEM32(va);
+    mach_leave();
+    return value;
+}
+static void guest_write32_locked(uint32_t va, uint32_t value) {
+    mach_enter();
+    MEM32(va) = value;
+    mach_leave();
+}
+static void guest_copy_locked(uint32_t dst, const void *src, size_t size) {
+    mach_enter();
+    memcpy(hle_ptr(dst), src, size);
+    mach_leave();
+}
 static uint32_t guest_call(uint32_t object, uint32_t slot, int nargs, const uint32_t *args) {
     uint32_t call_args[8] = { object };
     if (nargs > 7) return E_INVALIDARG;
@@ -525,51 +554,46 @@ static void reader_notify_complete(reader_t *r) {
 static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size,
                                 int64_t start, int64_t end) {
     if (!r->peer_mem_input || !r->allocator) return 0;
-    uint8_t *sample_out = hle_alloc(4);
-    uint8_t *time_mem = hle_alloc(16);
-    if (!sample_out || !time_mem) {
-        if (sample_out) hle_free(sample_out);
-        if (time_mem) hle_free(time_mem);
+    uint32_t sample_out_va = guest_alloc_locked(4);
+    uint32_t time_va = guest_alloc_locked(16);
+    if (!sample_out_va || !time_va) {
+        guest_free_locked(sample_out_va);
+        guest_free_locked(time_va);
         return 0;
     }
-    uint32_t sample_out_va = hle_va(sample_out);
-    uint32_t time_va = hle_va(time_mem);
-    MEM32(sample_out_va) = 0;
+    guest_write32_locked(sample_out_va, 0);
     uint32_t get_args[4] = { sample_out_va, 0, 0, AM_GBF_NOWAIT };
     uint32_t hr = guest_call(r->allocator, 7, 4, get_args);
-    uint32_t sample = MEM32(sample_out_va);
+    uint32_t sample = guest_read32_locked(sample_out_va);
     if ((hr & 0x80000000u) || !sample) {
-        hle_free(time_mem);
-        hle_free(sample_out);
+        guest_free_locked(time_va);
+        guest_free_locked(sample_out_va);
         return 1;                                      /* dropped frame: renderer busy */
     }
 
-    uint8_t *pointer_out = hle_alloc(4);
-    if (!pointer_out) {
+    uint32_t pointer_out_va = guest_alloc_locked(4);
+    if (!pointer_out_va) {
         guest_call(sample, 2, 0, NULL);
-        hle_free(time_mem);
-        hle_free(sample_out);
+        guest_free_locked(time_va);
+        guest_free_locked(sample_out_va);
         return 0;
     }
-    uint32_t pointer_va = hle_va(pointer_out);
-    MEM32(pointer_va) = 0;
-    uint32_t pointer_args[1] = { pointer_va };
-    hr = guest_call(sample, 3, 1, pointer_args);         /* GetPointer */
-    uint32_t buffer_va = MEM32(pointer_va);
-    uint32_t max_size = guest_call(sample, 4, 0, NULL);  /* GetSize */
+    guest_write32_locked(pointer_out_va, 0);
+    uint32_t pointer_args[1] = { pointer_out_va };
+    hr = guest_call(sample, 3, 1, pointer_args);        /* IMediaSample::GetPointer */
+    uint32_t buffer_va = guest_read32_locked(pointer_out_va);
+    uint32_t max_size = guest_call(sample, 4, 0, NULL); /* IMediaSample::GetSize */
     if (!(hr & 0x80000000u) && buffer_va && max_size >= size) {
-        memcpy(hle_ptr(buffer_va), frame, size);
-        MEM32(time_va + 0) = (uint32_t)start;
-        MEM32(time_va + 4) = (uint32_t)((uint64_t)start >> 32);
-        MEM32(time_va + 8) = (uint32_t)end;
-        MEM32(time_va + 12) = (uint32_t)((uint64_t)end >> 32);
+        guest_copy_locked(buffer_va, frame, size);
+        uint64_t times[2] = { (uint64_t)start, (uint64_t)end };
+        guest_copy_locked(time_va, times, sizeof(times));
         uint32_t set_time_args[2] = { time_va, time_va + 8 };
-        (void)guest_call(sample, 6, 2, set_time_args);   /* SetTime */
+        (void)guest_call(sample, 6, 2, set_time_args);  /* SetTime */
         uint32_t one[1] = { 1 }, zero[1] = { 0 }, actual[1] = { size };
-        (void)guest_call(sample, 8, 1, one);             /* SetSyncPoint */
-        (void)guest_call(sample, 10, 1, zero);           /* SetPreroll */
-        (void)guest_call(sample, 12, 1, actual);         /* SetActualDataLength */
-        (void)guest_call(sample, 16, 1, zero);           /* SetDiscontinuity */
+        (void)guest_call(sample, 8, 1, one);            /* SetSyncPoint */
+        (void)guest_call(sample, 10, 1, zero);          /* SetPreroll */
+        (void)guest_call(sample, 12, 1, actual);        /* SetActualDataLength */
+        (void)guest_call(sample, 16, 1, zero);          /* SetDiscontinuity */
         uint32_t receive_args[1] = { sample };
         hr = guest_call(r->peer_mem_input, 7, 1, receive_args); /* Receive */
     } else {
@@ -577,9 +601,9 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
     }
 
     guest_call(sample, 2, 0, NULL);
-    hle_free(pointer_out);
-    hle_free(time_mem);
-    hle_free(sample_out);
+    guest_free_locked(pointer_out_va);
+    guest_free_locked(time_va);
+    guest_free_locked(sample_out_va);
     return !(hr & 0x80000000u);
 }
 
