@@ -102,6 +102,8 @@ struct reader {
     double duration_seconds;
     double avg_frame_seconds;
     uint32_t state;
+    uint64_t run_start_100ns;
+    atomic_int worker_done;
     uint16_t filter_name[128];
     uint16_t current_path[PATH_MAX];
     char host_path[PATH_MAX];
@@ -401,7 +403,6 @@ static uint32_t reader_load_path(reader_t *r, const uint16_t *wide_path) {
     if (r->avg_frame_seconds < 0.001 || r->avg_frame_seconds > 1.0)
         r->avg_frame_seconds = 1.0 / 25.0;
     snprintf(r->host_path, sizeof r->host_path, "%s", host_path);
-    memcpy(r->current_path, wide_path, (strnlen((const char *)wide_path, 0) + 1) * sizeof(uint16_t));
     size_t wlen = 0;
     while (wide_path[wlen] && wlen + 1 < PATH_MAX) wlen++;
     memcpy(r->current_path, wide_path, (wlen + 1) * sizeof(uint16_t));
@@ -518,7 +519,7 @@ static uint32_t reader_build_output_pin_connection(reader_t *r, uint32_t peer, u
 static void reader_notify_complete(reader_t *r) {
     if (!r->graph_va) return;
     uint32_t args[3] = { EC_COMPLETE, 0, 0 };
-    (void)hle_call_guest(MEM32(r->graph_va + 12), 4, (uint32_t[4]){ r->graph_va, args[0], args[1], args[2] });
+    (void)guest_call(r->graph_va, 3, 3, args);              /* IFilterGraph slot aliases Notify */
 }
 
 static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size,
@@ -625,10 +626,12 @@ static void *reader_worker(void *opaque) {
     if (!frame) {
         fprintf(stderr, "[dshow-reader] frame buffer allocation failed\n");
         reader_notify_complete(r);
+        atomic_store_explicit(&r->running, 0, memory_order_release);
+        atomic_store_explicit(&r->worker_done, 1, memory_order_release);
         return NULL;
     }
 
-    uint64_t run_start = hle_mono_ns() / 100u + 1000000u;
+    uint64_t run_start = r->run_start_100ns ? r->run_start_100ns : hle_mono_ns() / 100u;
     int64_t first_pts = INT64_MIN;
     uint64_t frame_number = 0;
     uint64_t clock_shift = 0;
@@ -684,6 +687,8 @@ static void *reader_worker(void *opaque) {
     }
 
     free(frame);
+    atomic_store_explicit(&r->running, 0, memory_order_release);
+    atomic_store_explicit(&r->worker_done, 1, memory_order_release);
     if (!atomic_load_explicit(&r->stop_requested, memory_order_acquire) && !r->looping) {
         if (r->peer_pin) guest_call(r->peer_pin, 14, 0, NULL);  /* IPin::EndOfStream */
         reader_notify_complete(r);
@@ -715,13 +720,28 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time) {
     if (!r->decoder || !r->peer_mem_input || !r->allocator)
         return VFW_E_NOT_CONNECTED;
     if (r->worker_started) {
-        if (atomic_load_explicit(&r->running, memory_order_acquire))
+        if (!atomic_load_explicit(&r->worker_done, memory_order_acquire)) {
+            atomic_store_explicit(&r->paused, 0, memory_order_release);
+            atomic_store_explicit(&r->running, 1, memory_order_release);
+            r->state = FILTER_STATE_RUNNING;
             return S_OK;
-        if (reader_join_worker(r, 1) != S_OK) return E_FAIL;
+        }
+        if (reader_join_worker(r, 0) != S_OK) return E_FAIL;
+        if (r->decoder) tm_asf_decoder_close(r->decoder);
+        r->decoder = NULL;
+        tm_asf_video_info info;
+        char error[256];
+        int rc = tm_asf_decoder_open(r->host_path, &r->decoder, &info, error, sizeof error);
+        if (rc < 0 || !r->decoder) {
+            fprintf(stderr, "[dshow-reader] restart failed: %s (%d)\\n", error, rc);
+            return VFW_E_CANNOT_RENDER;
+        }
     }
     atomic_store_explicit(&r->stop_requested, 0, memory_order_release);
     atomic_store_explicit(&r->paused, 0, memory_order_release);
     atomic_store_explicit(&r->running, 1, memory_order_release);
+    atomic_store_explicit(&r->worker_done, 0, memory_order_release);
+    r->run_start_100ns = start_time;
     r->state = FILTER_STATE_RUNNING;
     int rc = pthread_create(&r->worker, NULL, reader_worker, r);
     if (rc != 0) {
@@ -730,7 +750,6 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time) {
         return E_FAIL;
     }
     r->worker_started = 1;
-    (void)start_time;                                 /* worker uses the monotonic graph time base */
     return S_OK;
 }
 
@@ -838,7 +857,7 @@ static void filter_FindPin(void) {
     MEM32(out) = 0;
     if (!id) RET(E_POINTER, 3);
     const uint16_t *s = (const uint16_t *)hle_ptr(id);
-    if (!s[0] || (s[0] == 'V' || s[0] == 'v') && (s[1] == 'i' || s[1] == 'I') &&
+    if ((s[0] == 'V' || s[0] == 'v') && (s[1] == 'i' || s[1] == 'I') &&
         (s[2] == 'd' || s[2] == 'D') && (s[3] == 'e' || s[3] == 'E') &&
         (s[4] == 'o' || s[4] == 'O') && !s[5]) {
         reader_addref(r);
@@ -1139,8 +1158,11 @@ static void pin_enum_Next(void) {
 }
 static void pin_enum_Skip(void) {
     pin_enum_t *e = pin_enum_this();
-    if (A32(1) && e->cursor == 0) e->cursor = 1;
-    RET(A32(1) <= (e->cursor ? 1u : 0u) ? S_OK : S_FALSE, 2);
+    uint32_t count = A32(1);
+    if (!count) RET(S_OK, 2);
+    if (e->cursor) RET(S_FALSE, 2);
+    e->cursor = 1;
+    RET(count == 1 ? S_OK : S_FALSE, 2);
 }
 static void pin_enum_Reset(void) {
     pin_enum_t *e = pin_enum_this();
@@ -1223,8 +1245,10 @@ static void type_enum_Next(void) {
 static void type_enum_Skip(void) {
     type_enum_t *e = type_enum_this();
     uint32_t count = A32(1);
-    if (count && !e->cursor) e->cursor = 1;
-    RET(count <= (e->cursor ? 1u : 0u) ? S_OK : S_FALSE, 2);
+    if (!count) RET(S_OK, 2);
+    if (e->cursor) RET(S_FALSE, 2);
+    e->cursor = 1;
+    RET(count == 1 ? S_OK : S_FALSE, 2);
 }
 static void type_enum_Reset(void) {
     type_enum_t *e = type_enum_this();
@@ -1355,6 +1379,7 @@ static uint32_t reader_create(const uint8_t *iid, uint32_t *out) {
     atomic_init(&r->stop_requested, 0);
     atomic_init(&r->paused, 0);
     atomic_init(&r->running, 0);
+    atomic_init(&r->worker_done, 1);
     g_readers[slot] = r;
 
     *out = !memcmp(iid, IID_IFileSourceFilter, 16) ? r->file_va : r->filter_va;
