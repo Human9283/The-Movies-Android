@@ -9,8 +9,9 @@ set(SDL2_TTF_INCLUDE_DIR "" CACHE PATH "SDL2_ttf compatibility include root cont
 set(SDL2_TTF_LIBRARY "" CACHE FILEPATH "Built Android libSDL2_ttf.so")
 set(DXVK_ROOT "" CACHE PATH "Android DXVK Native source root (headers)")
 set(DXVK_D3D9_LIBRARY "" CACHE FILEPATH "Built Android libdxvk_d3d9.so")
+set(FFMPEG_ROOT "" CACHE PATH "FFmpeg 9.1 Android ARM64 install prefix")
 
-foreach(required PCRECOMP_SOURCE_DIR TM_GEN SDL2_ROOT SDL2_LIBRARY SDL2_TTF_INCLUDE_DIR SDL2_TTF_LIBRARY DXVK_ROOT DXVK_D3D9_LIBRARY)
+foreach(required PCRECOMP_SOURCE_DIR TM_GEN SDL2_ROOT SDL2_LIBRARY SDL2_TTF_INCLUDE_DIR SDL2_TTF_LIBRARY DXVK_ROOT DXVK_D3D9_LIBRARY FFMPEG_ROOT)
   if("${${required}}" STREQUAL "")
     message(FATAL_ERROR "${required} must be set")
   endif()
@@ -23,7 +24,14 @@ foreach(check
     "${SDL2_TTF_INCLUDE_DIR}/SDL2/SDL_ttf.h"
     "${SDL2_TTF_LIBRARY}"
     "${DXVK_ROOT}/include/native/directx/d3d9.h"
-    "${DXVK_D3D9_LIBRARY}")
+    "${DXVK_D3D9_LIBRARY}"
+    "${FFMPEG_ROOT}/include/libavcodec/avcodec.h"
+    "${FFMPEG_ROOT}/include/libavformat/avformat.h"
+    "${FFMPEG_ROOT}/include/libswscale/swscale.h"
+    "${FFMPEG_ROOT}/lib/libavutil.so"
+    "${FFMPEG_ROOT}/lib/libavcodec.so"
+    "${FFMPEG_ROOT}/lib/libavformat.so"
+    "${FFMPEG_ROOT}/lib/libswscale.so")
   if(NOT EXISTS "${check}")
     message(FATAL_ERROR "Required Android game-build input missing: ${check}")
   endif()
@@ -79,6 +87,7 @@ set(TM_RUNTIME_SOURCES
     "${TM_ROOT}/src/host/tm_vfs.c"
     "${TM_ROOT}/src/host/tm_wmvcore.c"
     "${TM_ROOT}/src/host/tm_dshow.c"
+    "${TM_ROOT}/src/host/tm_asf_decoder.c"
     "${TM_ROOT}/src/host/tm_d3d9.c"
     "${TM_ROOT}/src/host/tm_ole32.c"
     "${TM_ROOT}/src/host/tm_winmm.c"
@@ -94,6 +103,14 @@ add_library(SDL2_TTF SHARED IMPORTED GLOBAL)
 set_target_properties(SDL2_TTF PROPERTIES IMPORTED_LOCATION "${SDL2_TTF_LIBRARY}")
 add_library(DXVK_D3D9 SHARED IMPORTED GLOBAL)
 set_target_properties(DXVK_D3D9 PROPERTIES IMPORTED_LOCATION "${DXVK_D3D9_LIBRARY}")
+add_library(FFMPEG_AVUTIL SHARED IMPORTED GLOBAL)
+set_target_properties(FFMPEG_AVUTIL PROPERTIES IMPORTED_LOCATION "${FFMPEG_ROOT}/lib/libavutil.so")
+add_library(FFMPEG_AVCODEC SHARED IMPORTED GLOBAL)
+set_target_properties(FFMPEG_AVCODEC PROPERTIES IMPORTED_LOCATION "${FFMPEG_ROOT}/lib/libavcodec.so")
+add_library(FFMPEG_AVFORMAT SHARED IMPORTED GLOBAL)
+set_target_properties(FFMPEG_AVFORMAT PROPERTIES IMPORTED_LOCATION "${FFMPEG_ROOT}/lib/libavformat.so")
+add_library(FFMPEG_SWSCALE SHARED IMPORTED GLOBAL)
+set_target_properties(FFMPEG_SWSCALE PROPERTIES IMPORTED_LOCATION "${FFMPEG_ROOT}/lib/libswscale.so")
 
 # The lifted translation units are unusually large. Limit Ninja compile concurrency
 # to one TU to keep peak RAM predictable on GitHub-hosted runners.
@@ -113,6 +130,7 @@ target_include_directories(main PRIVATE
     "${DXVK_ROOT}/include/native/directx"
     "${DXVK_ROOT}/include/native/windows"
     "${DXVK_ROOT}/include/native/android"
+    "${FFMPEG_ROOT}/include"
     "${DXVK_ROOT}/include/native")
 set_source_files_properties(${TM_GEN_C_SOURCES} PROPERTIES
     COMPILE_DEFINITIONS RECOMP_LOCAL_REGS
@@ -122,7 +140,10 @@ set_source_files_properties(${TM_GEN_C_SOURCES} PROPERTIES
     COMPILE_OPTIONS "-O0;-g0"
 )
 target_compile_options(main PRIVATE -O1 -fno-strict-aliasing -fwrapv -Wno-unused-function -Wno-unused-parameter)
-target_link_libraries(main PRIVATE SDL2_TTF SDL2 DXVK_D3D9 android log dl vulkan m)
+target_link_libraries(main PRIVATE
+    SDL2_TTF SDL2 DXVK_D3D9
+    FFMPEG_AVFORMAT FFMPEG_AVCODEC FFMPEG_SWSCALE FFMPEG_AVUTIL
+    android log dl vulkan m)
 set_target_properties(main PROPERTIES
     OUTPUT_NAME main
     JOB_POOL_COMPILE tm_compile_pool
