@@ -13,10 +13,9 @@
  *   CLSID_FilterGraph          IUnknown, IFilterGraph, IGraphBuilder
  *     AddFilter: keeps a reference to the filter and its name, and calls
  *     its IBaseFilter::JoinFilterGraph(graph, name). The filter does not
- *     reference the graph back. A NULL name, a name already in the graph,
- *     a name of MAX_FILTER_NAME characters or more and a filter already in
- *     the graph stop the run: Windows answers them in ways this file does
- *     not implement (a generated name, VFW_S_DUPLICATE_NAME). The last Release removes every filter
+ *     reference the graph back. NULL names receive generated four-digit
+ *     names; duplicate names are suffixed and return VFW_S_DUPLICATE_NAME.
+ *     Adding the same filter twice returns E_FAIL. The last Release removes every filter
  *     (JoinFilterGraph(NULL, NULL), then Release) and frees the graph.
  *   CLSID_CaptureGraphBuilder2 IUnknown, ICaptureGraphBuilder2
  *     SetFiltergraph: keeps a reference to the graph (E_UNEXPECTED if one
@@ -124,6 +123,7 @@ typedef struct {
     int      kind, refs;
     /* graph: its filters, each referenced, with its name (guest WCHARs) */
     int      nf;
+    uint32_t name_index;                   /* DirectShow's generated-name sequence, 0000..9999 */
     uint32_t filter[MAX_FILTERS], fname[MAX_FILTERS];
     /* IMediaEventSink is a distinct COM interface pointer with its own vtable. */
     uint32_t event_sink_va, last_event_code, last_event_param1, last_event_param2;
@@ -754,30 +754,29 @@ static void ascii_wide(const char *src, uint16_t *dst) {
     dst[i] = 0;
 }
 
-/* FILTER_INFO::achName holds 128 WCHARs including its terminator. The
- * Filter Graph Manager generates a name for NULL, and renames a duplicate. */
-static int generated_filter_name(const obj_t *g, uint16_t *out) {
-    for (unsigned serial = 1; serial < 1000; serial++) {
-        char candidate[32];
-        snprintf(candidate, sizeof(candidate), "Filter %u", serial);
-        ascii_wide(candidate, out);
-        if (!name_used(g, out)) return 1;
-    }
-    return 0;
-}
+/* Match the Filter Graph Manager's conventional generated-name sequence:
+ * "0000" for a NULL name, or "<requested name> 0000" after a collision.
+ * FILTER_INFO::achName can expose at most 127 UTF-16 code units plus NUL. */
+static int generated_filter_name(obj_t *g, const uint16_t *base, uint16_t *out) {
+    for (unsigned tries = 0; tries < 10000; tries++) {
+        unsigned serial = g->name_index;
+        g->name_index = (g->name_index + 1u) % 10000u;
 
-static int renamed_filter_name(const obj_t *g, const uint16_t *base, uint16_t *out) {
-    const size_t base_len = wlen(base);
-    for (unsigned serial = 2; serial < 1000; serial++) {
-        char suffix[24];
-        uint16_t wide_suffix[24];
-        snprintf(suffix, sizeof(suffix), " (%u)", serial);
+        char suffix[8];
+        uint16_t wide_suffix[8];
+        snprintf(suffix, sizeof(suffix), "%04u", serial);
         ascii_wide(suffix, wide_suffix);
         size_t suffix_len = wlen(wide_suffix);
+        size_t base_len = base ? wlen(base) : 0;
+        size_t separator_len = base ? 1 : 0;
         size_t keep = base_len;
-        if (keep > MAX_FILTER_NAME - 1 - suffix_len)
-            keep = MAX_FILTER_NAME - 1 - suffix_len;
-        memcpy(out, base, keep * sizeof(*out));
+        size_t available = MAX_FILTER_NAME - 1 - suffix_len - separator_len;
+        if (keep > available) keep = available;
+
+        if (base) {
+            memcpy(out, base, keep * sizeof(*out));
+            out[keep++] = ' ';
+        }
         memcpy(out + keep, wide_suffix, (suffix_len + 1) * sizeof(*out));
         if (!name_used(g, out)) return 1;
     }
@@ -795,7 +794,7 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
     uint16_t w[MAX_FILTER_NAME] = { 0 };
     int renamed = 0;
     if (!pname) {
-        if (!generated_filter_name(g, w)) RET(VFW_E_DUPLICATE_NAME, 3);
+        if (!generated_filter_name(g, NULL, w)) RET(VFW_E_DUPLICATE_NAME, 3);
     } else {
         const uint16_t *src = (const uint16_t *)hle_ptr(pname);
         size_t n = 0;
@@ -806,7 +805,7 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
         w[n] = 0;
         if (name_used(g, w)) {
             uint16_t unique[MAX_FILTER_NAME] = { 0 };
-            if (!renamed_filter_name(g, w, unique)) RET(VFW_E_DUPLICATE_NAME, 3);
+            if (!generated_filter_name(g, w, unique)) RET(VFW_E_DUPLICATE_NAME, 3);
             memcpy(w, unique, sizeof(w));
             renamed = 1;
         }
@@ -824,12 +823,12 @@ static void graph_AddFilter(void) {                     /* (this, IBaseFilter *f
     if (jr & 0x80000000u || !g) {
         com_release(f);
         hle_free(keep);
-        fprintf(stderr, "[dshow] FilterGraph::AddFilter(0x%08X, \"%s\"): JoinFilterGraph -> 0x%08X\\n", f, nm, jr);
+        fprintf(stderr, "[dshow] FilterGraph::AddFilter(0x%08X, \"%s\"): JoinFilterGraph -> 0x%08X\n", f, nm, jr);
         RET(g ? jr : E_UNEXPECTED, 3);
     }
     g->filter[g->nf] = f, g->fname[g->nf] = hle_va(keep), g->nf++;
     uint32_t result = renamed ? VFW_S_DUPLICATE_NAME : S_OK;
-    fprintf(stderr, "[dshow] FilterGraph 0x%08X: AddFilter(0x%08X, \"%s\") -> 0x%08X, %d filter%s\\n",
+    fprintf(stderr, "[dshow] FilterGraph 0x%08X: AddFilter(0x%08X, \"%s\") -> 0x%08X, %d filter%s\n",
             va, f, nm, result, g->nf, g->nf == 1 ? "" : "s");
     RET(result, 3);
 }
