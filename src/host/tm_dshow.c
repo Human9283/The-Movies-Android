@@ -1111,6 +1111,13 @@ static void graph_Reconnect(void) {                     /* (this, IPin *pin) */
 static uint32_t graph_connect_output_pin(uint32_t graph_va, uint32_t out_pin) {
     obj_t *o = obj_of(graph_va, OBJ_GRAPH);
     if (!o || !out_pin) return E_POINTER;
+    o->refs++;
+    com_addref(out_pin);
+
+    uint32_t filters[MAX_FILTERS];
+    int count = o->nf;
+    memcpy(filters, o->filter, (size_t)count * sizeof(filters[0]));
+    for (int i = 0; i < count; i++) com_addref(filters[i]);
 
     uint32_t *pin_mem = (uint32_t *)hle_alloc(4);
     uint32_t *fetched_mem = (uint32_t *)hle_alloc(4);
@@ -1119,32 +1126,51 @@ static uint32_t graph_connect_output_pin(uint32_t graph_va, uint32_t out_pin) {
         if (pin_mem) hle_free(pin_mem);
         if (fetched_mem) hle_free(fetched_mem);
         if (direction_mem) hle_free(direction_mem);
+        for (int i = 0; i < count; i++) com_release(filters[i]);
+        com_release(out_pin);
+        graph_release(graph_va);
         return E_OUTOFMEMORY;
     }
     uint32_t pin_va = hle_va(pin_mem);
     uint32_t fetched_va = hle_va(fetched_mem);
     uint32_t direction_va = hle_va(direction_mem);
-    uint32_t filters[MAX_FILTERS];
-    int count = o->nf;
-    memcpy(filters, o->filter, (size_t)count * sizeof(filters[0]));
-
     uint32_t result = VFW_E_CANNOT_RENDER;
     int connected = 0;
     for (int i = 0; i < count && !connected; i++) {
         uint32_t enum_args[1] = { pin_va };
         MEM32(pin_va) = 0;
-        uint32_t hr = vcall(filters[i], 10, 1, enum_args); /* IBaseFilter::EnumPins */
+        uint32_t hr = vcall(filters[i], 10, 1, enum_args);
         uint32_t enumerator = MEM32(pin_va);
-        if ((hr & 0x80000000u) || !enumerator) continue;
+        if (hr & 0x80000000u) {
+            if (enumerator) com_release(enumerator);
+            result = hr;
+            continue;
+        }
+        if (!enumerator) {
+            result = E_UNEXPECTED;
+            continue;
+        }
 
         for (;;) {
             MEM32(pin_va) = 0;
             MEM32(fetched_va) = 0;
             uint32_t next_args[3] = { 1, pin_va, fetched_va };
-            hr = vcall(enumerator, 3, 3, next_args);       /* IEnumPins::Next */
+            hr = vcall(enumerator, 3, 3, next_args);
             uint32_t fetched = MEM32(fetched_va);
             uint32_t pin = MEM32(pin_va);
-            if (!fetched || !pin) break;
+            if (hr & 0x80000000u) {
+                if (pin) com_release(pin);
+                result = hr;
+                break;
+            }
+            if (!fetched) {
+                if (pin) com_release(pin);
+                break;
+            }
+            if (!pin) {
+                result = E_UNEXPECTED;
+                break;
+            }
 
             MEM32(direction_va) = 0xFFFFFFFFu;
             uint32_t direction_args[1] = { direction_va };
@@ -1158,9 +1184,11 @@ static uint32_t graph_connect_output_pin(uint32_t graph_va, uint32_t out_pin) {
                 } else {
                     result = connect_hr;
                 }
+            } else if (direction_hr & 0x80000000u) {
+                result = direction_hr;
             }
             com_release(pin);
-            if (connected || (hr & 0x80000000u)) break;
+            if (connected) break;
         }
         com_release(enumerator);
     }
@@ -1168,9 +1196,11 @@ static uint32_t graph_connect_output_pin(uint32_t graph_va, uint32_t out_pin) {
     hle_free(pin_mem);
     hle_free(fetched_mem);
     hle_free(direction_mem);
-    return obj_of(graph_va, OBJ_GRAPH) ? result : E_UNEXPECTED;
+    for (int i = 0; i < count; i++) com_release(filters[i]);
+    com_release(out_pin);
+    graph_release(graph_va);
+    return result;
 }
-
 static uint32_t graph_connect_reader_output(uint32_t graph_va, uint32_t filter_va) {
     uint32_t *pin_mem = (uint32_t *)hle_alloc(4);
     uint32_t *fetched_mem = (uint32_t *)hle_alloc(4);
@@ -1229,22 +1259,24 @@ static uint32_t graph_connect_reader_output(uint32_t graph_va, uint32_t filter_v
 
 static uint32_t graph_render_file(obj_t *graph, uint32_t file_name) {
     if (!graph || !file_name) return E_POINTER;
-    uint32_t filter = 0;
-    uint32_t hr = tm_dshow_reader_add_source_filter(graph->va, file_name, 0, &filter);
-    if (hr & 0x80000000u) return hr;
-
     uint32_t graph_va = graph->va;
+    graph->refs++;
+#define RENDER_FILE_RET(value) do { uint32_t _render_hr = (value); graph_release(graph_va); return _render_hr; } while (0)
+    uint32_t filter = 0;
+    uint32_t hr = tm_dshow_reader_add_source_filter(graph_va, file_name, 0, &filter);
+    if (hr & 0x80000000u) RENDER_FILE_RET(hr);
+
     hr = graph_connect_reader_output(graph_va, filter);
     if (hr & 0x80000000u) {
         uint32_t remove_args[1] = { filter };
-        (void)vcall(graph_va, 4, 1, remove_args);         /* IFilterGraph::RemoveFilter */
+        (void)vcall(graph_va, 4, 1, remove_args);
         com_release(filter);
-        return hr;
+        RENDER_FILE_RET(hr);
     }
-    com_release(filter);                                 /* graph owns its independent reference */
-    return S_OK;
+    com_release(filter);
+    RENDER_FILE_RET(S_OK);
+#undef RENDER_FILE_RET
 }
-
 static void graph_RenderFile(void) {                    /* (this, file, playlist) */
     obj_t *g = self(OBJ_GRAPH, "RenderFile");
     if (!A32(1)) RET(E_POINTER, 3);
