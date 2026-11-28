@@ -45,8 +45,11 @@ gameplay works.
    pointer load and `GetTime`. A system-monotonic fallback is used only when
    the graph has no usable clock.
 8. Before the first sample, and again after reopening a looped file, the source
-   calls downstream `IPin::NewSegment(0, duration, 1.0)`. The first sample of
-   each segment is marked discontinuous. The single reader worker serializes
+   calls downstream `IPin::NewSegment(0, duration, 1.0)`. If a flush
+   interrupts sample submission while playback continues, the worker starts a
+   new segment at that frame's media position and rebases sample timestamps to
+   zero for the new segment. The first sample of each segment is marked
+   discontinuous. The single reader worker serializes
    `NewSegment`, `Receive`, and `EndOfStream` in source order. The HLE machine
    lock serializes their guest-COM dispatch against graph-thread control
    callbacks. No native mutex is held across guest COM calls: doing so would
@@ -55,8 +58,11 @@ gameplay works.
    so it can release a blocked downstream `Receive`. Sample allocation,
    metadata setup and the final `pin_flushing` check are performed in one HLE
    machine turn, preventing a flush from slipping between the check and the
-   submission of a new sample. The blocking `Receive` can still yield the HLE
-   machine to the flush callback while it is in flight.
+   submission of a new sample. A flush-generation counter detects a
+   BeginFlush/EndFlush pair even when both complete while a guest call has
+   yielded the machine; a cancelled frame is retried only after announcing a
+   new segment. The blocking `Receive` can still yield the HLE machine to the
+   flush callback while it is in flight.
 9. End of stream is forwarded to the connected pin and reported to the graph
    through the game's `IFilterGraph` / `IMediaEventSink::Notify` vtable alias.
 
