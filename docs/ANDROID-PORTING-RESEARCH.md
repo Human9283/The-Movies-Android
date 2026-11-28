@@ -17,12 +17,20 @@ is **not an Android port**. It is a 32-bit Windows ASI mod that also runs with
 Linux/Wine. It is nevertheless unusually valuable because it targets the same
 game and documents reverse-engineered DirectShow call sequences and quirks.
 
-The comparison produced one concrete Android source fix: the game queries
-`IID_IMediaSeeking` on the graph but subsequently calls `IMediaPosition`
-methods through the returned pointer. The graph previously rejected this IID
-and would call `hle_fatal`. It now returns the existing graph
-`IMediaPosition` interface for both IIDs. See the code comment in
-`src/host/tm_dshow.c` and the corresponding section in
+The comparison produced two concrete Android source fixes:
+
+1. The game queries `IID_IMediaSeeking` on the graph but subsequently calls
+   `IMediaPosition` methods through the returned pointer. The graph previously
+   rejected this IID and would call `hle_fatal`. It now returns the existing
+   graph `IMediaPosition` interface for both IIDs.
+2. The game's `IsVideoFinished` path polls current position against duration.
+   The Android graph previously returned a cached `media_position` that was
+   initialized to zero and never advanced by the reader. The reader now
+   publishes its file-timeline position after successful sample delivery and
+   sets it to duration at EOF; the graph's getter reads this atomic value.
+
+See the code comments in `src/host/tm_dshow.c` and
+`src/host/tm_dshow_reader.c`, plus the corresponding section in
 `ANDROID-DIRECTSHOW.md`.
 
 No APK/native build, CI run, GitHub Actions workflow, or device test was run.
