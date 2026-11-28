@@ -720,6 +720,7 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
     uint32_t hr = guest_call(r->allocator, 7, 4, get_args);
     uint32_t sample = guest_read32_locked(sample_out_va);
     if (hr == VFW_E_TIMEOUT) {
+        if (sample) guest_call(sample, 2, 0, NULL);
         guest_free_locked(time_va);
         guest_free_locked(sample_out_va);
         mach_leave();
@@ -729,6 +730,7 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
         int interrupted = atomic_load_explicit(&r->flush_generation, memory_order_acquire) != flush_generation ||
                           atomic_load_explicit(&r->pin_flushing, memory_order_acquire) ||
                           atomic_load_explicit(&r->stop_requested, memory_order_acquire);
+        if (sample) guest_call(sample, 2, 0, NULL);
         guest_free_locked(time_va);
         guest_free_locked(sample_out_va);
         if (failure_hr) *failure_hr = hr == S_OK ? E_UNEXPECTED : hr;
@@ -758,8 +760,13 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
     uint32_t pointer_args[1] = { pointer_out_va };
     hr = guest_call(sample, 3, 1, pointer_args);        /* IMediaSample::GetPointer */
     uint32_t buffer_va = guest_read32_locked(pointer_out_va);
-    uint32_t max_size = guest_call(sample, 4, 0, NULL); /* IMediaSample::GetSize */
-    if (hr == S_OK && buffer_va && max_size >= size) {
+    uint32_t max_size = guest_call(sample, 4, 0, NULL); /* IMediaSample::GetSize returns LONG */
+    if (hr == S_OK && !buffer_va) {
+        hr = E_POINTER;
+    } else if (hr == S_OK && max_size < size) {
+        hr = E_FAIL;
+    }
+    if (hr == S_OK) {
         guest_copy_locked(buffer_va, frame, size);
         uint64_t times[2] = { (uint64_t)start, (uint64_t)end };
         guest_copy_locked(time_va, times, sizeof(times));
@@ -782,8 +789,6 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
                 hr = guest_call(r->peer_mem_input, 6, 1, receive_args); /* IMemInputPin::Receive */
             }
         }
-    } else {
-        hr = E_FAIL;
     }
 
     guest_call(sample, 2, 0, NULL);
