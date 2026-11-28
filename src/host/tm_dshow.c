@@ -70,6 +70,7 @@
 #define E_NOTIMPL               0x80004001u
 #define VFW_E_CANNOT_RENDER     0x80040218u
 #define VFW_E_NOT_STOPPED       0x80040224u
+#define VFW_E_WRONG_STATE      0x80040227u
 #define VFW_E_NOT_CONNECTED     0x80040209u
 #define VFW_S_STATE_INTERMEDIATE 0x00040237u
 #define VFW_S_CANT_CUE          0x00040268u
@@ -2030,22 +2031,8 @@ static void writer_GetState(void) {                     /* (this, DWORD timeout,
     MEM32(A32(2)) = 0;                                  /* State_Stopped: it never runs */
     RET(S_OK, 3);
 }
-static void writer_SetSyncSource(void) {
-    obj_t *o = self(OBJ_WRITER, "SetSyncSource");
-    uint32_t clock = A32(1);
-    if (clock) com_addref(clock);
-    if (o->sync_source_va) com_release(o->sync_source_va);
-    o->sync_source_va = clock;
-    RET(S_OK, 2);
-}
-static void writer_GetSyncSource(void) {
-    obj_t *o = self(OBJ_WRITER, "GetSyncSource");
-    uint32_t out = A32(1);
-    if (!out) RET(E_POINTER, 2);
-    MEM32(out) = o->sync_source_va;
-    if (o->sync_source_va) com_addref(o->sync_source_va);
-    RET(S_OK, 2);
-}
+
+
 static void writer_JoinFilterGraph(void) {              /* (this, IFilterGraph *graph, LPCWSTR name) */
     obj_t *o = self(OBJ_WRITER, "JoinFilterGraph");
     uint32_t graph = A32(1), pname = A32(2);
