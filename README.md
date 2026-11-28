@@ -12,7 +12,7 @@ You must provide your own legally obtained copy of the original game. This repos
 
 ## Current scope
 
-- Android target: ARM64 (`arm64-v8a`), Android 7.0/API 24 or later.
+- Android target: ARM64 (`arm64-v8a`), Android 7.0/API 24 or later, with a Vulkan 1.1-compatible GPU and driver.
 - Graphics: the Android D3D9 path can present the game's animated intro.
 - Main menu, studio gameplay, media playback, audio, touch controls, save/load and sustained play are not yet verified as working.
 
