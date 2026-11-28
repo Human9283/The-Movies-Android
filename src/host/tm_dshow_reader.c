@@ -583,13 +583,10 @@ static int reader_deliver_frame(reader_t *r, const uint8_t *frame, uint32_t size
         return 0;
     }
     guest_write32_locked(sample_out_va, 0);
-    /* During Pause, the renderer must receive one poster frame before
-     * the graph can finish cueing. Wait for that first allocator sample;
-     * keep the running path nonblocking so a slow renderer cannot stall
-     * the decoder indefinitely. */
-    uint32_t get_flags = atomic_load_explicit(&r->preroll_pending, memory_order_acquire)
-        ? 0u : AM_GBF_NOWAIT;
-    uint32_t get_args[4] = { sample_out_va, 0, 0, get_flags };
+    /* Keep allocator requests cancellable: Stop joins the worker before
+     * decommitting the allocator. A blocking GetBuffer here could therefore
+     * deadlock teardown if all samples are still held downstream. */
+    uint32_t get_args[4] = { sample_out_va, 0, 0, AM_GBF_NOWAIT };
     uint32_t hr = guest_call(r->allocator, 7, 4, get_args);
     uint32_t sample = guest_read32_locked(sample_out_va);
     if (hr != S_OK || !sample) {
@@ -747,8 +744,14 @@ static void *reader_worker(void *opaque) {
             stream_error = 1;
             break;
         }
-        if (delivery == 1)
+        if (delivery == 1) {
             atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
+        } else if (delivery == 2 &&
+                   atomic_load_explicit(&r->preroll_pending, memory_order_acquire)) {
+            /* Still waiting to cue the renderer, but remain interruptible by
+             * Stop/flush while the downstream allocator has no free sample. */
+            usleep(5000);
+        }
         frame_number++;
     }
 
