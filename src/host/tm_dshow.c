@@ -488,13 +488,27 @@ static uint32_t graph_release(uint32_t va) {
             o->refs--;
             return (uint32_t)o->refs;
         }
+        /* Release the graph clock before freeing secondary interfaces:
+         * Release is external COM code and may re-enter QueryInterface or
+         * retain a new graph reference. Re-check the controlling count after
+         * that callback before destroying any interface storage. */
+        uint32_t clock = o->sync_source_va;
+        o->sync_source_va = 0;
+        if (clock) com_release(clock);
+        o = obj_of(va, OBJ_GRAPH);
+        if (!o) hle_fatal("[dshow] FilterGraph 0x%08X vanished while releasing its clock", va);
+        if (o->refs > 1) {
+            o->tearing_down = 0;
+            o->teardown_failed = 0;
+            o->refs--;
+            return (uint32_t)o->refs;
+        }
         if (o->event_sink_va) hle_free(hle_ptr(o->event_sink_va));
         if (o->media_control_va) hle_free(hle_ptr(o->media_control_va));
         if (o->media_position_va) hle_free(hle_ptr(o->media_position_va));
         if (o->basic_audio_va) hle_free(hle_ptr(o->basic_audio_va));
         if (o->basic_video_va) hle_free(hle_ptr(o->basic_video_va));
         if (o->media_filter_va) hle_free(hle_ptr(o->media_filter_va));
-        if (o->sync_source_va) com_release(o->sync_source_va);
         o->refs = 0;
         obj_free(o);
         return 0;
