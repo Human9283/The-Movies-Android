@@ -1301,30 +1301,111 @@ static uint32_t graph_disconnect_filter_pins(uint32_t filter) {
     return S_OK;
 }
 
-static void graph_RemoveFilter(void) {                  /* (this, IBaseFilter *filter) */
+static void graph_RemoveFilter(void) {
     obj_t *g = self(OBJ_GRAPH, "RemoveFilter");
     uint32_t graph_va = g->va, filter = A32(1);
     if (!filter) RET(E_POINTER, 2);
+
     int index = -1;
     for (int i = 0; i < g->nf; i++)
         if (g->filter[i] == filter) { index = i; break; }
     if (index < 0) RET(E_FAIL, 2);
 
-    int is_asf_reader = filter_is_asf_reader(filter);
-    if (is_asf_reader < 0) RET(E_OUTOFMEMORY, 2);
-    uint32_t hr = graph_disconnect_filter_pins(filter);
+    /* Match the Filter Graph Manager's removal sequence: enumerate this
+     * filter's pins, disconnect both ends of each connection, then notify
+     * the filter that it has left the graph. Disconnect can fail while a
+     * filter is running; in that case retain the graph's ownership. */
+    uint32_t *pin_mem = (uint32_t *)hle_alloc(4);
+    uint32_t *fetched_mem = (uint32_t *)hle_alloc(4);
+    uint32_t *peer_mem = (uint32_t *)hle_alloc(4);
+    if (!pin_mem || !fetched_mem || !peer_mem) {
+        if (pin_mem) hle_free(pin_mem);
+        if (fetched_mem) hle_free(fetched_mem);
+        if (peer_mem) hle_free(peer_mem);
+        RET(E_OUTOFMEMORY, 2);
+    }
+
+    uint32_t pin_va = hle_va(pin_mem);
+    uint32_t fetched_va = hle_va(fetched_mem);
+    uint32_t peer_va = hle_va(peer_mem);
+    uint32_t enum_out[1] = { 0 };
+    uint32_t hr = vcall(filter, 10, 1, enum_out);        /* IBaseFilter::EnumPins */
+    uint32_t pin_enum = enum_out[0];
+
+    if (!(hr & 0x80000000u) && pin_enum) {
+        for (;;) {
+            MEM32(pin_va) = 0;
+            MEM32(fetched_va) = 0;
+            uint32_t next_args[3] = { 1, pin_va, fetched_va };
+            hr = vcall(pin_enum, 3, 3, next_args);       /* IEnumPins::Next */
+            uint32_t fetched = MEM32(fetched_va);
+            uint32_t pin = MEM32(pin_va);
+
+            if (hr == 1u || (!fetched && !(hr & 0x80000000u))) {
+                hr = S_OK;                              /* end of enumeration */
+                break;
+            }
+            if (hr & 0x80000000u) break;
+            if (!pin) { hr = E_UNEXPECTED; break; }
+
+            MEM32(peer_va) = 0;
+            uint32_t peer_args[1] = { peer_va };
+            uint32_t connected_hr = vcall(pin, 6, 1, peer_args); /* IPin::ConnectedTo */
+            uint32_t peer = MEM32(peer_va);
+            if (connected_hr == S_OK && peer) {
+                uint32_t no_args[1] = { 0 };
+                uint32_t disconnect_hr = vcall(peer, 5, 0, no_args); /* IPin::Disconnect */
+                com_release(peer);
+                if (disconnect_hr & 0x80000000u) {
+                    com_release(pin);
+                    hr = disconnect_hr;
+                    break;
+                }
+                disconnect_hr = vcall(pin, 5, 0, no_args);
+                if (disconnect_hr & 0x80000000u) {
+                    com_release(pin);
+                    hr = disconnect_hr;
+                    break;
+                }
+            } else if (connected_hr != S_FALSE && (connected_hr & 0x80000000u)) {
+                com_release(pin);
+                hr = connected_hr;
+                break;
+            } else if (peer) {
+                com_release(peer);
+            }
+
+            com_release(pin);
+        }
+        com_release(pin_enum);
+    } else if (!(hr & 0x80000000u)) {
+        hr = E_UNEXPECTED;
+    }
+
+    hle_free(pin_mem);
+    hle_free(fetched_mem);
+    hle_free(peer_mem);
     if (hr & 0x80000000u) RET(hr, 2);
 
+    /* A guest method may re-enter the graph; re-find the entry before
+     * mutating the host-side collection. */
+    g = obj_of(graph_va, OBJ_GRAPH);
+    if (!g) RET(E_UNEXPECTED, 2);
+    index = -1;
+    for (int i = 0; i < g->nf; i++)
+        if (g->filter[i] == filter) { index = i; break; }
+    if (index < 0) RET(S_OK, 2);
+
     uint32_t none[2] = { 0, 0 };
-    hr = vcall(filter, 13, 2, none);                     /* IBaseFilter::JoinFilterGraph(NULL, NULL) */
+    hr = vcall(filter, 13, 2, none);                    /* IBaseFilter::JoinFilterGraph(NULL, NULL) */
     if (hr & 0x80000000u) RET(hr, 2);
 
     g = obj_of(graph_va, OBJ_GRAPH);
     if (!g) RET(E_UNEXPECTED, 2);
-    index = -1;                                         /* JoinFilterGraph may re-enter the graph */
+    index = -1;
     for (int i = 0; i < g->nf; i++)
         if (g->filter[i] == filter) { index = i; break; }
-    if (index < 0) RET(S_OK, 2);                        /* a re-entrant removal already completed */
+    if (index < 0) RET(S_OK, 2);
 
     uint32_t name = g->fname[index];
     for (int i = index; i + 1 < g->nf; i++) {
@@ -1335,9 +1416,8 @@ static void graph_RemoveFilter(void) {                  /* (this, IBaseFilter *f
     g->filter[g->nf] = 0;
     g->fname[g->nf] = 0;
     g->graph_version++;
-    if (is_asf_reader && g->asf_readers > 0) g->asf_readers--;
     if (name) hle_free(hle_ptr(name));
-    com_release(filter);
+    com_release(filter);                                /* drop the graph's reference */
     RET(S_OK, 2);
 }
 
