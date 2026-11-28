@@ -952,7 +952,18 @@ static void media_position_get_CurrentPosition(void) {
     obj_t *o = media_position_owner(A32(0));
     if (!A32(1)) RET(E_POINTER, 2);
     if (!o->media_loaded) RET(E_NOTIMPL, 2);
-    media_position_write_double(A32(1), o->media_position);
+
+    /* The game polls this value to detect the end of an FMV. A graph-side
+     * cached value never advances, so read the active ASF reader's atomic
+     * file-timeline position, published after each accepted video sample. */
+    double position = o->media_position;
+    for (int i = 0; i < o->nf; i++) {
+        if (tm_dshow_reader_current_position(o->filter[i], &position)) {
+            o->media_position = position;
+            break;
+        }
+    }
+    media_position_write_double(A32(1), position);
     RET(S_OK, 2);
 }
 static void media_position_put_StopTime(void) {
