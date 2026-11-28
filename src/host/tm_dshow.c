@@ -561,6 +561,7 @@ static void media_control_Release(void) {
 
 static uint32_t graph_filter_transition(obj_t *o, int method, int new_state,
                                             uint32_t start_low, uint32_t start_high) {
+    if (o->tearing_down || o->teardown_failed) return VFW_E_WRONG_STATE;
     uint32_t graph_va = o->va;
     o->refs++;                                  /* hold graph across child callbacks */
     uint32_t filters[MAX_FILTERS];
@@ -606,6 +607,7 @@ static uint32_t graph_filter_transition(obj_t *o, int method, int new_state,
 }
 
 static uint32_t graph_run_at(obj_t *o, uint64_t start_time) {
+    if (o->tearing_down || o->teardown_failed) return VFW_E_WRONG_STATE;
     uint32_t graph_va = o->va;
     o->refs++;
     if (o->filter_state == 2) {
@@ -647,6 +649,7 @@ static uint64_t graph_reference_time(obj_t *o) {
 }
 
 static uint32_t graph_run(obj_t *o) {
+    if (o->tearing_down || o->teardown_failed) return VFW_E_WRONG_STATE;
     uint32_t graph_va = o->va;
     o->refs++;
     uint64_t start = graph_reference_time(o) + 1000000u;
@@ -658,6 +661,7 @@ static uint32_t graph_pause(obj_t *o) {
     return graph_filter_transition(o, 5, 1, 0, 0);
 }
 static uint32_t graph_stop(obj_t *o) {
+    if (o->tearing_down || o->teardown_failed) return VFW_E_WRONG_STATE;
     if (o->asf_readers > 0) {
         o->filter_state = 0;
         return S_OK;
@@ -666,6 +670,7 @@ static uint32_t graph_stop(obj_t *o) {
 }
 
 static uint32_t graph_get_state(obj_t *o, uint32_t timeout_ms, uint32_t state_out) {               /* (this, timeout, FILTER_STATE *) */
+    if (o->tearing_down || o->teardown_failed) return VFW_E_WRONG_STATE;
     if (!state_out) return E_POINTER;
     MEM32(state_out) = o->filter_state;
 
@@ -784,6 +789,7 @@ static void media_filter_Run(void) {
 /* Propagate a selected graph clock to every child. If one filter rejects the
  * clock, restore the previous reference on all children before returning. */
 static uint32_t graph_set_sync_source(obj_t *o, uint32_t clock) {
+    if (o->tearing_down || o->teardown_failed) return VFW_E_WRONG_STATE;
     if (o->filter_state != 0) return VFW_E_NOT_STOPPED;
     uint32_t graph_va = o->va;
     uint32_t filters[MAX_FILTERS];
@@ -844,6 +850,7 @@ static void media_filter_GetSyncSource(void) {
  * filter, the ASF reader retains its monotonic frame pacing. */
 static void graph_SetDefaultSyncSource(void) {
     obj_t *o = self(OBJ_GRAPH, "SetDefaultSyncSource");
+    if (o->tearing_down || o->teardown_failed) RET(VFW_E_WRONG_STATE, 1);
     if (o->filter_state != 0) RET(VFW_E_NOT_STOPPED, 1);
     uint32_t graph_va = o->va;
     o->refs++;
@@ -1125,6 +1132,7 @@ static void graph_Reconnect(void) {                     /* (this, IPin *pin) */
 static uint32_t graph_connect_output_pin(uint32_t graph_va, uint32_t out_pin) {
     obj_t *o = obj_of(graph_va, OBJ_GRAPH);
     if (!o || !out_pin) return E_POINTER;
+    if (o->tearing_down || o->teardown_failed) return VFW_E_WRONG_STATE;
     o->refs++;
     com_addref(out_pin);
 
@@ -1286,6 +1294,7 @@ static uint32_t graph_connect_reader_output(uint32_t graph_va, uint32_t filter_v
 
 static uint32_t graph_render_file(obj_t *graph, uint32_t file_name) {
     if (!graph || !file_name) return E_POINTER;
+    if (graph->tearing_down || graph->teardown_failed) return VFW_E_WRONG_STATE;
     uint32_t graph_va = graph->va;
     graph->refs++;
 #define RENDER_FILE_RET(value) do { uint32_t _render_hr = (value); graph_release(graph_va); return _render_hr; } while (0)
