@@ -109,6 +109,7 @@ struct reader {
     atomic_uint_fast64_t pause_started_100ns;
     atomic_int preroll_pending;
     atomic_int worker_done;
+    atomic_int decommit_pending;
     uint16_t filter_name[128];
     uint16_t current_path[PATH_MAX];
     char host_path[PATH_MAX];
@@ -1056,6 +1057,14 @@ static void *reader_worker(void *opaque) {
             }
         }
     }
+    if (atomic_exchange_explicit(&r->decommit_pending, 0, memory_order_acq_rel) &&
+        r->allocator && r->allocator_committed) {
+        uint32_t decommit_hr = guest_call(r->allocator, 6, 0, NULL);
+        if (!(decommit_hr & 0x80000000u))
+            r->allocator_committed = 0;
+        else
+            fprintf(stderr, "[dshow-reader] deferred allocator Decommit -> 0x%08X\\n", decommit_hr);
+    }
     reader_release_host(r);                         /* worker reference: no reader access after this */
     return NULL;
 }
@@ -1251,7 +1260,13 @@ static void filter_GetClassID(void) {
 }
 static void filter_Stop(void) {
     reader_t *r = reader_from_this("IMediaFilter::Stop");
+    int on_worker = atomic_load_explicit(&r->worker_started, memory_order_acquire) &&
+                    pthread_equal(pthread_self(), r->worker);
     uint32_t stop_hr = reader_stop_worker(r);
+    if (on_worker) {
+        atomic_store_explicit(&r->decommit_pending, 1, memory_order_release);
+        RET(stop_hr, 1);
+    }
     if (atomic_load_explicit(&r->worker_started, memory_order_acquire)) RET(stop_hr, 1);
     if (r->allocator && r->allocator_committed) {
         (void)guest_call(r->allocator, 6, 0, NULL);      /* IMemAllocator::Decommit */
