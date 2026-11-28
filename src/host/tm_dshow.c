@@ -1216,6 +1216,7 @@ static uint32_t graph_connect_reader_output(uint32_t graph_va, uint32_t filter_v
     uint32_t hr = vcall(filter_va, 10, 1, enum_args);    /* IBaseFilter::EnumPins */
     uint32_t enumerator = MEM32(pin_va);
     if ((hr & 0x80000000u) || !enumerator) {
+        if (enumerator) com_release(enumerator);
         hle_free(pin_mem);
         hle_free(fetched_mem);
         return (hr & 0x80000000u) ? hr : E_UNEXPECTED;
@@ -1229,7 +1230,19 @@ static uint32_t graph_connect_reader_output(uint32_t graph_va, uint32_t filter_v
         hr = vcall(enumerator, 3, 3, next_args);
         uint32_t pin = MEM32(pin_va);
         uint32_t fetched = MEM32(fetched_va);
-        if (!fetched || !pin) break;
+        if (hr & 0x80000000u) {
+            if (pin) com_release(pin);
+            result = hr;
+            break;
+        }
+        if (!fetched) {
+            if (pin) com_release(pin);
+            break;
+        }
+        if (!pin) {
+            result = E_UNEXPECTED;
+            break;
+        }
 
         uint32_t *direction_mem = (uint32_t *)hle_alloc(4);
         if (!direction_mem) {
