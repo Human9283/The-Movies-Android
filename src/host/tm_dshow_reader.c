@@ -1004,8 +1004,13 @@ static void *reader_worker(void *opaque) {
             reader_notify_error(r, stream_error_hr);
         } else if (reached_eof && !r->looping) {
             uint32_t eos_hr = reader_notify_end_of_stream(r, segment_generation);
-            if (eos_hr == S_OK) reader_notify_complete(r);
-            else fprintf(stderr, "[dshow-reader] EndOfStream skipped/failed -> 0x%08X\n", eos_hr);
+            if (eos_hr == S_OK) {
+                reader_notify_complete(r);
+            } else if (eos_hr != S_FALSE &&
+                       !atomic_load_explicit(&r->stop_requested, memory_order_acquire)) {
+                fprintf(stderr, "[dshow-reader] EndOfStream failed -> 0x%08X\n", eos_hr);
+                reader_notify_error(r, eos_hr);
+            }
         }
     }
     reader_release_host(r);                         /* worker reference: no reader access after this */
