@@ -63,8 +63,11 @@ gameplay works.
    yielded the machine; a cancelled frame is retried only after announcing a
    new segment. The blocking `Receive` can still yield the HLE machine to the
    flush callback while it is in flight.
-9. End of stream is forwarded to the connected pin and reported to the graph
-   through the game's `IFilterGraph` / `IMediaEventSink::Notify` vtable alias.
+9. End of stream is forwarded to the connected pin and reported as
+   `EC_COMPLETE` only if it still belongs to the active segment. Decoder,
+   loop-reopen, segment-negotiation, and downstream-delivery failures report
+   `EC_ERRORABORT` with the corresponding HRESULT. A Stop/flush cancellation
+   does not masquerade as a media failure.
 
 The graph also routes `IGraphBuilder::RenderFile` and
 `IGraphBuilder::AddSourceFilter` through this reader. Graph state changes run
