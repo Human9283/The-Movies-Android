@@ -81,7 +81,7 @@ git clone https://github.com/sp00nznet/themovies "$WORK/themovies"
 git -C "$WORK/themovies" checkout 8e278f6b22d70095d0b1b10803370613b20862f5
 ~~~
 
-The pcrecomp and themovies revisions are pinned because the generated lift and host shims depend on their runtime interfaces. The pinned pcrecomp revision includes the opt-in `LIFT32_ABI` register-preservation analysis. This Android recipe deliberately leaves `LIFT32_ABI` unset: it requires a two-pass lift and validation of the generated call plan, and has not been qualified for this game build.
+The pcrecomp and themovies revisions are pinned because the generated lift and host shims depend on their runtime interfaces. The pinned pcrecomp revision includes opt-in `LIFT32_ABI` callee-saved register analysis. This recipe deliberately leaves `LIFT32_ABI` unset: it requires two lift passes, trusts indirect call/tail targets, and is not qualified for this game. Its upstream `RECOMP_ABI_CHECK` uses the `native32` runtime checker, which the Android target does not currently compile; do not enable the optimization until an equivalent Android check is wired and validated.
 
 ## 3. Install your copy of the game and generate the lift
 
