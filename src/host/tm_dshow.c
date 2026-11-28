@@ -4,10 +4,12 @@
  *
  * sub_009AD7A0 creates a filter graph, a capture graph builder and the
  * Windows Media ASF Writer filter, gives the graph to the builder, adds the
- * writer to the graph and releases all three. The graph also exposes a
- * distinct graph interfaces for event notification, media control,
- * position, basic audio and basic video. The graph transitions filters, but
- * the ASF reader, pins, media connections and frame delivery remain absent.
+ * writer to the graph and releases all three. The graph also exposes interfaces for event notification, media control,
+ * position, basic audio and basic video. A separate WMAsfReader module now
+ * exposes IFileSourceFilter, one RGB24 output pin, pin/media-type enumerators
+ * and an FFmpeg-backed frame-delivery worker. This video-only path has not yet
+ * been built or validated against the game on Android; it does not imply
+ * playable media or a working main menu.
  * The startup-probe objects are implemented with real COM ownership rules:
  *
  *   CLSID_FilterGraph          IUnknown, IFilterGraph, IGraphBuilder
@@ -46,9 +48,11 @@
  * hle_call_guest. Vtables are made at the first CoCreateInstance, not at
  * start-up, so the guest heap before that point is unchanged.
  *
- * Threads: the threaded filter graph creates a worker thread on Windows for
- * its events. Nothing here runs a thread or delivers an event, and nothing
- * the probe does needs one.
+ * Threads: the WMAsfReader owns one decoder worker. It allocates its guest
+ * thread ID before pthread_create, adopts it in the worker, serializes guest
+ * memory access with mach_enter/mach_leave, and releases the machine lock
+ * while joining. The game's hidden IMediaEventSink::Notify entry is routed
+ * through the graph's AddFilter vtable slot as the game expects.
  */
 #include <stdint.h>
 #include <stdio.h>
