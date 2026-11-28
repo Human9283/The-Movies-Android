@@ -69,6 +69,7 @@
 #define E_FAIL                 0x80004005u
 #define E_NOTIMPL               0x80004001u
 #define VFW_E_CANNOT_RENDER     0x80040218u
+#define VFW_E_NOT_STOPPED       0x80040224u
 #define VFW_E_NOT_CONNECTED     0x80040209u
 #define VFW_S_STATE_INTERMEDIATE 0x00040237u
 #define VFW_S_CANT_CUE          0x00040268u
@@ -92,6 +93,7 @@ static const guid_t CLSID_WMAsfReader_          = G(0x187463A0, 0x5BB7, 0x11D3, 
 
 static const guid_t IID_IUnknown_        = G(0x00000000, 0x0000, 0x0000, 0xC0,0,0,0,0,0,0,0x46);
 static const guid_t IID_IPersist_        = G(0x0000010C, 0x0000, 0x0000, 0xC0,0,0,0,0,0,0,0x46);
+static const guid_t IID_IReferenceClock_  = G(0x56A86897, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70);
 static const guid_t IID_IMediaFilter_    = G(0x56A86899, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70);
 static const guid_t IID_IBaseFilter_     = G(0x56A86895, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70);
 static const guid_t IID_IFilterGraph_    = G(0x56A8689F, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70);
@@ -113,7 +115,6 @@ static const named_iid g_graph_missing[] = {
     { "IMediaEventEx",  G(0x56A868C0, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70) },
     { "IMediaSeeking",  G(0x36B73880, 0xC2C8, 0x11CF, 0x8B,0x46,0x00,0x80,0x5F,0x6C,0xEF,0x60) },
     { "IVideoWindow",   G(0x56A868B4, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70) },
-    { "IMediaFilter",   G(0x56A86899, 0x0AD4, 0x11CE, 0xB0,0x3A,0x00,0x20,0xAF,0x0B,0xA7,0x70) },
     { NULL, {0} }
 };
 static const named_iid g_writer_missing[] = {
@@ -142,6 +143,7 @@ typedef struct {
     /* IMediaEventSink is a distinct COM interface pointer with its own vtable. */
     uint32_t event_sink_va, last_event_code, last_event_param1, last_event_param2;
     uint32_t media_control_va, media_position_va, basic_audio_va, basic_video_va;
+    uint32_t media_filter_va, sync_source_va;
     uint32_t event_count;
     uint32_t filter_state, media_loaded;
     double media_duration, media_position, media_stop_time, media_preroll_time;
@@ -152,6 +154,7 @@ typedef struct {
     uint32_t graph;
     /* writer: the graph it joined (not referenced) and the name it was given */
     uint32_t joined;
+    uint32_t sync_source_va;
     uint16_t name[MAX_FILTER_NAME];
 } obj_t;
 #define MAX_OBJS 64
@@ -159,7 +162,7 @@ static obj_t g_obj[MAX_OBJS];
 static uint32_t graph_render_file(obj_t *graph, uint32_t file_name);
 static int g_created[4], g_destroyed[4];
 static uint32_t g_vt[4];
-static uint32_t g_vt_event_sink, g_vt_media_control;
+static uint32_t g_vt_event_sink, g_vt_media_control, g_vt_media_filter;
 static uint32_t g_vt_media_position, g_vt_basic_audio, g_vt_basic_video;
 static uint32_t g_vt_enum_filters;
 
@@ -254,7 +257,7 @@ static uint32_t query(obj_t *o, uint32_t riid, uint32_t ppv) {
 }
 
 /* ---- the filter graph: IGraphBuilder (IFilterGraph, IUnknown) ---- */
-static const guid_t *const g_graph_ok[] = { &IID_IUnknown_, &IID_IFilterGraph_, &IID_IGraphBuilder_, NULL };
+static const guid_t *const g_graph_ok[] = { &IID_IUnknown_, &IID_IPersist_, &IID_IMediaFilter_, &IID_IFilterGraph_, &IID_IGraphBuilder_, NULL };
 
 static uint32_t graph_event_sink(obj_t *o) {
     if (o->event_sink_va) return o->event_sink_va;
@@ -275,6 +278,9 @@ static uint32_t graph_secondary_interface(obj_t *o, uint32_t *field, uint32_t vt
 }
 static uint32_t graph_media_control(obj_t *o) {
     return graph_secondary_interface(o, &o->media_control_va, g_vt_media_control);
+}
+static uint32_t graph_media_filter(obj_t *o) {
+    return graph_secondary_interface(o, &o->media_filter_va, g_vt_media_filter);
 }
 static uint32_t graph_media_position(obj_t *o) {
     return graph_secondary_interface(o, &o->media_position_va, g_vt_media_position);
@@ -299,7 +305,9 @@ static uint32_t graph_query(obj_t *o, uint32_t riid, uint32_t ppv) {
     }
     const uint8_t *iid = (const uint8_t *)hle_ptr(riid);
     uint32_t interface_va = 0;
-    if (!memcmp(iid, IID_IMediaControl_, 16))
+    if (!memcmp(iid, IID_IMediaFilter_, 16) || !memcmp(iid, IID_IPersist_, 16))
+        interface_va = graph_media_filter(o);
+    else if (!memcmp(iid, IID_IMediaControl_, 16))
         interface_va = graph_media_control(o);
     else if (!memcmp(iid, IID_IMediaPosition_, 16))
         interface_va = graph_media_position(o);
@@ -312,7 +320,8 @@ static uint32_t graph_query(obj_t *o, uint32_t riid, uint32_t ppv) {
         MEM32(ppv) = interface_va;
         return S_OK;
     }
-    if (!memcmp(iid, IID_IMediaControl_, 16) ||
+    if (!memcmp(iid, IID_IMediaFilter_, 16) || !memcmp(iid, IID_IPersist_, 16) ||
+        !memcmp(iid, IID_IMediaControl_, 16) ||
         !memcmp(iid, IID_IMediaPosition_, 16) ||
         !memcmp(iid, IID_IBasicAudio_, 16) ||
         !memcmp(iid, IID_IBasicVideo_, 16))
@@ -325,6 +334,14 @@ static obj_t *event_sink_owner(uint32_t sink_va) {
         if (g_obj[i].va && g_obj[i].kind == OBJ_GRAPH && g_obj[i].event_sink_va == sink_va)
             return &g_obj[i];
     hle_fatal("[dshow] IMediaEventSink on 0x%08X: no live FilterGraph owns this interface", sink_va);
+    return NULL;
+}
+
+static obj_t *media_filter_owner(uint32_t filter_va) {
+    for (int i = 0; filter_va && i < MAX_OBJS; i++)
+        if (g_obj[i].va && g_obj[i].kind == OBJ_GRAPH && g_obj[i].media_filter_va == filter_va)
+            return &g_obj[i];
+    hle_fatal("[dshow] IMediaFilter on 0x%08X: no live FilterGraph owns this interface", filter_va);
     return NULL;
 }
 
@@ -422,6 +439,10 @@ static uint32_t graph_release(uint32_t va) {
             o->fname[k] = 0;
             o->graph_version++;
 
+            uint32_t clock_args[1] = { 0 };
+            uint32_t clock_hr = vcall(filter, 8, 1, clock_args);
+            if (clock_hr & 0x80000000u)
+                fprintf(stderr, "[dshow] child SetSyncSource(NULL) during final Release -> 0x%08X\n", clock_hr);
             uint32_t hr = graph_disconnect_filter_pins(filter);
             if (hr & 0x80000000u)
                 fprintf(stderr, "[dshow] FilterGraph 0x%08X: disconnect filter 0x%08X during final Release -> 0x%08X\n",
@@ -442,6 +463,8 @@ static uint32_t graph_release(uint32_t va) {
         if (o->media_position_va) hle_free(hle_ptr(o->media_position_va));
         if (o->basic_audio_va) hle_free(hle_ptr(o->basic_audio_va));
         if (o->basic_video_va) hle_free(hle_ptr(o->basic_video_va));
+        if (o->media_filter_va) hle_free(hle_ptr(o->media_filter_va));
+        if (o->sync_source_va) com_release(o->sync_source_va);
         obj_free(o);
     }
     return (uint32_t)n;
@@ -530,41 +553,26 @@ static uint32_t graph_filter_transition(obj_t *o, int method, int new_state,
          : incomplete ? 1u /* S_FALSE */ : S_OK;
 }
 
-static void media_control_Run(void) {                    /* (this) */
-    obj_t *o = media_control_owner(A32(0));
-    /* The game calls Run repeatedly from its presentation loop. Once the
-     * graph is running, another Run must not pause/restart the source. Stop
-     * deliberately clears the graph state without stopping WMAsfReader. */
-    if (o->filter_state == 2) RET(S_OK, 1);
-
-    /* IMediaControl::Run has no arguments. The graph supplies the future
-     * absolute reference time passed to each IMediaFilter::Run(tStart).
-     * Use the same monotonic 100-ns time base as the host's clocks, with
-     * 100 ms of lead for filters to enter their running state. */
+static uint32_t graph_run(obj_t *o) {
+    if (o->filter_state == 2) return S_OK;
     uint32_t pause_hr = graph_filter_transition(o, 5, 1, 0, 0);
-    if (pause_hr & 0x80000000u) RET(pause_hr, 1);
+    if (pause_hr & 0x80000000u) return pause_hr;
     uint64_t start = hle_mono_ns() / 100u + 1000000u;
     uint32_t run_hr = graph_filter_transition(o, 6, 2, (uint32_t)start, (uint32_t)(start >> 32));
-    RET((run_hr & 0x80000000u) ? run_hr : pause_hr, 1);
+    return (run_hr & 0x80000000u) ? run_hr : pause_hr;
 }
-static void media_control_Pause(void) {                  /* (this) */
-    obj_t *o = media_control_owner(A32(0));
-    RET(graph_filter_transition(o, 5, 1, 0, 0), 1);
+static uint32_t graph_pause(obj_t *o) {
+    return graph_filter_transition(o, 5, 1, 0, 0);
 }
-static void media_control_Stop(void) {                   /* (this) */
-    obj_t *o = media_control_owner(A32(0));
+static uint32_t graph_stop(obj_t *o) {
     if (o->asf_readers > 0) {
-        /* The game's video path issues Stop/Run as a presentation tick.
-         * Stopping the reader here would tear down its decode pump on every
-         * frame. Pause/Run provides the required frame-boundary hand-off. */
         o->filter_state = 0;
-        RET(S_OK, 1);
+        return S_OK;
     }
-    RET(graph_filter_transition(o, 4, 0, 0, 0), 1);
+    return graph_filter_transition(o, 4, 0, 0, 0);
 }
-static void media_control_GetState(void) {               /* (this, timeout, FILTER_STATE *) */
-    obj_t *o = media_control_owner(A32(0));
-    uint32_t timeout_ms = A32(1), state_out = A32(2);
+
+static uint32_t graph_get_state(obj_t *o, uint32_t timeout_ms, uint32_t state_out) {               /* (this, timeout, FILTER_STATE *) */
     if (!state_out) RET(E_POINTER, 3);
     MEM32(state_out) = o->filter_state;
 
@@ -621,7 +629,165 @@ static void media_control_GetState(void) {               /* (this, timeout, FILT
 
     for (int i = 0; i < count; i++) com_release(filters[i]);
     if (!obj_of(graph_va, OBJ_GRAPH)) result = E_UNEXPECTED;
-    RET(result, 3);
+    return result;
+}
+
+static void media_control_Run(void) {
+    obj_t *o = media_control_owner(A32(0));
+    RET(graph_run(o), 1);
+}
+static void media_control_Pause(void) {
+    obj_t *o = media_control_owner(A32(0));
+    RET(graph_pause(o), 1);
+}
+static void media_control_Stop(void) {
+    obj_t *o = media_control_owner(A32(0));
+    RET(graph_stop(o), 1);
+}
+static void media_control_GetState(void) {
+    obj_t *o = media_control_owner(A32(0));
+    RET(graph_get_state(o, A32(1), A32(2)), 3);
+}
+static void media_filter_GetState(void) {
+    obj_t *o = media_filter_owner(A32(0));
+    RET(graph_get_state(o, A32(1), A32(2)), 3);
+}
+
+static void media_filter_QueryInterface(void) {
+    obj_t *o = media_filter_owner(A32(0));
+    RET(graph_query(o, A32(1), A32(2)), 3);
+}
+static void media_filter_AddRef(void) {
+    obj_t *o = media_filter_owner(A32(0));
+    RET((uint32_t)++o->refs, 1);
+}
+static void media_filter_Release(void) {
+    obj_t *o = media_filter_owner(A32(0));
+    RET(graph_release(o->va), 1);
+}
+static void media_filter_GetClassID(void) {
+    media_filter_owner(A32(0));
+    uint32_t out = A32(1);
+    if (!out) RET(E_POINTER, 2);
+    memcpy(hle_ptr(out), CLSID_FilterGraph_, 16);
+    RET(S_OK, 2);
+}
+static void media_filter_Stop(void) {
+    obj_t *o = media_filter_owner(A32(0));
+    RET(graph_stop(o), 1);
+}
+static void media_filter_Pause(void) {
+    obj_t *o = media_filter_owner(A32(0));
+    RET(graph_pause(o), 1);
+}
+static void media_filter_Run(void) {
+    obj_t *o = media_filter_owner(A32(0));
+    RET(graph_run(o), 1);
+}
+
+/* Propagate a selected graph clock to every child. If one filter rejects the
+ * clock, restore the previous reference on all children before returning. */
+static uint32_t graph_set_sync_source(obj_t *o, uint32_t clock) {
+    if (o->filter_state != 0) return VFW_E_NOT_STOPPED;
+    uint32_t graph_va = o->va;
+    uint32_t filters[MAX_FILTERS];
+    int count = o->nf;
+    memcpy(filters, o->filter, (size_t)count * sizeof(filters[0]));
+
+    o->refs++;
+    if (clock) com_addref(clock);
+    for (int i = 0; i < count; i++) com_addref(filters[i]);
+
+    uint32_t previous = o->sync_source_va;
+    uint32_t result = S_OK;
+    for (int i = count - 1; i >= 0; i--) {
+        uint32_t args[1] = { clock };
+        uint32_t hr = vcall(filters[i], 8, 1, args);
+        if (hr & 0x80000000u) { result = hr; break; }
+    }
+
+    if (result & 0x80000000u) {
+        for (int i = count - 1; i >= 0; i--) {
+            uint32_t args[1] = { previous };
+            uint32_t hr = vcall(filters[i], 8, 1, args);
+            if (hr & 0x80000000u)
+                fprintf(stderr, "[dshow] rollback SetSyncSource filter=0x%08X -> 0x%08X\n",
+                        filters[i], hr);
+        }
+        if (clock) com_release(clock);
+    } else {
+        o = obj_of(graph_va, OBJ_GRAPH);
+        if (!o) {
+            result = E_UNEXPECTED;
+            if (clock) com_release(clock);
+        } else {
+            o->sync_source_va = clock;
+            if (previous) com_release(previous);
+        }
+    }
+
+    for (int i = 0; i < count; i++) com_release(filters[i]);
+    graph_release(graph_va);
+    return result;
+}
+
+static void media_filter_SetSyncSource(void) {
+    obj_t *o = media_filter_owner(A32(0));
+    RET(graph_set_sync_source(o, A32(1)), 2);
+}
+static void media_filter_GetSyncSource(void) {
+    obj_t *o = media_filter_owner(A32(0));
+    uint32_t out = A32(1);
+    if (!out) RET(E_POINTER, 2);
+    MEM32(out) = o->sync_source_va;
+    if (o->sync_source_va) com_addref(o->sync_source_va);
+    RET(S_OK, 2);
+}
+
+/* Select a renderer clock when one is exposed. With no clock-providing
+ * filter, the ASF reader retains its monotonic frame pacing. */
+static void graph_SetDefaultSyncSource(void) {
+    obj_t *o = self(OBJ_GRAPH, "SetDefaultSyncSource");
+    if (o->filter_state != 0) RET(VFW_E_NOT_STOPPED, 1);
+    uint32_t graph_va = o->va;
+    uint32_t filters[MAX_FILTERS];
+    int count = o->nf;
+    memcpy(filters, o->filter, (size_t)count * sizeof(filters[0]));
+    for (int i = 0; i < count; i++) com_addref(filters[i]);
+
+    uint8_t *iid = (uint8_t *)hle_alloc(16);
+    uint32_t *out = (uint32_t *)hle_alloc(4);
+    if (!iid || !out) {
+        if (iid) hle_free(iid);
+        if (out) hle_free(out);
+        for (int i = 0; i < count; i++) com_release(filters[i]);
+        RET(E_OUTOFMEMORY, 1);
+    }
+    memcpy(iid, IID_IReferenceClock_, 16);
+    uint32_t iid_va = hle_va(iid), out_va = hle_va(out);
+    uint32_t selected = 0;
+    for (int i = count - 1; i >= 0; i--) {
+        MEM32(out_va) = 0;
+        uint32_t args[2] = { iid_va, out_va };
+        uint32_t hr = vcall(filters[i], 0, 2, args);
+        if (hr == S_OK && MEM32(out_va)) {
+            selected = MEM32(out_va);
+            break;
+        }
+        if (MEM32(out_va)) com_release(MEM32(out_va));
+    }
+    hle_free(iid);
+    hle_free(out);
+    for (int i = 0; i < count; i++) com_release(filters[i]);
+
+    o = obj_of(graph_va, OBJ_GRAPH);
+    if (!o) {
+        if (selected) com_release(selected);
+        RET(E_UNEXPECTED, 1);
+    }
+    uint32_t hr = graph_set_sync_source(o, selected);
+    if (selected) com_release(selected);
+    RET(hr, 1);
 }
 
 /* IMediaControl's automation methods have a different ABI from the similarly
@@ -1478,6 +1644,9 @@ static void graph_RemoveFilter(void) {
         if (g->filter[i] == filter) { index = i; break; }
     if (index < 0) RET(S_OK, 2);
 
+    uint32_t clock_args[1] = { 0 };
+    uint32_t clock_hr = vcall(filter, 8, 1, clock_args); /* IMediaFilter::SetSyncSource(NULL) */
+    if (clock_hr & 0x80000000u) RET(clock_hr, 2);
     uint32_t none[2] = { 0, 0 };
     hr = vcall(filter, 13, 2, none);                    /* IBaseFilter::JoinFilterGraph(NULL, NULL) */
     if (hr & 0x80000000u) RET(hr, 2);
@@ -1577,7 +1746,10 @@ static void writer_AddRef(void) { obj_t *o = self(OBJ_WRITER, "AddRef"); RET((ui
 static void writer_Release(void) {
     obj_t *o = self(OBJ_WRITER, "Release");
     int n = --o->refs;
-    if (!n) obj_free(o);                                /* it holds no references */
+    if (!n) {
+        if (o->sync_source_va) com_release(o->sync_source_va);
+        obj_free(o);
+    }
     RET((uint32_t)n, 1);
 }
 static void writer_GetClassID(void) {                   /* (this, CLSID *) */
@@ -1591,6 +1763,22 @@ static void writer_GetState(void) {                     /* (this, DWORD timeout,
     if (!A32(2)) RET(E_POINTER, 3);
     MEM32(A32(2)) = 0;                                  /* State_Stopped: it never runs */
     RET(S_OK, 3);
+}
+static void writer_SetSyncSource(void) {
+    obj_t *o = self(OBJ_WRITER, "SetSyncSource");
+    uint32_t clock = A32(1);
+    if (clock) com_addref(clock);
+    if (o->sync_source_va) com_release(o->sync_source_va);
+    o->sync_source_va = clock;
+    RET(S_OK, 2);
+}
+static void writer_GetSyncSource(void) {
+    obj_t *o = self(OBJ_WRITER, "GetSyncSource");
+    uint32_t out = A32(1);
+    if (!out) RET(E_POINTER, 2);
+    MEM32(out) = o->sync_source_va;
+    if (o->sync_source_va) com_addref(o->sync_source_va);
+    RET(S_OK, 2);
 }
 static void writer_JoinFilterGraph(void) {              /* (this, IFilterGraph *graph, LPCWSTR name) */
     obj_t *o = self(OBJ_WRITER, "JoinFilterGraph");
@@ -1628,8 +1816,14 @@ static uint32_t create(int kind, const uint8_t *iid, uint32_t *out) {
         fprintf(stderr, "[dshow] CoCreateInstance(%s, %s) -> 0x%08X\n", g_kind_name[kind], g, hr);
         return hr;
     }
-    *out = o->va;
-    fprintf(stderr, "[dshow] CoCreateInstance(%s, %s) -> S_OK, object 0x%08X\n", g_kind_name[kind], g, o->va);
+    if (kind == OBJ_GRAPH &&
+        (!memcmp(iid, IID_IMediaFilter_, 16) || !memcmp(iid, IID_IPersist_, 16))) {
+        *out = graph_media_filter(o);
+        if (!*out) { obj_free(o); return E_OUTOFMEMORY; }
+    } else {
+        *out = o->va;
+    }
+    fprintf(stderr, "[dshow] CoCreateInstance(%s, %s) -> S_OK, interface 0x%08X\n", g_kind_name[kind], g, *out);
     return S_OK;
 }
 static uint32_t create_graph(const uint8_t *iid, uint32_t *out)   { return create(OBJ_GRAPH, iid, out); }
@@ -1658,6 +1852,9 @@ static const char *const builder_methods[] = {
     "AllocCapFile", "CopyCaptureFile", "FindPin", NULL };
 static const char *const enum_filters_methods[] = {
     "QueryInterface", "AddRef", "Release", "Next", "Skip", "Reset", "Clone", NULL };
+static const char *const media_filter_methods[] = {
+    "QueryInterface", "AddRef", "Release", "GetClassID", "Stop", "Pause", "Run",
+    "GetState", "SetSyncSource", "GetSyncSource", NULL };
 static const char *const event_sink_methods[] = {
     "QueryInterface", "AddRef", "Release", "Notify", NULL };
 static const char *const media_control_methods[] = {
@@ -1721,6 +1918,17 @@ static const win32hle_shim g_impl[] = {
     { "FilterGraphEnumFilters::Skip",              enum_filters_Skip },
     { "FilterGraphEnumFilters::Reset",              enum_filters_Reset },
     { "FilterGraphEnumFilters::Clone",              enum_filters_Clone },
+    { "FilterGraphMediaFilter::QueryInterface",    media_filter_QueryInterface },
+    { "FilterGraphMediaFilter::AddRef",            media_filter_AddRef },
+    { "FilterGraphMediaFilter::Release",           media_filter_Release },
+    { "FilterGraphMediaFilter::GetClassID",        media_filter_GetClassID },
+    { "FilterGraphMediaFilter::Stop",              media_filter_Stop },
+    { "FilterGraphMediaFilter::Pause",             media_filter_Pause },
+    { "FilterGraphMediaFilter::Run",               media_filter_Run },
+    { "FilterGraphMediaFilter::GetState",           media_filter_GetState },
+    { "FilterGraphMediaFilter::SetSyncSource",      media_filter_SetSyncSource },
+    { "FilterGraphMediaFilter::GetSyncSource",      media_filter_GetSyncSource },
+    { "FilterGraph::SetDefaultSyncSource",          graph_SetDefaultSyncSource },
     { "FilterGraphEventSink::QueryInterface",       event_sink_QueryInterface },
     { "FilterGraphEventSink::AddRef",               event_sink_AddRef },
     { "FilterGraphEventSink::Release",              event_sink_Release },
@@ -1769,6 +1977,8 @@ static const win32hle_shim g_impl[] = {
     { "WMAsfWriter::Release",                      writer_Release },
     { "WMAsfWriter::GetClassID",                   writer_GetClassID },
     { "WMAsfWriter::GetState",                     writer_GetState },
+    { "WMAsfWriter::SetSyncSource",                writer_SetSyncSource },
+    { "WMAsfWriter::GetSyncSource",                writer_GetSyncSource },
     { "WMAsfWriter::JoinFilterGraph",              writer_JoinFilterGraph },
     { "WMAsfWriter::QueryFilterInfo",              writer_QueryFilterInfo },
     { 0, 0 }
@@ -1800,6 +2010,7 @@ static void make_vtables(void) {
     g_vt[OBJ_GRAPH] = make_vtable("FilterGraph", graph_methods);
     g_vt[OBJ_BUILDER] = make_vtable("CaptureGraphBuilder2", builder_methods);
     g_vt[OBJ_WRITER] = make_vtable("WMAsfWriter", writer_methods);
+    g_vt_media_filter = make_vtable("FilterGraphMediaFilter", media_filter_methods);
     g_vt_enum_filters = make_vtable("FilterGraphEnumFilters", enum_filters_methods);
     g_vt_event_sink = make_vtable("FilterGraphEventSink", event_sink_methods);
     g_vt_media_control = make_vtable("FilterGraphMediaControl", media_control_methods);
