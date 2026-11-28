@@ -65,9 +65,12 @@ gameplay works.
    flush callback while it is in flight.
 9. End of stream is forwarded to the connected pin and reported as
    `EC_COMPLETE` only if it still belongs to the active segment. Decoder,
-   loop-reopen, segment-negotiation, and downstream-delivery failures report
-   `EC_ERRORABORT` with the corresponding HRESULT. A Stop/flush cancellation
-   does not masquerade as a media failure.
+   loop-reopen, segment-negotiation, downstream-delivery, and terminal
+   `EndOfStream` failures report `EC_ERRORABORT` with the corresponding
+   HRESULT. A Stop/flush cancellation does not masquerade as a media failure.
+   Downstream `BeginFlush`/`EndFlush` HRESULTs are propagated; a failed
+   `EndFlush` leaves the source in its flushing state rather than admitting
+   frames into a renderer that did not resume.
 
 The graph also routes `IGraphBuilder::RenderFile` and
 `IGraphBuilder::AddSourceFilter` through this reader. Graph state changes run
