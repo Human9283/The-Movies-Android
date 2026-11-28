@@ -348,6 +348,7 @@ static obj_t *basic_video_owner(uint32_t va) {
 /* The secondary interface Release methods share the graph's controlling
  * reference count; its implementation is below the interface vtables. */
 static uint32_t graph_release(uint32_t va);
+static uint32_t graph_disconnect_filter_pins(uint32_t filter);
 
 static void media_position_QueryInterface(void) {
     obj_t *o = media_position_owner(A32(0));
@@ -400,13 +401,28 @@ static uint32_t graph_release(uint32_t va) {
     int n = --o->refs;
     if (n < 0) hle_fatal("[dshow] FilterGraph 0x%08X: reference count underflow", va);
     if (!n) {
-        while (o->nf > 0) {                             /* the last added first */
+        while (o->nf > 0) {
+            /* Detach the entry before calling external COM code: a filter's
+             * JoinFilterGraph/Release may re-enter the graph. */
             int k = --o->nf;
-            uint32_t filter = o->filter[k], none[2] = { 0, 0 };
-            vcall(filter, 13, 2, none);                 /* IBaseFilter::JoinFilterGraph(NULL, NULL) */
+            uint32_t filter = o->filter[k], name = o->fname[k];
+            o->filter[k] = 0;
+            o->fname[k] = 0;
+            o->graph_version++;
+
+            uint32_t hr = graph_disconnect_filter_pins(filter);
+            if (hr & 0x80000000u)
+                fprintf(stderr, "[dshow] FilterGraph 0x%08X: disconnect filter 0x%08X during final Release -> 0x%08X\n",
+                        va, filter, hr);
+
+            uint32_t none[2] = { 0, 0 };
+            hr = vcall(filter, 13, 2, none);              /* IBaseFilter::JoinFilterGraph(NULL, NULL) */
+            if (hr & 0x80000000u)
+                fprintf(stderr, "[dshow] FilterGraph 0x%08X: JoinFilterGraph(NULL) during final Release -> 0x%08X\n",
+                        va, hr);
             com_release(filter);
-            hle_free(hle_ptr(o->fname[k]));
-            o = obj_of(va, OBJ_GRAPH);                  /* the filter's Release may not touch the graph */
+            if (name) hle_free(hle_ptr(name));
+            o = obj_of(va, OBJ_GRAPH);
             if (!o) hle_fatal("[dshow] FilterGraph 0x%08X vanished while removing its filters", va);
         }
         if (o->event_sink_va) hle_free(hle_ptr(o->event_sink_va));
