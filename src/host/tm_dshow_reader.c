@@ -676,6 +676,7 @@ static void *reader_worker(void *opaque) {
         reader_notify_complete(r);
         atomic_store_explicit(&r->running, 0, memory_order_release);
         atomic_store_explicit(&r->worker_done, 1, memory_order_release);
+        reader_release_host(r);                     /* drop worker-owned COM reference */
         return NULL;
     }
 
@@ -738,6 +739,7 @@ static void *reader_worker(void *opaque) {
         if (r->peer_pin) guest_call(r->peer_pin, 14, 0, NULL);  /* IPin::EndOfStream */
         reader_notify_complete(r);
     }
+    reader_release_host(r);                         /* worker reference: no reader access after this */
     return NULL;
 }
 
@@ -756,6 +758,17 @@ static uint32_t reader_join_worker(reader_t *r, int stopping) {
 
 static void reader_stop_worker(reader_t *r) {
     if (!r->worker_started) return;
+    if (pthread_equal(pthread_self(), r->worker)) {
+        /* A downstream Receive/EC_COMPLETE callback can re-enter the graph
+         * and remove this filter on the decoder thread itself. The worker
+         * owns a COM reference until its final instruction, so defer the
+         * final Release until after this call unwinds. */
+        atomic_store_explicit(&r->stop_requested, 1, memory_order_release);
+        atomic_store_explicit(&r->running, 0, memory_order_release);
+        r->worker_started = 0;
+        r->state = FILTER_STATE_STOPPED;
+        return;
+    }
     (void)reader_join_worker(r, 1);
     atomic_store_explicit(&r->running, 0, memory_order_release);
     r->state = FILTER_STATE_STOPPED;
@@ -782,6 +795,7 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time) {
             return VFW_E_CANNOT_RENDER;
         }
     }
+    reader_addref(r);                               /* worker owns the filter through callbacks */
     atomic_store_explicit(&r->stop_requested, 0, memory_order_release);
     atomic_store_explicit(&r->paused, 0, memory_order_release);
     atomic_store_explicit(&r->running, 1, memory_order_release);
@@ -793,6 +807,7 @@ static uint32_t reader_start_worker(reader_t *r, uint64_t start_time) {
     if (rc != 0) {
         atomic_store_explicit(&r->running, 0, memory_order_release);
         r->state = FILTER_STATE_STOPPED;
+        reader_release_host(r);                     /* pthread_create failed */
         return E_FAIL;
     }
     r->worker_started = 1;
