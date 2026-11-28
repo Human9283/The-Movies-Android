@@ -67,7 +67,7 @@ static double ms_since_start(void) { return (double)(hle_mono_ns() - g_t0) / 1e6
 
 static void on_enter(uint32_t va) {
     g_entries++;
-    if (va >= SEEN_LO && va < SEEN_HI) {
+    if (g_seen && va >= SEEN_LO && va < SEEN_HI) {
         uint32_t bit = (va - SEEN_LO) >> 1;
         if (!(g_seen[bit >> 3] & (1u << (bit & 7)))) { g_seen[bit >> 3] |= (uint8_t)(1u << (bit & 7)); g_distinct++; }
     }
