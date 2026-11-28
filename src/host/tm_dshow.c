@@ -542,6 +542,7 @@ static void media_control_Run(void) {                    /* (this) */
      * Use the same monotonic 100-ns time base as the host's clocks, with
      * 100 ms of lead for filters to enter their running state. */
     uint32_t pause_hr = graph_filter_transition(o, 5, 1, 0, 0);
+    if (pause_hr & 0x80000000u) RET(pause_hr, 1);
     uint64_t start = hle_mono_ns() / 100u + 1000000u;
     uint32_t run_hr = graph_filter_transition(o, 6, 2, (uint32_t)start, (uint32_t)(start >> 32));
     RET((run_hr & 0x80000000u) ? run_hr : pause_hr, 1);
@@ -594,16 +595,14 @@ static void media_control_GetState(void) {               /* (this, timeout, FILT
         uint32_t remaining_ms = 0xFFFFFFFFu;
         if (deadline_ns != UINT64_MAX) {
             uint64_t now = hle_mono_ns();
-            if (now >= deadline_ns) {
-                hle_free(child_state);
-                result = VFW_S_STATE_INTERMEDIATE;
-                break;
-            }
-            uint64_t remaining_ns = deadline_ns - now;
+            uint64_t remaining_ns = now < deadline_ns ? deadline_ns - now : 0;
             uint64_t rounded_ms = (remaining_ns + 999999ull) / 1000000ull;
             remaining_ms = rounded_ms > 0xFFFFFFFEu ? 0xFFFFFFFEu : (uint32_t)rounded_ms;
         }
 
+        /* Even a zero timeout is a nonblocking poll: ask every child whether
+         * its transition is already complete, rather than declaring the graph
+         * intermediate before inspecting any filter. */
         uint32_t args[2] = { remaining_ms, hle_va(child_state) };
         uint32_t hr = vcall(filters[i], 7, 2, args);      /* IMediaFilter::GetState */
         hle_free(child_state);
@@ -618,8 +617,6 @@ static void media_control_GetState(void) {               /* (this, timeout, FILT
         }
         if (hr == VFW_S_STATE_INTERMEDIATE)
             result = VFW_S_STATE_INTERMEDIATE;
-        if (result == VFW_S_STATE_INTERMEDIATE)
-            break;                                      /* child consumed the remaining timeout */
     }
 
     for (int i = 0; i < count; i++) com_release(filters[i]);
