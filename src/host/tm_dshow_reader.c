@@ -174,11 +174,18 @@ static void guest_copy_locked(uint32_t dst, const void *src, size_t size) {
 }
 static uint32_t guest_call(uint32_t object, uint32_t slot, int nargs, const uint32_t *args) {
     uint32_t call_args[8] = { object };
-    if (nargs > 7) return E_INVALIDARG;
+    if (nargs < 0 || nargs > 7 || !object) return E_INVALIDARG;
     for (int i = 0; i < nargs; i++) call_args[i + 1] = args[i];
+
+    /* The decoder worker calls into guest COM independently of the main
+     * SDL thread. Resolve the guest vtable entry while holding the HLE
+     * machine lock; hle_call_guest uses the same re-entrant lock itself. */
+    mach_enter();
     uint32_t vt = MEM32(object);
-    if (!vt) return E_UNEXPECTED;
-    return hle_call_guest(MEM32(vt + slot * 4u), nargs + 1, call_args);
+    uint32_t method = vt ? MEM32(vt + slot * 4u) : 0;
+    mach_leave();
+    if (!method) return E_UNEXPECTED;
+    return hle_call_guest(method, nargs + 1, call_args);
 }
 
 static reader_t *reader_by_interface(uint32_t va) {
@@ -1172,8 +1179,10 @@ static void pin_enum_QueryInterface(void) {
     uint32_t iid = A32(1), out = A32(2);
     if (!out) RET(E_POINTER, 3);
     MEM32(out) = 0;
-    if (!iid || (memcmp(hle_ptr(iid), IID_IUnknown, 16) &&
-                 memcmp(hle_ptr(iid), IID_IEnumPins, 16))) RET(E_NOINTERFACE, 3);
+    if (!iid) RET(E_POINTER, 3);
+    if (memcmp(hle_ptr(iid), IID_IUnknown, 16) &&
+        memcmp(hle_ptr(iid), IID_IEnumPins, 16)) RET(E_NOINTERFACE, 3);
+    e->refs++;
     reader_addref(e->reader);
     MEM32(out) = e->va;
     RET(S_OK, 3);
@@ -1256,8 +1265,10 @@ static void type_enum_QueryInterface(void) {
     uint32_t iid = A32(1), out = A32(2);
     if (!out) RET(E_POINTER, 3);
     MEM32(out) = 0;
-    if (!iid || (memcmp(hle_ptr(iid), IID_IUnknown, 16) &&
-                 memcmp(hle_ptr(iid), IID_IEnumMediaTypes, 16))) RET(E_NOINTERFACE, 3);
+    if (!iid) RET(E_POINTER, 3);
+    if (memcmp(hle_ptr(iid), IID_IUnknown, 16) &&
+        memcmp(hle_ptr(iid), IID_IEnumMediaTypes, 16)) RET(E_NOINTERFACE, 3);
+    e->refs++;
     reader_addref(e->reader);
     MEM32(out) = e->va;
     RET(S_OK, 3);
