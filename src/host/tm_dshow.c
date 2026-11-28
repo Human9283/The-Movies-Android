@@ -638,7 +638,7 @@ static void graph_ConnectDirect(void) {                 /* (this, out, in, AM_ME
 static void graph_RenderFile(void) {                    /* (this, file, playlist) */
     self(OBJ_GRAPH, "RenderFile");
     if (!A32(1)) RET(E_POINTER, 3);
-    fprintf(stderr, "[dshow] FilterGraph::RenderFile: no ASF reader/source filter is registered\\n");
+    fprintf(stderr, "[dshow] FilterGraph::RenderFile: no ASF reader/source filter is registered\n");
     RET(VFW_E_CANNOT_RENDER, 3);
 }
 static void graph_AddSourceFilter(void) {               /* (this, file, name, &filter) */
@@ -647,7 +647,7 @@ static void graph_AddSourceFilter(void) {               /* (this, file, name, &f
     if (!out) RET(E_POINTER, 4);
     MEM32(out) = 0;
     if (!A32(1)) RET(E_POINTER, 4);
-    fprintf(stderr, "[dshow] FilterGraph::AddSourceFilter: no source filter is registered\\n");
+    fprintf(stderr, "[dshow] FilterGraph::AddSourceFilter: no source filter is registered\n");
     RET(VFW_E_CANNOT_RENDER, 4);
 }
 
@@ -866,7 +866,7 @@ static uint32_t create_writer(const uint8_t *iid, uint32_t *out)  { return creat
  * renderer pins exist. Fail through HRESULT so callers can take a fallback. */
 static void builder_RenderStream(void) {                 /* (this, category, type, source, compressor, renderer) */
     self(OBJ_BUILDER, "RenderStream");
-    fprintf(stderr, "[dshow] CaptureGraphBuilder2::RenderStream: stream graph is unavailable\\n");
+    fprintf(stderr, "[dshow] CaptureGraphBuilder2::RenderStream: stream graph is unavailable\n");
     RET(VFW_E_CANNOT_RENDER, 6);
 }
 
