@@ -56,6 +56,7 @@
 #include <math.h>
 #include "win32hle.h"
 #include "tm_dshow.h"
+#include "tm_dshow_reader.h"
 
 #define S_OK                   0x00000000u
 #define E_NOINTERFACE          0x80004002u
