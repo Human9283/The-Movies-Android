@@ -35,9 +35,10 @@ gameplay works.
    RGB24 layout described by `VIDEOINFOHEADER`, timestamps them in
    100-nanosecond units, and calls the single-sample
    `IMemInputPin::Receive` method (not `ReceiveMultiple`). A downstream
-   `S_FALSE` rejects that sample; ordinary receive failures stop the stream,
-   while an in-progress pin flush cancels the current sample and resumes only
-   after `EndFlush`.
+   `S_FALSE` rejects that sample; ordinary receive failures stop the stream.
+   An allocator `VFW_E_TIMEOUT` is treated as backpressure: the source retries
+   the same decoded frame rather than dropping it. An in-progress pin flush
+   cancels the current sample and resumes only after `EndFlush`.
 7. End of stream is forwarded to the connected pin and reported to the graph
    through the game's `IFilterGraph` / `IMediaEventSink::Notify` vtable alias.
 
