@@ -86,9 +86,16 @@ through the filters downstream-first so the renderer is ready before the
 source starts pushing samples. `IMediaControl::GetState` polls child filter
 states using the caller's timeout, including nonblocking zero-timeout polls,
 `VFW_S_STATE_INTERMEDIATE`, and `VFW_S_CANT_CUE`. The source forwards
-`BeginFlush`/`EndFlush` to the downstream pin; `Stop` signals the worker,
-flushes the peer to release a blocked `Receive`, joins the worker, then
-releases allocator resources. The RenderFile helper connects the source to an
+`BeginFlush`/`EndFlush` to the downstream pin; a real source-filter `Stop`
+signals the worker, flushes the peer to release a blocked `Receive`, joins the
+worker, then releases allocator resources. There is one deliberate
+compatibility exception: the game's texture-renderer path uses graph-level
+`IMediaControl::Stop` as a per-frame presentation tick. While an ASF reader is
+attached, that graph call updates the graph's logical state without stopping
+its filters; the subsequent Run performs the pause/run hand-off. The graph
+tracks attached ASF readers for this exception, and `RemoveFilter` decrements
+the count only after a successful removal so a detached reader cannot leave
+ordinary graph Stop calls permanently bypassed. The RenderFile helper connects the source to an
 input pin already present in the graph; it is not a general DirectShow
 Intelligent Connect implementation. The game-specific source/renderer setup
 remains the primary target.
