@@ -169,6 +169,8 @@ export SDL_ROOT="$WORK/SDL"
 export SDL_PREFIX="$WORK/android-deps"
 ~~~
 
+This project intentionally uses SDL2, not the newer SDL3 line: its Android activity is based on SDL2's `SDLActivity`, the native host and DXVK integration use SDL2 APIs, and SDL2_ttf is linked as an SDL2 companion. SDL3 is a separate API/Java integration port, not a drop-in library update.
+
 Build SDL2 release 2.32.10:
 
 ~~~bash
