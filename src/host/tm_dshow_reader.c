@@ -255,7 +255,7 @@ static void reader_addref(reader_t *r) {
     __atomic_add_fetch(&r->refs, 1, __ATOMIC_RELAXED);
 }
 
-static void reader_stop_worker(reader_t *r);
+static uint32_t reader_stop_worker(reader_t *r);
 
 /* This reader exposes an output pin. Flush/EOS control must be sent to the
  * connected input pin; these helpers are internal source operations, not
@@ -273,8 +273,9 @@ static uint32_t reader_end_flush(reader_t *r) {
     return hr;
 }
 
-static void reader_disconnect(reader_t *r) {
-    reader_stop_worker(r);
+static uint32_t reader_disconnect(reader_t *r) {
+    uint32_t stop_hr = reader_stop_worker(r);
+    if (r->worker_started) return stop_hr;
     if (r->allocator) {
         if (r->allocator_committed) {
             (void)guest_call(r->allocator, 6, 0, NULL);  /* IMemAllocator::Decommit */
@@ -292,10 +293,13 @@ static void reader_disconnect(reader_t *r) {
         r->peer_pin = 0;
     }
     atomic_store_explicit(&r->pin_flushing, 0, memory_order_release);
+    return stop_hr;
 }
 
 static void reader_destroy(reader_t *r) {
-    reader_disconnect(r);
+    uint32_t disconnect_hr = reader_disconnect(r);
+    if (disconnect_hr & 0x80000000u)
+        fprintf(stderr, "[dshow-reader] disconnect during destruction -> 0x%08X\n", disconnect_hr);
     /* reader_destroy is called with the HLE machine lock held. This excludes
      * the worker's reader_reference_time and every SetSyncSource callback. */
     uint32_t clock = atomic_exchange_explicit(&r->clock_va, 0, memory_order_acq_rel);
@@ -497,7 +501,6 @@ static uint32_t reader_load_path(reader_t *r, const uint16_t *wide_path) {
         return VFW_E_CANNOT_RENDER;
     }
 
-    reader_stop_worker(r);
     if (r->decoder) tm_asf_decoder_close(r->decoder);
     if (r->media_type_va) hle_free(hle_ptr(r->media_type_va)), r->media_type_va = 0;
     if (r->format_va) hle_free(hle_ptr(r->format_va)), r->format_va = 0;
@@ -1060,17 +1063,18 @@ static uint32_t reader_join_worker(reader_t *r, int stopping) {
     return rc == 0 ? S_OK : E_FAIL;
 }
 
-static void reader_stop_worker(reader_t *r) {
+static uint32_t reader_stop_worker(reader_t *r) {
     if (!r->worker_started) {
         atomic_store_explicit(&r->running, 0, memory_order_release);
         atomic_store_explicit(&r->paused, 0, memory_order_release);
         atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
         atomic_store_explicit(&r->pause_started_100ns, 0, memory_order_release);
         atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
+        uint32_t flush_hr = S_OK;
         if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
-            (void)reader_end_flush(r);
+            flush_hr = reader_end_flush(r);
         r->state = FILTER_STATE_STOPPED;
-        return;
+        return flush_hr;
     }
 
     if (pthread_equal(pthread_self(), r->worker)) {
@@ -1087,7 +1091,7 @@ static void reader_stop_worker(reader_t *r) {
         (void)pthread_detach(pthread_self());
         r->worker_started = 0;
         r->state = FILTER_STATE_STOPPED;
-        return;
+        return S_OK;
     }
 
     /* BeginFlush is the DirectShow cancellation path for a downstream
@@ -1097,12 +1101,19 @@ static void reader_stop_worker(reader_t *r) {
     atomic_store_explicit(&r->stop_requested, 1, memory_order_release);
     if (!atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
         uint32_t hr = reader_begin_flush(r);
-        if (hr & 0x80000000u)
+        if (hr & 0x80000000u) {
             fprintf(stderr, "[dshow-reader] BeginFlush before Stop -> 0x%08X\n", hr);
+            return hr; /* Do not join a worker that may still be blocked in Receive. */
+        }
     }
-    (void)reader_join_worker(r, 1);
+    uint32_t join_hr = reader_join_worker(r, 1);
+    if (join_hr & 0x80000000u) {
+        fprintf(stderr, "[dshow-reader] worker join during Stop -> 0x%08X\n", join_hr);
+        return join_hr;
+    }
+    uint32_t end_flush_hr = S_OK;
     if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
-        (void)reader_end_flush(r);
+        end_flush_hr = reader_end_flush(r);
 
     atomic_store_explicit(&r->running, 0, memory_order_release);
     atomic_store_explicit(&r->paused, 0, memory_order_release);
@@ -1110,6 +1121,7 @@ static void reader_stop_worker(reader_t *r) {
     atomic_store_explicit(&r->pause_started_100ns, 0, memory_order_release);
     atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
     r->state = FILTER_STATE_STOPPED;
+    return end_flush_hr;
 }
 
 static uint32_t reader_start_worker(reader_t *r, uint64_t start_time, int start_paused) {
@@ -1226,12 +1238,13 @@ static void filter_GetClassID(void) {
 }
 static void filter_Stop(void) {
     reader_t *r = reader_from_this("IMediaFilter::Stop");
-    reader_stop_worker(r);
+    uint32_t stop_hr = reader_stop_worker(r);
+    if (r->worker_started) RET(stop_hr, 1);
     if (r->allocator && r->allocator_committed) {
         (void)guest_call(r->allocator, 6, 0, NULL);      /* IMemAllocator::Decommit */
         r->allocator_committed = 0;
     }
-    RET(S_OK, 1);
+    RET(stop_hr, 1);
 }
 static void filter_Pause(void) {
     reader_t *r = reader_from_this("IMediaFilter::Pause");
@@ -1335,7 +1348,8 @@ static void filter_JoinFilterGraph(void) {
     reader_t *r = reader_from_this("IBaseFilter::JoinFilterGraph");
     uint32_t graph = A32(1), name = A32(2);
     if (!graph) {
-        reader_stop_worker(r);
+        uint32_t stop_hr = reader_stop_worker(r);
+        if (stop_hr & 0x80000000u) RET(stop_hr, 3);
         r->graph_va = 0;
         r->filter_name[0] = 0;
     } else {
@@ -1398,7 +1412,8 @@ static void file_Load(void) {
     reader_t *r = reader_from_this("IFileSourceFilter::Load");
     uint32_t name = A32(1);
     if (!name) RET(E_POINTER, 3);
-    reader_disconnect(r);
+    uint32_t disconnect_hr = reader_disconnect(r);
+    if (disconnect_hr & 0x80000000u) RET(disconnect_hr, 3);
     RET(reader_load_path(r, (const uint16_t *)hle_ptr(name)), 3);
 }
 static void file_GetCurFile(void) {
