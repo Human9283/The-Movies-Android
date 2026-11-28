@@ -14,6 +14,8 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Locale;
+import java.util.HashSet;
+import java.util.Set;
 
 public final class SetupActivity extends Activity {
     private static final int PICK_GAME_FOLDER = 4101;
@@ -150,38 +152,64 @@ public final class SetupActivity extends Activity {
             return;
         }
         Uri tree = data.getData();
-        try {
-            getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            File staging = new File(getFilesDir(), "game-import");
-            deleteRecursively(staging);
-            if (!staging.mkdirs() && !staging.isDirectory()) throw new Exception("Не удалось создать каталог импорта");
-            String rootId = DocumentsContract.getTreeDocumentId(tree);
-            copyChildren(tree, rootId, staging);
-            if (!new File(staging, "Movies.exe").isFile() || !new File(staging, "Data").isDirectory())
-                throw new Exception("В выбранной папке не найдены Movies.exe и Data/");
-            File backup = new File(getFilesDir(), "game-previous");
-            deleteRecursively(backup);
-            boolean hadInstall = gameDir.exists();
-            if (hadInstall && !gameDir.renameTo(backup))
-                throw new Exception("Не удалось сохранить предыдущую установку");
-            if (!staging.renameTo(gameDir)) {
-                if (hadInstall) backup.renameTo(gameDir);
-                throw new Exception("Не удалось активировать импортированную установку");
+        ProgressDialog progress = new ProgressDialog(this);
+        progress.setTitle("Импорт The Movies");
+        progress.setMessage("Копирование игровых данных...");
+        progress.setProgressStyle(ProgressDialog.STYLE_SPINNER);
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            try {
+                importGameFolder(tree);
+                runOnUiThread(() -> {
+                    progress.dismiss();
+                    Toast.makeText(this, "Игра импортирована", Toast.LENGTH_LONG).show();
+                    Diagnostics.log("Game data import completed");
+                    launchGame();
+                });
+            } catch (Exception e) {
+                deleteRecursively(new File(getFilesDir(), "game-import"));
+                Diagnostics.log("Game data import failed: " + e);
+                runOnUiThread(() -> {
+                    progress.dismiss();
+                    new AlertDialog.Builder(this).setTitle("Ошибка импорта")
+                        .setMessage(e.getMessage() == null ? e.toString() : e.getMessage())
+                        .setPositiveButton("Повторить", (d, w) -> pickFolder())
+                        .setNegativeButton("Экспорт диагностики", (d, w) -> exportDiagnostics()).show();
+                });
             }
-            deleteRecursively(backup);
-            Toast.makeText(this, "Игра импортирована", Toast.LENGTH_LONG).show();
-            Diagnostics.log("Game data import completed");
-            launchGame();
-        } catch (Exception e) {
-            deleteRecursively(new File(getFilesDir(), "game-import"));
-            Diagnostics.log("Game data import failed: " + e);
-            new AlertDialog.Builder(this).setTitle("Ошибка импорта").setMessage(e.getMessage())
-                .setPositiveButton("Повторить", (d, w) -> pickFolder())
-                .setNegativeButton("Экспорт диагностики", (d, w) -> exportDiagnostics()).show();
-        }
+        }, "game-folder-import").start();
     }
 
-    private void copyChildren(Uri tree, String parentId, File destination) throws Exception {
+    private void importGameFolder(Uri tree) throws Exception {
+        File staging = new File(getFilesDir(), "game-import");
+        deleteRecursively(staging);
+        if (!staging.mkdirs() && !staging.isDirectory()) throw new Exception("Не удалось создать каталог импорта");
+        String rootId = DocumentsContract.getTreeDocumentId(tree);
+        if (rootId == null || rootId.isEmpty()) throw new Exception("Проводник не вернул идентификатор папки");
+        copyChildren(tree, rootId, staging, new HashSet<>(), 0);
+        if (!new File(staging, "Movies.exe").isFile() || !new File(staging, "Data").isDirectory())
+            throw new Exception("В выбранной папке не найдены Movies.exe и Data/");
+        File backup = new File(getFilesDir(), "game-previous");
+        deleteRecursively(backup);
+        boolean hadInstall = gameDir.exists();
+        if (hadInstall && !gameDir.renameTo(backup))
+            throw new Exception("Не удалось сохранить предыдущую установку");
+        if (!staging.renameTo(gameDir)) {
+            boolean restored = !hadInstall || backup.renameTo(gameDir);
+            if (!restored) {
+                throw new Exception("Не удалось активировать импорт и восстановить прежнюю установку. "
+                    + "Предыдущая установка сохранена в " + backup.getAbsolutePath());
+            }
+            throw new Exception("Не удалось активировать импортированную установку; прежняя установка восстановлена");
+        }
+        deleteRecursively(backup);
+    }
+
+    private void copyChildren(Uri tree, String parentId, File destination,
+                              Set<String> visited, int depth) throws Exception {
+        if (depth > 128 || parentId == null || parentId.isEmpty() || !visited.add(parentId))
+            throw new Exception("Проводник вернул циклическую или слишком глубокую структуру папок");
         Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId);
         String[] projection = { DocumentsContract.Document.COLUMN_DOCUMENT_ID,
             DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE };
@@ -189,11 +217,16 @@ public final class SetupActivity extends Activity {
             if (c == null) throw new Exception("Проводник не вернул содержимое папки");
             while (c.moveToNext()) {
                 String id = c.getString(0), name = c.getString(1), mime = c.getString(2);
-                if (name == null || name.contains("/") || name.equals(".") || name.equals("..")) continue;
+                if (id == null || id.isEmpty() || name == null || name.isEmpty()
+                        || name.equals(".") || name.equals("..") || name.contains("/")
+                        || name.contains("\\\\") || name.indexOf('\0') >= 0) {
+                    throw new Exception("Проводник вернул недопустимое имя или идентификатор файла");
+                }
                 File out = new File(destination, name);
+                if (out.exists()) throw new Exception("В папке есть повторяющееся имя: " + name);
                 if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
-                    if (!out.mkdirs() && !out.isDirectory()) throw new Exception("Не удалось создать " + name);
-                    copyChildren(tree, id, out);
+                    if (!out.mkdir()) throw new Exception("Не удалось создать " + name);
+                    copyChildren(tree, id, out, visited, depth + 1);
                 } else {
                     Uri document = DocumentsContract.buildDocumentUriUsingTree(tree, id);
                     try (InputStream in = getContentResolver().openInputStream(document);
