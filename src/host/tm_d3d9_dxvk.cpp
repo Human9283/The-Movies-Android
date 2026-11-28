@@ -1027,6 +1027,13 @@ void dev_Reset() {                                       /* (this, D3DPRESENT_PA
 
     HRESULT hr = d->Reset(&hp);
     if (SUCCEEDED(hr)) {
+        /* D3D9's Reset contract writes these fields back as zero;
+         * BackBufferFormat becomes UNKNOWN in windowed mode. */
+        hp.BackBufferWidth = 0;
+        hp.BackBufferHeight = 0;
+        hp.BackBufferCount = 0;
+        if (hp.Windowed) hp.BackBufferFormat = D3DFMT_UNKNOWN;
+
         uint32_t back[PP_N] = { hp.BackBufferWidth, hp.BackBufferHeight, (uint32_t)hp.BackBufferFormat, hp.BackBufferCount,
                                 (uint32_t)hp.MultiSampleType, hp.MultiSampleQuality, (uint32_t)hp.SwapEffect, g[PP_HWND],
                                 (uint32_t)hp.Windowed, (uint32_t)hp.EnableAutoDepthStencil, (uint32_t)hp.AutoDepthStencilFormat,
