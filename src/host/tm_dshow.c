@@ -781,8 +781,6 @@ static void graph_Reconnect(void) {                     /* (this, IPin *pin) */
     RET(hr, 2);
 }
 
-/* The reader/source-filter path is not implemented yet. Return DirectShow's
- * normal render failure instead of invoking a fatal placeholder vtable. */
 /* Connect one source output pin to the first compatible input pin in the graph. */
 static uint32_t graph_connect_output_pin(uint32_t graph_va, uint32_t out_pin) {
     obj_t *o = obj_of(graph_va, OBJ_GRAPH);
