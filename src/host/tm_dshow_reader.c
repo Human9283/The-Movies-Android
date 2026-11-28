@@ -257,6 +257,22 @@ static void reader_addref(reader_t *r) {
 
 static void reader_stop_worker(reader_t *r);
 
+/* This reader exposes an output pin. Flush/EOS control must be sent to the
+ * connected input pin; these helpers are internal source operations, not
+ * implementations of the output pin's incoming IPin control methods. */
+static uint32_t reader_begin_flush(reader_t *r) {
+    atomic_fetch_add_explicit(&r->flush_generation, 1, memory_order_acq_rel);
+    atomic_store_explicit(&r->pin_flushing, 1, memory_order_release);
+    return r->peer_pin ? guest_call(r->peer_pin, 15, 0, NULL) : S_OK;
+}
+
+static uint32_t reader_end_flush(reader_t *r) {
+    uint32_t hr = r->peer_pin ? guest_call(r->peer_pin, 16, 0, NULL) : S_OK;
+    if (!(hr & 0x80000000u))
+        atomic_store_explicit(&r->pin_flushing, 0, memory_order_release);
+    return hr;
+}
+
 static void reader_disconnect(reader_t *r) {
     reader_stop_worker(r);
     if (r->allocator) {
@@ -1051,8 +1067,8 @@ static void reader_stop_worker(reader_t *r) {
         atomic_store_explicit(&r->preroll_pending, 0, memory_order_release);
         atomic_store_explicit(&r->pause_started_100ns, 0, memory_order_release);
         atomic_store_explicit(&r->pause_shift_100ns, 0, memory_order_release);
-        if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire) && r->pin_va)
-            (void)guest_call(r->pin_va, 16, 0, NULL);  /* IPin::EndFlush */
+        if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
+            (void)reader_end_flush(r);
         r->state = FILTER_STATE_STOPPED;
         return;
     }
@@ -1079,14 +1095,14 @@ static void reader_stop_worker(reader_t *r) {
      * first, flush the peer to release Receive, then join before decommitting
      * the allocator. */
     atomic_store_explicit(&r->stop_requested, 1, memory_order_release);
-    if (r->pin_va && !atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
-        uint32_t hr = guest_call(r->pin_va, 15, 0, NULL); /* IPin::BeginFlush */
+    if (!atomic_load_explicit(&r->pin_flushing, memory_order_acquire)) {
+        uint32_t hr = reader_begin_flush(r);
         if (hr & 0x80000000u)
             fprintf(stderr, "[dshow-reader] BeginFlush before Stop -> 0x%08X\n", hr);
     }
     (void)reader_join_worker(r, 1);
-    if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire) && r->pin_va)
-        (void)guest_call(r->pin_va, 16, 0, NULL);       /* IPin::EndFlush */
+    if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
+        (void)reader_end_flush(r);
 
     atomic_store_explicit(&r->running, 0, memory_order_release);
     atomic_store_explicit(&r->paused, 0, memory_order_release);
@@ -1534,36 +1550,20 @@ static void pin_QueryInternalConnections(void) {
     RET(E_NOTIMPL, 3);
 }
 static void pin_EndOfStream(void) {
-    reader_t *r = reader_from_this("IPin::EndOfStream");
-    uint32_t generation = atomic_load_explicit(&r->flush_generation, memory_order_acquire);
-    RET(reader_notify_end_of_stream(r, generation), 1);
+    reader_from_this("IPin::EndOfStream");
+    RET(E_UNEXPECTED, 1); /* EndOfStream is delivered to an input pin. */
 }
 static void pin_BeginFlush(void) {
-    reader_t *r = reader_from_this("IPin::BeginFlush");
-    /* Flush is a cancellation/control call. It deliberately does not wait
-     * for the worker's in-flight Receive; downstream BeginFlush must be able
-     * to release that call. The HLE machine lock serializes COM dispatch. */
-    atomic_fetch_add_explicit(&r->flush_generation, 1, memory_order_acq_rel);
-    atomic_store_explicit(&r->pin_flushing, 1, memory_order_release);
-    uint32_t hr = r->peer_pin ? guest_call(r->peer_pin, 15, 0, NULL) : S_OK;
-    RET(hr, 1);
+    reader_from_this("IPin::BeginFlush");
+    RET(E_UNEXPECTED, 1); /* BeginFlush is delivered to an input pin. */
 }
 static void pin_EndFlush(void) {
-    reader_t *r = reader_from_this("IPin::EndFlush");
-    uint32_t hr = r->peer_pin ? guest_call(r->peer_pin, 16, 0, NULL) : S_OK;
-    if (!(hr & 0x80000000u))
-        atomic_store_explicit(&r->pin_flushing, 0, memory_order_release);
-    RET(hr, 1);
+    reader_from_this("IPin::EndFlush");
+    RET(E_UNEXPECTED, 1); /* EndFlush is delivered to an input pin. */
 }
 static void pin_NewSegment(void) {
-    reader_t *r = reader_from_this("IPin::NewSegment");
-    if (r->peer_pin) {
-        uint32_t args[6] = {
-            A32(1), A32(2), A32(3), A32(4), A32(5), A32(6)
-        };
-        guest_call(r->peer_pin, 17, 6, args);
-    }
-    RET(S_OK, 7);
+    reader_from_this("IPin::NewSegment");
+    RET(E_UNEXPECTED, 7); /* NewSegment is delivered to an input pin. */
 }
 
 /* ---- IEnumPins ---- */
