@@ -602,6 +602,19 @@ static void reader_notify_complete(reader_t *r) {
     (void)guest_call(r->graph_va, 3, 3, args);              /* IFilterGraph slot aliases Notify */
 }
 
+static uint32_t reader_notify_end_of_stream(reader_t *r) {
+    pthread_mutex_lock(&r->stream_mutex);
+    uint32_t hr = S_OK;
+    if (atomic_load_explicit(&r->pin_flushing, memory_order_acquire))
+        hr = VFW_E_NOT_CONNECTED; /* A flush owns the downstream stream boundary. */
+    else if (r->peer_pin)
+        hr = guest_call(r->peer_pin, 14, 0, NULL);           /* IPin::EndOfStream */
+    else
+        hr = VFW_E_NOT_CONNECTED;
+    pthread_mutex_unlock(&r->stream_mutex);
+    return hr;
+}
+
 /* A new segment resets the renderer's stream-time origin. All three
  * arguments are 64-bit values in the 32-bit guest ABI: tStart, tStop, rate. */
 static uint32_t reader_notify_new_segment(reader_t *r) {
@@ -874,8 +887,9 @@ static void *reader_worker(void *opaque) {
     atomic_store_explicit(&r->worker_done, 1, memory_order_release);
     if (!atomic_load_explicit(&r->stop_requested, memory_order_acquire) &&
         reached_eof && !stream_error && !r->looping) {
-        if (r->peer_pin) guest_call(r->peer_pin, 14, 0, NULL);  /* IPin::EndOfStream */
-        reader_notify_complete(r);
+        uint32_t eos_hr = reader_notify_end_of_stream(r);
+        if (eos_hr == S_OK) reader_notify_complete(r);
+        else fprintf(stderr, "[dshow-reader] EndOfStream skipped/failed -> 0x%08X\n", eos_hr);
     }
     reader_release_host(r);                         /* worker reference: no reader access after this */
     return NULL;
@@ -1382,8 +1396,7 @@ static void pin_QueryInternalConnections(void) {
 }
 static void pin_EndOfStream(void) {
     reader_t *r = reader_from_this("IPin::EndOfStream");
-    if (r->peer_pin) guest_call(r->peer_pin, 14, 0, NULL);
-    RET(S_OK, 1);
+    RET(reader_notify_end_of_stream(r), 1);
 }
 static void pin_BeginFlush(void) {
     reader_t *r = reader_from_this("IPin::BeginFlush");
