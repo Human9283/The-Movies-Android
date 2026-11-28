@@ -149,6 +149,17 @@ the same: both queries resolve to the graph's existing
 reference count. This is an intentional game-ABI compatibility alias, **not**
 a claim that the two DirectShow interfaces are interchangeable in general.
 
+The reference implementation also delegates graph `get_CurrentPosition` and
+`get_Duration` to the source filter's `IMediaSeeking`. The game polls
+current position against duration to decide when an intro has finished. A
+graph-side position cache that remains at zero would therefore keep reporting
+an unfinished video even if decoding and sample delivery reached EOF. The
+Android reader now publishes its file-timeline position atomically after each
+accepted frame, sets it to the known duration at EOF, and resets it when a
+new playback/loop starts. Graph `get_CurrentPosition` reads that value from
+the active ASF reader. This provides progress reporting only; seeking and
+rate changes remain unsupported.
+
 The cross-check also records two behaviours already represented in this
 Android graph: the texture renderer can deliver `EC_COMPLETE` through the
 `IFilterGraph` pointer's slot corresponding to `AddFilter`, and the game
